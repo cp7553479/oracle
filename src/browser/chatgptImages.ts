@@ -81,18 +81,11 @@ function imageMarkdown(images: SavedBrowserImage[]): string {
       return `![${alt}](${image.path})`;
     })
     .join("\n");
-  const savedPaths =
+  const saved =
     images.length === 1
-      ? `Generated image file: ${images[0]?.path}`
-      : [
-          `Generated image files (${images.length}):`,
-          ...images.map((image, index) => `${index + 1}. ${image.path}`),
-        ].join("\n");
-  const summary =
-    images.length > 1
-      ? `Generated ${images.length} image(s).`
-      : `Generated 1 image(s). Saved to: ${images[0]?.path}`;
-  return `\n\n${links}\n\n*${summary}*\n${savedPaths}`;
+      ? `Saved to: ${images[0]?.path}`
+      : ["Saved to:", ...images.map((image, index) => `${index + 1}. ${image.path}`)].join("\n");
+  return `\n\n${links}\n\n${saved}`;
 }
 
 export async function readAssistantGeneratedImages(

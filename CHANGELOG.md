@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.9.2 — 2026-04-30
+
+### Changed
+
+- Browser: loosen ChatGPT assistant completion detection so a fresh assistant turn can finish when the stop button disappears, completion actions appear, or the text stabilizes; generated image artifacts are still auto-saved and printed even without `--generate-image`.
+- Browser: simplify generated-image CLI output so each saved image path is printed once.
 
 ## 0.9.0 — 2026-03-08
 
