@@ -4,6 +4,7 @@ import {
   waitForAssistantResponse,
   uploadAttachmentFile,
   waitForAttachmentCompletion,
+  captureAssistantMarkdown,
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensurePromptReady,
@@ -329,6 +330,82 @@ describe("waitForAssistantResponse", () => {
     const result = await waitForAssistantResponse(runtime, 200, logger);
     expect(result.text).toBe("Recovered");
     expect(evaluate).toHaveBeenCalled();
+  });
+
+  test("treats an image-only assistant turn as a completed response", async () => {
+    const evaluate = vi
+      .fn()
+      .mockImplementation(async (params: { expression?: string; awaitPromise?: boolean }) => {
+        if (params?.awaitPromise) {
+          throw new Error("observer failed");
+        }
+        if (
+          typeof params?.expression === "string" &&
+          params.expression.includes("extractAssistantTurn")
+        ) {
+          return {
+            result: {
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        return { result: { value: false } };
+      });
+    const runtime = { evaluate } as unknown as ChromeClient["Runtime"];
+
+    const result = await waitForAssistantResponse(runtime, 200, logger, 1);
+
+    expect(result.text).toBe("");
+    expect(result.meta).toEqual({ messageId: "mid", turnId: "tid" });
+  });
+
+  test("does not invent text for generated image controls", async () => {
+    const evaluate = vi
+      .fn()
+      .mockImplementation(async (params: { expression?: string; awaitPromise?: boolean }) => {
+        if (params?.awaitPromise) {
+          return {
+            result: {
+              type: "object",
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        if (
+          typeof params?.expression === "string" &&
+          params.expression.includes("extractAssistantTurn")
+        ) {
+          return {
+            result: {
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        return { result: { value: false } };
+      });
+    const runtime = { evaluate } as unknown as ChromeClient["Runtime"];
+
+    const result = await waitForAssistantResponse(runtime, 200, logger, 1);
+
+    expect(result.text).toBe("");
   });
 });
 

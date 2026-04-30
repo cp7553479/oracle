@@ -39,6 +39,10 @@ Recommended defaults:
 - Browser run (main path; long-running is normal):
   - `npx -y @steipete/oracle --engine browser --model gpt-5.4-pro -p "<task>" --file "src/**"`
 
+- ChatGPT image mode:
+  - `npx -y @steipete/oracle --engine browser --model gpt-5.4-pro --generate-image output.png -p "<image task>"`
+  - `--generate-image` may be used without a path; Oracle saves to `generated.png`.
+
 - Manual paste fallback (assemble bundle, copy to clipboard):
   - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`
   - Note: `--copy` is a hidden alias for `--copy-markdown`.

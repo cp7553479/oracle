@@ -11,6 +11,7 @@ import {
   ensureLoggedIn,
   ensurePromptReady,
 } from "./pageActions.js";
+import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import type { BrowserLogger, ChromeClient } from "./types.js";
 import { launchChrome, connectToChrome, hideChromeWindow } from "./chromeLifecycle.js";
 import { resolveBrowserConfig } from "./config.js";
@@ -42,6 +43,8 @@ export interface ReattachDeps {
     config: BrowserSessionConfig | undefined,
   ) => Promise<ReattachResult>;
   promptPreview?: string;
+  generateImagePath?: string;
+  outputPath?: string;
 }
 
 export interface ReattachResult {
@@ -81,9 +84,12 @@ export async function resumeBrowserSession(
       port: runtime.chromePort,
       target: target?.targetId,
     })) as unknown as ChromeClient;
-    const { Runtime, DOM } = client;
+    const { Runtime, DOM, Network } = client;
     if (Runtime?.enable) {
       await Runtime.enable();
+    }
+    if (Network?.enable) {
+      await Network.enable({});
     }
     if (DOM && typeof DOM.enable === "function") {
       await DOM.enable();
@@ -149,6 +155,16 @@ export async function resumeBrowserSession(
         "Reattach markdown capture timed out",
       )) ?? recovered.text;
     const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
+    const imageArtifacts = await collectGeneratedImageArtifacts({
+      Runtime,
+      Network,
+      logger,
+      minTurnIndex,
+      generateImagePath: deps.generateImagePath,
+      outputPath: deps.outputPath,
+      answerText: aligned.answerText,
+    });
+    const answerMarkdown = `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`;
 
     if (client && typeof client.close === "function") {
       try {
@@ -158,7 +174,7 @@ export async function resumeBrowserSession(
       }
     }
 
-    return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
+    return { answerText: aligned.answerText, answerMarkdown };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger(
@@ -189,6 +205,9 @@ async function resumeBrowserSessionViaNewChrome(
 
   if (Runtime?.enable) {
     await Runtime.enable();
+  }
+  if (Network?.enable) {
+    await Network.enable({});
   }
   if (DOM && typeof DOM.enable === "function") {
     await DOM.enable();
@@ -260,6 +279,16 @@ async function resumeBrowserSessionViaNewChrome(
   );
   const markdown = (await captureMarkdown(Runtime, recovered.meta, logger)) ?? recovered.text;
   const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
+  const imageArtifacts = await collectGeneratedImageArtifacts({
+    Runtime,
+    Network,
+    logger,
+    minTurnIndex,
+    generateImagePath: deps.generateImagePath,
+    outputPath: deps.outputPath,
+    answerText: aligned.answerText,
+  });
+  const answerMarkdown = `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`;
 
   if (client && typeof client.close === "function") {
     try {
@@ -283,7 +312,7 @@ async function resumeBrowserSessionViaNewChrome(
     }
   }
 
-  return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
+  return { answerText: aligned.answerText, answerMarkdown };
 }
 
 // biome-ignore lint/style/useNamingConvention: test-only export used in vitest suite

@@ -16,6 +16,11 @@ import {
 import { buildClickDispatcher } from "./domEvents.js";
 
 const ASSISTANT_POLL_TIMEOUT_ERROR = "assistant-response-watchdog-timeout";
+const GENERATED_IMAGE_URL_FRAGMENT = "/backend-api/estuary/content?id=file_";
+
+function hasAssistantContent(text: string, html?: string): boolean {
+  return Boolean(text.trim() || html?.includes(GENERATED_IMAGE_URL_FRAGMENT));
+}
 
 function isAnswerNowPlaceholderText(normalized: string): boolean {
   const text = normalized.trim();
@@ -297,9 +302,13 @@ async function parseAssistantEvaluationResult(
       typeof (result.value as { messageId?: unknown }).messageId === "string"
         ? ((result.value as { messageId?: string }).messageId ?? undefined)
         : undefined;
-    const text = cleanAssistantText(String((result.value as { text: unknown }).text ?? ""));
+    const rawText = cleanAssistantText(String((result.value as { text: unknown }).text ?? ""));
+    const text = rawText;
+    if (!hasAssistantContent(text, html)) {
+      return null;
+    }
     const normalized = text.toLowerCase();
-    if (isAnswerNowPlaceholderText(normalized)) {
+    if (normalized && isAnswerNowPlaceholderText(normalized)) {
       return null;
     }
     return { text, html, meta: { turnId, messageId } };
@@ -418,6 +427,14 @@ async function pollAssistantCompletion(
         isStopButtonVisible(Runtime),
         isCompletionVisible(Runtime),
       ]);
+      if (
+        snapshot &&
+        hasAssistantContent(normalized.text, snapshot.html) &&
+        !stopVisible &&
+        completionVisible
+      ) {
+        return normalized;
+      }
       const shortAnswer = currentLength > 0 && currentLength < 16;
       const mediumAnswer = currentLength >= 16 && currentLength < 40;
       const longAnswer = currentLength >= 40 && currentLength < 500;
@@ -508,8 +525,9 @@ function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
   html?: string;
   meta: { turnId?: string | null; messageId?: string | null };
 } | null {
-  const text = snapshot?.text ? cleanAssistantText(snapshot.text) : "";
-  if (!text.trim()) {
+  const rawText = snapshot?.text ? cleanAssistantText(snapshot.text) : "";
+  const text = rawText;
+  if (!hasAssistantContent(text, snapshot?.html ?? undefined)) {
     return null;
   }
   const normalized = text.toLowerCase();
@@ -597,7 +615,6 @@ function buildResponseObserverExpression(timeoutMs: number, minTurnIndex?: numbe
       }
       return normalized.includes('answer now') && (normalized.includes('pro thinking') || normalized.includes('chatgpt said'));
     };
-
     // Helper to detect assistant turns - must match buildAssistantExtractor logic for consistency.
     const isAssistantTurn = (node) => {
       if (!(node instanceof HTMLElement)) return false;
@@ -762,8 +779,9 @@ function buildResponseObserverExpression(timeoutMs: number, minTurnIndex?: numbe
         }
         const stopVisible = Boolean(document.querySelector(STOP_SELECTOR));
         const finishedVisible = isLastAssistantTurnFinished();
+        const hasContent = Boolean(latest && (String(latest.text || '').trim() || String(latest.html || '').includes(${JSON.stringify(GENERATED_IMAGE_URL_FRAGMENT)})));
 
-        if (finishedVisible || (!stopVisible && stableCycles >= stableTarget)) {
+        if ((hasContent && !stopVisible && finishedVisible) || finishedVisible || (!stopVisible && stableCycles >= stableTarget)) {
           break;
         }
       }
@@ -852,8 +870,14 @@ function buildAssistantExtractor(functionName: string): string {
       const html = contentRoot?.innerHTML ?? '';
       const messageId = messageRoot.getAttribute('data-message-id');
       const turnId = messageRoot.getAttribute('data-testid');
-      if (text.trim()) {
-        return { text, html, messageId, turnId, turnIndex: index };
+      if (String(text || '').trim() || String(html || '').includes(${JSON.stringify(GENERATED_IMAGE_URL_FRAGMENT)})) {
+        return {
+          text: text.trim() ? text : '',
+          html,
+          messageId,
+          turnId,
+          turnIndex: index,
+        };
       }
     }
     return null;

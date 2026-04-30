@@ -33,7 +33,11 @@ describe("runBrowserSessionExecution", () => {
     });
     const result = await runBrowserSessionExecution(
       {
-        runOptions: baseRunOptions,
+        runOptions: {
+          ...baseRunOptions,
+          generateImage: "/tmp/generated.png",
+          outputPath: "/tmp/output.png",
+        },
         browserConfig: baseConfig,
         cwd: "/repo",
         log,
@@ -63,6 +67,12 @@ describe("runBrowserSessionExecution", () => {
     expect(result.runtime).toMatchObject({ chromePid: undefined });
     expect(persistRuntimeHint).toHaveBeenCalledWith(
       expect.objectContaining({ chromePort: 9999, chromeHost: "127.0.0.1", chromeTargetId: "t-1" }),
+    );
+    expect(executeBrowser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generateImagePath: "/tmp/generated.png",
+        outputPath: "/tmp/output.png",
+      }),
     );
     expect(log).toHaveBeenCalled();
   });
@@ -109,6 +119,45 @@ describe("runBrowserSessionExecution", () => {
       false,
     );
     expect(noisyLogger).toHaveBeenCalled(); // ensure executeBrowser ran
+  });
+
+  test("prints generated image file paths from browser output", async () => {
+    const log = vi.fn();
+    await runBrowserSessionExecution(
+      {
+        runOptions: { ...baseRunOptions, verbose: false, generateImage: "/tmp/generated.png" },
+        browserConfig: baseConfig,
+        cwd: "/repo",
+        log,
+      },
+      {
+        assemblePrompt: async () => ({
+          markdown: "prompt",
+          composerText: "prompt",
+          estimatedInputTokens: 5,
+          attachments: [],
+          inlineFileCount: 0,
+          tokenEstimateIncludesInlineFiles: false,
+          attachmentsPolicy: "auto",
+          attachmentMode: "inline",
+          fallback: null,
+        }),
+        executeBrowser: async () => ({
+          answerText: "",
+          answerMarkdown:
+            "![Generated image](/tmp/generated.png)\n\n*Generated 1 image(s). Saved to: /tmp/generated.png*\nGenerated image file: /tmp/generated.png",
+          tookMs: 1,
+          answerTokens: 8,
+          answerChars: 0,
+        }),
+      },
+    );
+
+    expect(
+      log.mock.calls.some((call) =>
+        String(call[0]).includes("Generated image file: /tmp/generated.png"),
+      ),
+    ).toBe(true);
   });
 
   test("prints fallback retry logs even when not verbose", async () => {

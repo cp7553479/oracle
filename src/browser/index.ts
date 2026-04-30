@@ -59,6 +59,7 @@ import {
 } from "./profileState.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
 import { chatgptDomProvider } from "./providers/index.js";
+import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 
 export type { BrowserAutomationConfig, BrowserRunOptions, BrowserRunResult } from "./types.js";
 export { CHATGPT_URL, DEFAULT_MODEL_STRATEGY, DEFAULT_MODEL_TARGET } from "./constants.js";
@@ -919,6 +920,18 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     }
     stopThinkingMonitor?.();
     runStatus = "complete";
+    const imageArtifacts = await collectGeneratedImageArtifacts({
+      Runtime,
+      Network,
+      logger,
+      minTurnIndex: baselineTurns,
+      generateImagePath: options.generateImagePath,
+      outputPath: options.outputPath,
+      answerText,
+    });
+    if (imageArtifacts.markdownSuffix) {
+      answerMarkdown += imageArtifacts.markdownSuffix;
+    }
     const durationMs = Date.now() - startedAt;
     const answerChars = answerText.length;
     const answerTokens = estimateTokenCount(answerMarkdown);
@@ -1703,6 +1716,19 @@ async function runRemoteBrowserMode(
       }
     }
     stopThinkingMonitor?.();
+
+    const imageArtifacts = await collectGeneratedImageArtifacts({
+      Runtime,
+      Network,
+      logger,
+      minTurnIndex: baselineTurns,
+      generateImagePath: options.generateImagePath,
+      outputPath: options.outputPath,
+      answerText,
+    });
+    if (imageArtifacts.markdownSuffix) {
+      answerMarkdown += imageArtifacts.markdownSuffix;
+    }
 
     const durationMs = Date.now() - startedAt;
     const answerChars = answerText.length;

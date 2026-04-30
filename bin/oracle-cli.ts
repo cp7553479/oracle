@@ -152,7 +152,7 @@ interface CliOptions extends OptionValues {
   remoteHost?: string;
   remoteToken?: string;
   youtube?: string;
-  generateImage?: string;
+  generateImage?: string | boolean;
   editImage?: string;
   output?: string;
   aspect?: string;
@@ -639,12 +639,7 @@ program
       "YouTube video URL to analyze (Gemini web/cookie mode only; uses your signed-in Chrome cookies for gemini.google.com).",
     ),
   )
-  .addOption(
-    new Option(
-      "--generate-image <file>",
-      "Generate image and save to file (Gemini web/cookie mode only; requires gemini.google.com Chrome cookies).",
-    ),
-  )
+  .addOption(new Option("--generate-image [file]", "Generate image and save to file."))
   .addOption(
     new Option(
       "--edit-image <file>",
@@ -966,7 +961,20 @@ function buildRunOptions(
     background: overrides.background ?? undefined,
     renderPlain: overrides.renderPlain ?? options.renderPlain ?? false,
     writeOutputPath: overrides.writeOutputPath ?? options.writeOutputPath,
+    generateImage: overrides.generateImage ?? normalizeGenerateImageOption(options.generateImage),
+    outputPath: overrides.outputPath ?? options.output,
   };
+}
+
+function normalizeGenerateImageOption(value: string | boolean | undefined): string | undefined {
+  if (value === true) {
+    return "generated.png";
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 export function enforceBrowserSearchFlag(
@@ -1191,6 +1199,8 @@ function buildRunOptionsFromMetadata(metadata: SessionMetadata): RunOracleOption
     background: stored.background,
     renderPlain: stored.renderPlain,
     writeOutputPath: stored.writeOutputPath,
+    generateImage: stored.generateImage,
+    outputPath: stored.outputPath,
   };
 }
 
@@ -1655,7 +1665,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     browserDeps = {
       executeBrowser: createGeminiWebExecutor({
         youtube: options.youtube,
-        generateImage: options.generateImage,
+        generateImage: normalizeGenerateImageOption(options.generateImage),
         editImage: options.editImage,
         outputPath: options.output,
         aspectRatio: options.aspect,
@@ -1712,7 +1722,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
       followupModel: resolvedOptions.followupModel,
       waitPreference,
       youtube: options.youtube,
-      generateImage: options.generateImage,
+      generateImage: normalizeGenerateImageOption(options.generateImage),
       editImage: options.editImage,
       outputPath: options.output,
       aspectRatio: options.aspect,
