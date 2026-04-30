@@ -26,30 +26,34 @@ Recommended defaults:
 
 ## Commands (preferred)
 
+Use the linked local CLI in this workspace. If `oracle` does not resolve to this project, run
+`pnpm link --global` from `/Users/vincent/oracle` after `pnpm run build`; avoid `npx -y @steipete/oracle`
+for local validation because `npx` may fetch the published package instead of this checkout.
+
 - Show help (once/session):
-  - `npx -y @steipete/oracle --help`
+  - `oracle --help`
 
 - Preview (no tokens):
-  - `npx -y @steipete/oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
-  - `npx -y @steipete/oracle --dry-run full -p "<task>" --file "src/**"`
+  - `oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
+  - `oracle --dry-run full -p "<task>" --file "src/**"`
 
 - Token/cost sanity:
-  - `npx -y @steipete/oracle --dry-run summary --files-report -p "<task>" --file "src/**"`
+  - `oracle --dry-run summary --files-report -p "<task>" --file "src/**"`
 
 - Browser run (main path; long-running is normal):
-  - `npx -y @steipete/oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
+  - `oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
 
 - ChatGPT image mode:
-  - `npx -y @steipete/oracle --engine browser --model gpt-5.5-pro --generate-image output.png -p "<image task>"`
+  - `oracle --engine browser --model gpt-5.5-pro --generate-image output.png -p "<image task>"`
   - `--generate-image` may be used without a path; Oracle saves to `generated.png`.
 
 - Gemini browser/cookie mode:
-  - `npx -y @steipete/oracle --engine browser --model gemini-3-pro -p "<task>" --file "src/**"`
-  - `npx -y @steipete/oracle --engine browser --model gemini-3-pro --generate-image output.png --aspect 1:1 -p "<image task>"`
+  - `oracle --engine browser --model gemini-3-pro -p "<task>" --file "src/**"`
+  - `oracle --engine browser --model gemini-3-pro --generate-image output.png --aspect 1:1 -p "<image task>"`
   - Requires Chrome signed into `gemini.google.com`; `gemini-3.1-pro` is API-only.
 
 - Manual paste fallback (assemble bundle, copy to clipboard):
-  - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`
+  - `oracle --render --copy -p "<task>" --file "src/**"`
   - Note: `--copy` is a hidden alias for `--copy-markdown`.
 
 ## Attaching files (`--file`)
@@ -75,7 +79,7 @@ Recommended defaults:
 
 - Target: keep total input under ~196k tokens.
 - Use `--files-report` (and/or `--dry-run json`) to spot the token hogs before spending.
-- If you need hidden/advanced knobs: `npx -y @steipete/oracle --help --verbose`.
+- If you need hidden/advanced knobs: `oracle --help --verbose`.
 
 ## Engines (API vs browser)
 
