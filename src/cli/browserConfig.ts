@@ -24,19 +24,18 @@ const DEFAULT_CHROME_PROFILE = "Default";
 // Ordered array: most specific models first to ensure correct selection.
 // The browser label is passed to the model picker which fuzzy-matches against ChatGPT's UI.
 const BROWSER_MODEL_LABELS: [ModelName, string][] = [
-  // Most specific first (e.g., "gpt-5.2-thinking" before "gpt-5.2")
-  ["gpt-5.5-pro", "GPT-5.5 Pro"],
-  ["gpt-5.4-pro", "GPT-5.4 Pro"],
-  ["gpt-5.3-instant", "Instant 5.3"],
-  ["gpt-5.2-thinking", "GPT-5.2 Thinking"],
-  ["gpt-5.2-instant", "GPT-5.2 Instant"],
-  ["gpt-5.2-pro", "GPT-5.5 Pro"],
-  ["gpt-5.1-pro", "GPT-5.5 Pro"],
-  ["gpt-5-pro", "GPT-5.5 Pro"],
-  // Base models last (least specific)
-  ["gpt-5.4", "Thinking 5.4"],
-  ["gpt-5.2", "GPT-5.2"], // Selects "Auto" in ChatGPT UI
-  ["gpt-5.1", "GPT-5.2"], // Legacy alias → Auto
+  // ChatGPT's current browser picker exposes mode labels instead of versioned GPT-5.x rows.
+  ["gpt-5.5-pro", "Pro"],
+  ["gpt-5.4-pro", "Pro"],
+  ["gpt-5.2-pro", "Pro"],
+  ["gpt-5.1-pro", "Pro"],
+  ["gpt-5-pro", "Pro"],
+  ["gpt-5.3-instant", "Instant"],
+  ["gpt-5.2-instant", "Instant"],
+  ["gpt-5.2-thinking", "Thinking"],
+  ["gpt-5.4", "Thinking"],
+  ["gpt-5.2", "Thinking"],
+  ["gpt-5.1", "Thinking"],
   ["gemini-3-pro", "Gemini 3 Pro"],
   ["gemini-3-pro-deep-think", "gemini-3-deep-think"],
 ];
