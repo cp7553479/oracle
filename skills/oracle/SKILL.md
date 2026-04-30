@@ -39,22 +39,13 @@ Recommended defaults:
 - Browser run (main path; long-running is normal):
   - `npx -y @steipete/oracle --engine browser --model gpt-5.4-pro -p "<task>" --file "src/**"`
 
+- ChatGPT image mode:
+  - `npx -y @steipete/oracle --engine browser --model gpt-5.4-pro --generate-image output.png -p "<image task>"`
+  - `--generate-image` may be used without a path; Oracle saves to `generated.png`.
+
 - Manual paste fallback (assemble bundle, copy to clipboard):
   - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`
   - Note: `--copy` is a hidden alias for `--copy-markdown`.
-
-## Image output (`--generate-image`, `--edit-image`)
-
-- The flag is `--generate-image <file>` (not `--image-generate`).
-- Gemini browser mode:
-  - Generate: `npx -y @steipete/oracle --engine browser --model gemini-3-pro -p "<image prompt>" --generate-image out.png --aspect 1:1`
-  - Edit: `npx -y @steipete/oracle --engine browser --model gemini-3-pro -p "<edit instructions>" --edit-image source.png --output edited.png`
-- ChatGPT browser mode:
-  - Save generated/downloadable image output locally with `--generate-image out.png`.
-  - For edits or reference-image workflows, attach source images with `--file ...` and keep `--generate-image` as the output path.
-  - If ChatGPT returns multiple downloadable images, the first saves to the requested path and extras save as numbered siblings like `out.2.png`, `out.3.png`.
-- Practical ChatGPT example:
-  - `npx -y @steipete/oracle --engine browser --browser-manual-login --browser-attachments always --file source-front.png --file source-side.jpg --generate-image out.png -p "Turn these into a 1:1 clean white-background ecommerce hero image"`
 
 ## Attaching files (`--file`)
 
@@ -88,9 +79,6 @@ Recommended defaults:
 - **API runs require explicit user consent** before starting because they incur usage costs.
 - Browser attachments:
   - `--browser-attachments auto|never|always` (auto pastes inline up to ~60k chars then uploads).
-- Image-output notes:
-  - Gemini: native browser-mode image generation/editing via `--generate-image`, `--edit-image`, `--output`, `--aspect`.
-  - ChatGPT: `--generate-image` works when the assistant returns downloadable image artifacts.
 - Remote browser host (signed-in machine runs automation):
   - Host: `oracle serve --host 0.0.0.0 --port 9473 --token <secret>`
   - Client: `oracle --engine browser --remote-host <host:port> --remote-token <secret> -p "<task>" --file "src/**"`

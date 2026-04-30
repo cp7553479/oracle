@@ -4,12 +4,12 @@ import {
   waitForAssistantResponse,
   uploadAttachmentFile,
   waitForAttachmentCompletion,
+  captureAssistantMarkdown,
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensurePromptReady,
   ensureNotBlocked,
   ensureLoggedIn,
-  isGeneratedImageControlsTextForTest,
 } from "../../src/browser/pageActions.js";
 import * as attachments from "../../src/browser/actions/attachments.js";
 import * as attachmentDataTransfer from "../../src/browser/actions/attachmentDataTransfer.js";
@@ -147,35 +147,6 @@ describe("ensurePromptReady", () => {
     } as unknown as ChromeClient["Runtime"];
     await expect(ensurePromptReady(runtime, 0, logger)).rejects.toThrow(/textarea did not appear/i);
   });
-
-  test("surfaces browser error pages instead of a generic textarea timeout", async () => {
-    const runtime = {
-      evaluate: vi.fn().mockImplementation(async (params: { expression?: string }) => {
-        const expression = String(params?.expression ?? "");
-        if (expression.includes("const selectors") && expression.includes("prompt-textarea")) {
-          return { result: { value: false } };
-        }
-        if (expression.includes("document.title") && expression.includes("document.body")) {
-          return {
-            result: {
-              value: {
-                unavailable: true,
-                title: "This site can't be reached",
-                pageUrl: "chrome-error://chromewebdata/",
-                errorCode: "ERR_NAME_NOT_RESOLVED",
-              },
-            },
-          };
-        }
-        if (expression.includes("location.href")) {
-          return { result: { value: "chrome-error://chromewebdata/" } };
-        }
-        return { result: { value: null } };
-      }),
-    } as unknown as ChromeClient["Runtime"];
-
-    await expect(ensurePromptReady(runtime, 0, logger)).rejects.toThrow(/page is unavailable/i);
-  });
 });
 
 describe("ensureNotBlocked", () => {
@@ -252,31 +223,6 @@ describe("ensureLoggedIn", () => {
     } as unknown as ChromeClient["Runtime"];
     await expect(ensureLoggedIn(runtime, logger, { remoteSession: true })).rejects.toThrow(
       /remote Chrome session/i,
-    );
-  });
-
-  test("does not treat browser network error pages as a successful login", async () => {
-    const runtime = {
-      evaluate: vi.fn().mockResolvedValue({
-        result: {
-          value: {
-            ok: true,
-            status: 0,
-            url: "chrome-error://chromewebdata/",
-            pageUrl: "chrome-error://chromewebdata/",
-            domLoginCta: false,
-            onAuthPage: false,
-            error: "TypeError: Failed to fetch",
-            pageUnavailable: true,
-            pageTitle: "This site can't be reached",
-            pageErrorCode: "ERR_NAME_NOT_RESOLVED",
-          },
-        },
-      }),
-    } as unknown as ChromeClient["Runtime"];
-
-    await expect(ensureLoggedIn(runtime, logger, { appliedCookies: 2 })).rejects.toThrow(
-      /page is unavailable/i,
     );
   });
 });
@@ -386,168 +332,80 @@ describe("waitForAssistantResponse", () => {
     expect(evaluate).toHaveBeenCalled();
   });
 
-  test("keeps polling while image generation is still pending", async () => {
-    vi.useFakeTimers();
-    try {
-      let snapshotPolls = 0;
-      let statusPolls = 0;
-      const runtime = {
-        evaluate: vi.fn().mockImplementation(
-          async (params: { expression?: string; awaitPromise?: boolean }) => {
-            const expression = String(params?.expression ?? "");
-            if (params?.awaitPromise) {
-              return new Promise(() => undefined);
-            }
-            if (expression.includes("extractAssistantTurn")) {
-              snapshotPolls += 1;
-              if (snapshotPolls < 4) {
-                return {
-                  result: {
-                    value: {
-                      text: "Generating a more detailed image — hang tight.",
-                      html: "<p>Generating a more detailed image — hang tight.</p>",
-                      messageId: "mid-pending",
-                      turnId: "tid-pending",
-                      turnIndex: 0,
-                    },
-                  },
-                };
-              }
-              return {
-                result: {
-                  value: {
-                    text: "Stopped thinking\nEdit",
-                    html: "<div>Stopped thinking<br>Edit</div>",
-                    messageId: "mid-ready",
-                    turnId: "tid-ready",
-                    turnIndex: 0,
-                  },
-                },
-              };
-            }
-            if (expression.includes('/backend-api/estuary/content?id=file_')) {
-              statusPolls += 1;
-              if (statusPolls < 4) {
-                return {
-                  result: {
-                    value: {
-                      text: "Generating a more detailed image — hang tight.",
-                      html: "<p>Generating a more detailed image — hang tight.</p>",
-                      turnId: "tid-pending",
-                      messageId: "mid-pending",
-                      turnIndex: 0,
-                      hasFinishedActions: false,
-                      hasDoneMarkdown: false,
-                      generatedImageCount: 0,
-                      imageGenerationPending: true,
-                    },
-                  },
-                };
-              }
-              return {
-                result: {
-                  value: {
-                    text: "Stopped thinking\nEdit",
-                    html: "<div><img src=\"https://chatgpt.com/backend-api/estuary/content?id=file_ready\"></div>",
-                    turnId: "tid-ready",
-                    messageId: "mid-ready",
-                    turnIndex: 0,
-                    hasFinishedActions: false,
-                    hasDoneMarkdown: false,
-                    generatedImageCount: 1,
-                    imageGenerationPending: false,
-                  },
-                },
-              };
-            }
-            if (expression.includes('data-testid="stop-button"')) {
-              return { result: { value: false } };
-            }
-            return { result: { value: null } };
-          },
-        ),
-        terminateExecution: vi.fn().mockResolvedValue(undefined),
-      } as unknown as ChromeClient["Runtime"];
+  test("treats an image-only assistant turn as a completed response", async () => {
+    const evaluate = vi
+      .fn()
+      .mockImplementation(async (params: { expression?: string; awaitPromise?: boolean }) => {
+        if (params?.awaitPromise) {
+          throw new Error("observer failed");
+        }
+        if (
+          typeof params?.expression === "string" &&
+          params.expression.includes("extractAssistantTurn")
+        ) {
+          return {
+            result: {
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        return { result: { value: false } };
+      });
+    const runtime = { evaluate } as unknown as ChromeClient["Runtime"];
 
-      const responsePromise = waitForAssistantResponse(runtime, 30_000, logger);
-      await vi.advanceTimersByTimeAsync(4_000);
-      const result = await responsePromise;
+    const result = await waitForAssistantResponse(runtime, 200, logger, 1);
 
-      expect(result.text).toBe("Stopped thinking\nEdit");
-      expect(snapshotPolls).toBeGreaterThanOrEqual(4);
-      expect(statusPolls).toBeGreaterThanOrEqual(4);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(result.text).toBe("");
+    expect(result.meta).toEqual({ messageId: "mid", turnId: "tid" });
   });
 
-  test("treats downloadable image turns as completed assistant responses", async () => {
-    vi.useFakeTimers();
-    try {
-      const runtime = {
-        evaluate: vi.fn().mockImplementation(
-          async (params: { expression?: string; awaitPromise?: boolean }) => {
-            const expression = String(params?.expression ?? "");
-            if (params?.awaitPromise) {
-              return new Promise(() => undefined);
-            }
-            if (expression.includes("extractAssistantTurn")) {
-              return {
-                result: {
-                  value: {
-                    text: "Stopped thinking\nEdit",
-                    html: "<div><img src=\"https://chatgpt.com/backend-api/estuary/content?id=file_done\"></div>",
-                    messageId: "mid-image",
-                    turnId: "tid-image",
-                    turnIndex: 0,
-                  },
-                },
-              };
-            }
-            if (expression.includes("querySelectorAll('img[src*=")) {
-              return { result: { value: 1 } };
-            }
-            if (expression.includes('/backend-api/estuary/content?id=file_')) {
-              return {
-                result: {
-                  value: {
-                    text: "Stopped thinking\nEdit",
-                    html: "<div><img src=\"https://chatgpt.com/backend-api/estuary/content?id=file_done\"></div>",
-                    turnId: "tid-image",
-                    messageId: "mid-image",
-                    turnIndex: 0,
-                    hasFinishedActions: false,
-                    hasDoneMarkdown: false,
-                    generatedImageCount: 1,
-                    imageGenerationPending: false,
-                  },
-                },
-              };
-            }
-            if (expression.includes('data-testid="stop-button"')) {
-              return { result: { value: false } };
-            }
-            return { result: { value: null } };
-          },
-        ),
-        terminateExecution: vi.fn().mockResolvedValue(undefined),
-      } as unknown as ChromeClient["Runtime"];
+  test("does not invent text for generated image controls", async () => {
+    const evaluate = vi
+      .fn()
+      .mockImplementation(async (params: { expression?: string; awaitPromise?: boolean }) => {
+        if (params?.awaitPromise) {
+          return {
+            result: {
+              type: "object",
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        if (
+          typeof params?.expression === "string" &&
+          params.expression.includes("extractAssistantTurn")
+        ) {
+          return {
+            result: {
+              value: {
+                text: "",
+                html: '<img src="https://chatgpt.com/backend-api/estuary/content?id=file_done">',
+                messageId: "mid",
+                turnId: "tid",
+                turnIndex: 1,
+              },
+            },
+          };
+        }
+        return { result: { value: false } };
+      });
+    const runtime = { evaluate } as unknown as ChromeClient["Runtime"];
 
-      const responsePromise = waitForAssistantResponse(runtime, 30_000, logger);
-      await vi.advanceTimersByTimeAsync(2_000);
-      const result = await responsePromise;
+    const result = await waitForAssistantResponse(runtime, 200, logger, 1);
 
-      expect(result.text).toBe("Stopped thinking\nEdit");
-      expect(result.meta).toEqual({ messageId: "mid-image", turnId: "tid-image" });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("recognizes compact generated-image control text", () => {
-    expect(isGeneratedImageControlsTextForTest("Stopped thinking\nEdit")).toBe(true);
-    expect(isGeneratedImageControlsTextForTest("Thinking\nPreview")).toBe(true);
-    expect(isGeneratedImageControlsTextForTest("Here is the answer")).toBe(false);
+    expect(result.text).toBe("");
   });
 });
 

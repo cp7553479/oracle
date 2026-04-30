@@ -152,7 +152,7 @@ interface CliOptions extends OptionValues {
   remoteHost?: string;
   remoteToken?: string;
   youtube?: string;
-  generateImage?: string;
+  generateImage?: string | boolean;
   editImage?: string;
   output?: string;
   aspect?: string;
@@ -639,22 +639,17 @@ program
       "YouTube video URL to analyze (Gemini web/cookie mode only; uses your signed-in Chrome cookies for gemini.google.com).",
     ),
   )
-  .addOption(
-    new Option(
-      "--generate-image <file>",
-      "Generate image and save to file. Supports Gemini web/cookie mode and ChatGPT browser mode when the assistant returns downloadable image artifacts.",
-    ),
-  )
+  .addOption(new Option("--generate-image [file]", "Generate image and save to file."))
   .addOption(
     new Option(
       "--edit-image <file>",
-      "Edit existing image (use with --output, Gemini web/cookie mode only). For ChatGPT browser mode, attach source images with --file and use --generate-image for the output path.",
+      "Edit existing image (use with --output, Gemini web/cookie mode only).",
     ),
   )
   .addOption(
     new Option(
       "--output <file>",
-      "Output file path for image operations. Gemini uses it for edit flows; ChatGPT browser mode also honors it as an image-save target when downloadable images are returned.",
+      "Output file path for image operations (Gemini web/cookie mode only).",
     ),
   )
   .addOption(
@@ -966,9 +961,20 @@ function buildRunOptions(
     background: overrides.background ?? undefined,
     renderPlain: overrides.renderPlain ?? options.renderPlain ?? false,
     writeOutputPath: overrides.writeOutputPath ?? options.writeOutputPath,
-    generateImage: overrides.generateImage ?? options.generateImage,
+    generateImage: overrides.generateImage ?? normalizeGenerateImageOption(options.generateImage),
     outputPath: overrides.outputPath ?? options.output,
   };
+}
+
+function normalizeGenerateImageOption(value: string | boolean | undefined): string | undefined {
+  if (value === true) {
+    return "generated.png";
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 export function enforceBrowserSearchFlag(
@@ -1659,7 +1665,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     browserDeps = {
       executeBrowser: createGeminiWebExecutor({
         youtube: options.youtube,
-        generateImage: options.generateImage,
+        generateImage: normalizeGenerateImageOption(options.generateImage),
         editImage: options.editImage,
         outputPath: options.output,
         aspectRatio: options.aspect,
@@ -1716,7 +1722,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
       followupModel: resolvedOptions.followupModel,
       waitPreference,
       youtube: options.youtube,
-      generateImage: options.generateImage,
+      generateImage: normalizeGenerateImageOption(options.generateImage),
       editImage: options.editImage,
       outputPath: options.output,
       aspectRatio: options.aspect,

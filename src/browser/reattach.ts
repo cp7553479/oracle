@@ -17,7 +17,7 @@ import { launchChrome, connectToChrome, hideChromeWindow } from "./chromeLifecyc
 import { resolveBrowserConfig } from "./config.js";
 import { syncCookies } from "./cookies.js";
 import { CHATGPT_URL } from "./constants.js";
-import { cleanupStaleProfileState, readChromePid } from "./profileState.js";
+import { cleanupStaleProfileState } from "./profileState.js";
 import {
   pickTarget,
   extractConversationIdFromUrl,
@@ -58,7 +58,6 @@ export async function resumeBrowserSession(
   logger: BrowserLogger,
   deps: ReattachDeps = {},
 ): Promise<ReattachResult> {
-  const resolved = resolveBrowserConfig(config ?? {});
   const recoverSession =
     deps.recoverSession ??
     (async (runtimeMeta, configMeta) =>
@@ -149,10 +148,10 @@ export async function resumeBrowserSession(
       minTurnIndex,
       timeoutMs,
     );
-      const markdown =
-        (await withTimeout(
-          captureMarkdown(Runtime, recovered.meta, logger),
-          15_000,
+    const markdown =
+      (await withTimeout(
+        captureMarkdown(Runtime, recovered.meta, logger),
+        15_000,
         "Reattach markdown capture timed out",
       )) ?? recovered.text;
     const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
@@ -164,88 +163,24 @@ export async function resumeBrowserSession(
       generateImagePath: deps.generateImagePath,
       outputPath: deps.outputPath,
       answerText: aligned.answerText,
-      waitTimeoutMs: config?.timeoutMs,
     });
-      const withImages = {
-        answerText: imageArtifacts.answerText,
-        answerMarkdown: `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`,
-      };
+    const answerMarkdown = `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`;
 
-      await closeExistingReattachChrome(client, runtime, resolved, logger);
-
-      return { answerText: withImages.answerText, answerMarkdown: withImages.answerMarkdown };
-    } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger(
-      `Existing Chrome reattach failed (${message}); reopening browser to locate the session.`,
-    );
-    return recoverSession(runtime, config);
-  }
-}
-
-async function closeExistingReattachChrome(
-  client: ChromeClient,
-  runtime: BrowserRuntimeMetadata,
-  config: ReturnType<typeof resolveBrowserConfig>,
-  logger: BrowserLogger,
-): Promise<void> {
-  if (config.keepBrowser) {
-    if (typeof client.close === "function") {
+    if (client && typeof client.close === "function") {
       try {
         await client.close();
       } catch {
         // ignore
       }
     }
-    return;
-  }
 
-  let browserClosed = false;
-  const browserDomain = (
-    client as ChromeClient & {
-      Browser?: {
-        close?: () => Promise<void>;
-      };
-    }
-  ).Browser;
-  if (browserDomain && typeof browserDomain.close === "function") {
-    try {
-      await browserDomain.close();
-      browserClosed = true;
-    } catch (error) {
-      logger(
-        `Failed to close reattached Chrome via CDP: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  if (!browserClosed) {
-    const pid =
-      runtime.chromePid ??
-      (runtime.userDataDir ? await readChromePid(runtime.userDataDir).catch(() => null) : null);
-    if (pid) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  if (typeof client.close === "function") {
-    try {
-      await client.close();
-    } catch {
-      // ignore
-    }
-  }
-
-  if (config.manualLogin && runtime.userDataDir) {
-    await cleanupStaleProfileState(runtime.userDataDir, logger, { lockRemovalMode: "never" }).catch(
-      () => undefined,
+    return { answerText: aligned.answerText, answerMarkdown };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger(
+      `Existing Chrome reattach failed (${message}); reopening browser to locate the session.`,
     );
-  } else if (runtime.userDataDir) {
-    await rm(runtime.userDataDir, { recursive: true, force: true }).catch(() => undefined);
+    return recoverSession(runtime, config);
   }
 }
 
@@ -352,12 +287,8 @@ async function resumeBrowserSessionViaNewChrome(
     generateImagePath: deps.generateImagePath,
     outputPath: deps.outputPath,
     answerText: aligned.answerText,
-    waitTimeoutMs: config?.timeoutMs,
   });
-  const withImages = {
-    answerText: imageArtifacts.answerText,
-    answerMarkdown: `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`,
-  };
+  const answerMarkdown = `${aligned.answerMarkdown}${imageArtifacts.markdownSuffix}`;
 
   if (client && typeof client.close === "function") {
     try {
@@ -381,7 +312,7 @@ async function resumeBrowserSessionViaNewChrome(
     }
   }
 
-  return { answerText: withImages.answerText, answerMarkdown: withImages.answerMarkdown };
+  return { answerText: aligned.answerText, answerMarkdown };
 }
 
 // biome-ignore lint/style/useNamingConvention: test-only export used in vitest suite
