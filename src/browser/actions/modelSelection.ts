@@ -47,13 +47,15 @@ export async function ensureModelSelection(
         isTemporary && /\bpro\b/i.test(desiredModel)
           ? ' You are in Temporary Chat mode; Pro models are not available there. Remove "temporary-chat=true" from --chatgpt-url or use a non-Pro model (e.g. gpt-5.2).'
           : "";
-      throw new Error(
-        `Unable to find model option matching "${desiredModel}" in the model switcher.${availableHint}${tempHint}`,
+      logger(
+        `Model picker: unable to find "${desiredModel}"; using current model.${availableHint}${tempHint}`,
       );
+      return;
     }
     default: {
       await logDomFailure(Runtime, logger, "model-switcher-button");
-      throw new Error("Unable to locate the ChatGPT model selector button.");
+      logger("Model picker: unable to locate selector button; using current model.");
+      return;
     }
   }
 }
@@ -100,8 +102,12 @@ function buildModelSelectionExpression(
       .map((token) => normalizeText(token))
       .filter(Boolean);
     const targetWords = normalizedTarget.split(' ').filter(Boolean);
-    const desiredVersion = normalizedTarget.includes('5 4')
-      ? '5-4'
+    const desiredVersion = normalizedTarget.includes('5 5')
+      ? '5-5'
+      : normalizedTarget.includes('5 4')
+        ? '5-4'
+        : normalizedTarget.includes('5 3')
+        ? '5-3'
       : normalizedTarget.includes('5 2')
         ? '5-2'
         : normalizedTarget.includes('5 1')
@@ -113,7 +119,24 @@ function buildModelSelectionExpression(
     const wantsInstant = normalizedTarget.includes('instant');
     const wantsThinking = normalizedTarget.includes('thinking');
 
-    const button = document.querySelector(BUTTON_SELECTOR);
+    const variantLabels = ['auto', 'instant', 'thinking', 'pro'];
+    const localizedThinkingLabels = ['思考'];
+    const findModelButton = () => {
+      const legacy = document.querySelector('[data-testid="model-switcher-dropdown-button"]');
+      if (legacy) return legacy;
+      const candidates = Array.from(document.querySelectorAll(BUTTON_SELECTOR));
+      const isLikelyModelButton = (node) => {
+        const text = (node.textContent ?? '').trim();
+        const normalizedText = normalizeText(text);
+        const ariaLabel = normalizeText(node.getAttribute('aria-label') ?? '');
+        if (variantLabels.includes(normalizedText) || variantLabels.includes(ariaLabel)) {
+          return true;
+        }
+        return localizedThinkingLabels.some((label) => text.includes(label));
+      };
+      return candidates.find(isLikelyModelButton) ?? null;
+    };
+    const button = findModelButton();
     if (!button) {
       return { status: 'button-missing' };
     }
@@ -143,10 +166,18 @@ function buildModelSelectionExpression(
       return { status: 'already-selected', label: getButtonLabel() };
     }
     const buttonMatchesTarget = () => {
+      const rawLabel = getButtonLabel();
       const normalizedLabel = normalizeText(getButtonLabel());
-      if (!normalizedLabel) return false;
+      if (!normalizedLabel && !rawLabel) return false;
+      if (wantsPro && normalizedLabel === 'pro') return true;
+      if (wantsInstant && normalizedLabel === 'instant') return true;
+      if (wantsThinking && (normalizedLabel === 'thinking' || localizedThinkingLabels.some((label) => rawLabel.includes(label)))) {
+        return true;
+      }
       if (desiredVersion) {
+        if (desiredVersion === '5-5' && !normalizedLabel.includes('5 5')) return false;
         if (desiredVersion === '5-4' && !normalizedLabel.includes('5 4')) return false;
+        if (desiredVersion === '5-3' && !normalizedLabel.includes('5 3')) return false;
         if (desiredVersion === '5-2' && !normalizedLabel.includes('5 2')) return false;
         if (desiredVersion === '5-1' && !normalizedLabel.includes('5 1')) return false;
         if (desiredVersion === '5-0' && !normalizedLabel.includes('5 0')) return false;
@@ -202,9 +233,24 @@ function buildModelSelectionExpression(
       }
       let score = 0;
       const normalizedTestId = (testid ?? '').toLowerCase();
+      if (wantsPro && normalizedText === 'pro') {
+        score += 650;
+      }
+      if (wantsThinking && normalizedText === 'thinking') {
+        score += 650;
+      }
+      if (wantsInstant && normalizedText === 'instant') {
+        score += 650;
+      }
       if (normalizedTestId) {
         if (desiredVersion) {
           // data-testid strings have been observed with both dotted and dashed versions (e.g. gpt-5.2-pro vs gpt-5-2-pro).
+          const has55 =
+            normalizedTestId.includes('5-5') ||
+            normalizedTestId.includes('5.5') ||
+            normalizedTestId.includes('gpt-5-5') ||
+            normalizedTestId.includes('gpt-5.5') ||
+            normalizedTestId.includes('gpt55');
           const has52 =
             normalizedTestId.includes('5-2') ||
             normalizedTestId.includes('5.2') ||
@@ -217,6 +263,12 @@ function buildModelSelectionExpression(
             normalizedTestId.includes('gpt-5-4') ||
             normalizedTestId.includes('gpt-5.4') ||
             normalizedTestId.includes('gpt54');
+          const has53 =
+            normalizedTestId.includes('5-3') ||
+            normalizedTestId.includes('5.3') ||
+            normalizedTestId.includes('gpt-5-3') ||
+            normalizedTestId.includes('gpt-5.3') ||
+            normalizedTestId.includes('gpt53');
           const has51 =
             normalizedTestId.includes('5-1') ||
             normalizedTestId.includes('5.1') ||
@@ -229,7 +281,7 @@ function buildModelSelectionExpression(
             normalizedTestId.includes('gpt-5-0') ||
             normalizedTestId.includes('gpt-5.0') ||
             normalizedTestId.includes('gpt50');
-          const candidateVersion = has54 ? '5-4' : has52 ? '5-2' : has51 ? '5-1' : has50 ? '5-0' : null;
+          const candidateVersion = has55 ? '5-5' : has54 ? '5-4' : has53 ? '5-3' : has52 ? '5-2' : has51 ? '5-1' : has50 ? '5-0' : null;
           // If a candidate advertises a different version, ignore it entirely.
           if (candidateVersion && candidateVersion !== desiredVersion) {
             return 0;
@@ -441,6 +493,22 @@ function buildModelMatchersLiteral(targetModel: string): {
   push(`chatgpt ${dotless}`, labelTokens);
   push(`gpt ${base}`, labelTokens);
   push(`gpt ${dotless}`, labelTokens);
+  // Numeric variations (5.5 ↔ 55 ↔ gpt-5-5)
+  if (base.includes("5.5") || base.includes("5-5") || base.includes("55")) {
+    push("5.5", labelTokens);
+    push("gpt-5.5", labelTokens);
+    push("gpt5.5", labelTokens);
+    push("gpt-5-5", labelTokens);
+    push("gpt5-5", labelTokens);
+    push("gpt55", labelTokens);
+    push("chatgpt 5.5", labelTokens);
+    if (!base.includes("pro")) {
+      testIdTokens.add("model-switcher-gpt-5-5");
+    }
+    testIdTokens.add("gpt-5-5");
+    testIdTokens.add("gpt5-5");
+    testIdTokens.add("gpt55");
+  }
   // Numeric variations (5.4 ↔ 54 ↔ gpt-5-4)
   if (base.includes("5.4") || base.includes("5-4") || base.includes("54")) {
     push("5.4", labelTokens);
@@ -483,6 +551,25 @@ function buildModelMatchersLiteral(targetModel: string): {
     testIdTokens.add("gpt5-0");
     testIdTokens.add("gpt50");
   }
+  // Numeric variations (5.3 ↔ 53 ↔ gpt-5-3)
+  if (base.includes("5.3") || base.includes("5-3") || base.includes("53")) {
+    push("5.3", labelTokens);
+    push("gpt-5.3", labelTokens);
+    push("gpt5.3", labelTokens);
+    push("gpt-5-3", labelTokens);
+    push("gpt5-3", labelTokens);
+    push("gpt53", labelTokens);
+    push("chatgpt 5.3", labelTokens);
+    if (base.includes("instant")) {
+      push("instant", labelTokens);
+      testIdTokens.add("model-switcher-gpt-5-3-instant");
+      testIdTokens.add("gpt-5-3-instant");
+      testIdTokens.add("gpt-5.3-instant");
+    }
+    testIdTokens.add("gpt-5-3");
+    testIdTokens.add("gpt5-3");
+    testIdTokens.add("gpt53");
+  }
   // Numeric variations (5.2 ↔ 52 ↔ gpt-5-2)
   if (base.includes("5.2") || base.includes("5-2") || base.includes("52")) {
     push("5.2", labelTokens);
@@ -519,6 +606,11 @@ function buildModelMatchersLiteral(targetModel: string): {
     push("proresearch", labelTokens);
     push("research grade", labelTokens);
     push("advanced reasoning", labelTokens);
+    if (base.includes("5.5") || base.includes("5-5") || base.includes("55")) {
+      testIdTokens.add("gpt-5.5-pro");
+      testIdTokens.add("gpt-5-5-pro");
+      testIdTokens.add("gpt55pro");
+    }
     if (base.includes("5.4") || base.includes("5-4") || base.includes("54")) {
       testIdTokens.add("gpt-5.4-pro");
       testIdTokens.add("gpt-5-4-pro");

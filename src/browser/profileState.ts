@@ -64,6 +64,29 @@ export async function readChromePid(userDataDir: string): Promise<number | null>
   }
 }
 
+export async function findChromeDebugPortForProfile(userDataDir: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ps", ["ax", "-o", "args="]);
+    const normalizedDir = path.resolve(userDataDir);
+    for (const line of stdout.split(/\r?\n/u)) {
+      if (!line.includes("--remote-debugging-port=") || !line.includes("--user-data-dir=")) {
+        continue;
+      }
+      if (!line.includes(`--user-data-dir=${normalizedDir}`)) {
+        continue;
+      }
+      const match = line.match(/--remote-debugging-port=(\d+)/u);
+      const port = Number.parseInt(match?.[1] ?? "", 10);
+      if (Number.isFinite(port) && port > 0 && port <= 65_535) {
+        return port;
+      }
+    }
+  } catch {
+    // Best-effort fallback for manual-login profiles.
+  }
+  return null;
+}
+
 export async function writeChromePid(userDataDir: string, pid: number): Promise<void> {
   if (!Number.isFinite(pid) || pid <= 0) return;
   const pidPath = path.join(userDataDir, CHROME_PID_FILENAME);

@@ -39,6 +39,18 @@ function isAnswerNowPlaceholderText(normalized: string): boolean {
   );
 }
 
+function isAssistantInProgressPlaceholderText(normalized: string): boolean {
+  const text = normalized.trim();
+  if (!text) return false;
+  if (!text.includes("pro thinking") && !text.includes("generating")) return false;
+  return (
+    text.includes("generating a more detailed image") ||
+    text.includes("hang tight") ||
+    text.includes("creating image") ||
+    text.includes("generating image")
+  );
+}
+
 export async function waitForAssistantResponse(
   Runtime: ChromeClient["Runtime"],
   timeoutMs: number,
@@ -142,6 +154,10 @@ async function pollAssistantTerminalState(
       }
       lastSnapshot = snapshot;
     }
+    if (state?.stopVisible) {
+      await delay(400);
+      continue;
+    }
     if (state?.hasGeneratedImage && !state.stopVisible) {
       return {
         source: "generated-image",
@@ -162,7 +178,7 @@ async function pollAssistantTerminalState(
     }
     await delay(400);
   }
-  return lastSnapshot ? { source: "assistant-content", snapshot: lastSnapshot } : null;
+  return null;
 }
 
 async function readAssistantCompletionState(
@@ -198,7 +214,11 @@ function normalizeTerminalSnapshot(
   }
   const rawText = snapshot.text ? cleanAssistantText(snapshot.text) : "";
   const normalized = rawText.toLowerCase();
-  if (isAnswerNowPlaceholderText(normalized) || normalized.startsWith("you said")) {
+  if (
+    isAnswerNowPlaceholderText(normalized) ||
+    isAssistantInProgressPlaceholderText(normalized) ||
+    normalized.startsWith("you said")
+  ) {
     return null;
   }
   return {
@@ -593,7 +613,7 @@ function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
   const normalized = text.toLowerCase();
   // "Pro thinking" often renders a placeholder turn containing an "Answer now" gate.
   // Treat it as incomplete so browser mode keeps waiting for the real assistant text.
-  if (isAnswerNowPlaceholderText(normalized)) {
+  if (isAnswerNowPlaceholderText(normalized) || isAssistantInProgressPlaceholderText(normalized)) {
     return null;
   }
   // Ignore user echo turns that can show up in project view fallbacks.

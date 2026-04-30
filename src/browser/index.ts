@@ -50,6 +50,7 @@ import type { ProfileRunLock } from "./profileState.js";
 import {
   cleanupStaleProfileState,
   acquireProfileRunLock,
+  findChromeDebugPortForProfile,
   readChromePid,
   readDevToolsPort,
   shouldCleanupManualLoginProfileState,
@@ -1237,12 +1238,26 @@ async function maybeReuseRunningChrome(
 ): Promise<LaunchedChrome | null> {
   const waitForPortMs = Math.max(0, options.waitForPortMs ?? 0);
   let port = await readDevToolsPort(userDataDir);
+  if (!port) {
+    port = await findChromeDebugPortForProfile(userDataDir);
+    if (port) {
+      logger(`Found running Chrome for ${userDataDir} from process args (DevTools port ${port})`);
+      await writeDevToolsActivePort(userDataDir, port);
+    }
+  }
   if (!port && waitForPortMs > 0) {
     const deadline = Date.now() + waitForPortMs;
     logger(`Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`);
     while (!port && Date.now() < deadline) {
       await delay(250);
       port = await readDevToolsPort(userDataDir);
+      if (!port) {
+        port = await findChromeDebugPortForProfile(userDataDir);
+        if (port) {
+          logger(`Found running Chrome for ${userDataDir} from process args (DevTools port ${port})`);
+          await writeDevToolsActivePort(userDataDir, port);
+        }
+      }
     }
   }
   if (!port) return null;

@@ -14,6 +14,8 @@ import { PromptValidationError } from "../oracle/errors.js";
 import { normalizeChatGptModelForBrowser } from "./browserConfig.js";
 import { resolveConfiguredMaxFileSizeBytes } from "./fileSize.js";
 
+const DEFAULT_BROWSER_MODEL: ModelName = "gpt-5.5-pro";
+
 export interface ResolveRunOptionsInput {
   prompt: string;
   files?: string[];
@@ -47,12 +49,14 @@ export function resolveRunOptionsFromConfig({
     .map((entry) => normalizeModelOption(entry))
     .filter(Boolean);
 
-  const cliModelArg = normalizeModelOption(model ?? userConfig?.model) || DEFAULT_MODEL;
+  const configuredModel = normalizeModelOption(model ?? userConfig?.model);
+  const cliModelArg =
+    configuredModel || (resolvedEngine === "browser" ? DEFAULT_BROWSER_MODEL : DEFAULT_MODEL);
   const inferredModel =
     resolvedEngine === "browser" && normalizedRequestedModels.length === 0
       ? inferModelFromLabel(cliModelArg)
       : resolveApiModel(cliModelArg);
-  // Browser engine maps Pro/legacy aliases to the latest ChatGPT picker targets (GPT-5.4 / GPT-5.4 Pro).
+  // Browser engine maps Pro/legacy aliases to the latest ChatGPT picker targets (GPT-5.5 Pro).
   const resolvedModel =
     resolvedEngine === "browser" ? normalizeChatGptModelForBrowser(inferredModel) : inferredModel;
   const isCodex = resolvedModel.startsWith("gpt-5.1-codex");

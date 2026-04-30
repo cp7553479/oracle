@@ -212,6 +212,12 @@ export function resolveApiModel(modelValue: string): ModelName {
   if (normalized.includes("claude") && normalized.includes("opus")) {
     return "claude-4.1-opus";
   }
+  if (
+    (normalized.includes("5.5") || normalized.includes("5_5") || normalized.includes("5-5")) &&
+    normalized.includes("pro")
+  ) {
+    return "gpt-5.5-pro";
+  }
   if (normalized.includes("5.4") && normalized.includes("pro")) {
     return "gpt-5.4-pro";
   }
@@ -297,6 +303,9 @@ export function inferModelFromLabel(modelValue: string): ModelName {
   if (normalized.includes("classic")) {
     return "gpt-5-pro";
   }
+  if ((normalized.includes("5.5") || normalized.includes("5_5")) && normalized.includes("pro")) {
+    return "gpt-5.5-pro";
+  }
   if ((normalized.includes("5.4") || normalized.includes("5_4")) && normalized.includes("pro")) {
     return "gpt-5.4-pro";
   }
@@ -306,7 +315,13 @@ export function inferModelFromLabel(modelValue: string): ModelName {
   if ((normalized.includes("5.2") || normalized.includes("5_2")) && normalized.includes("pro")) {
     return "gpt-5.2-pro";
   }
-  // Browser-only: pass through 5.2 thinking/instant variants for browser label mapping
+  // Browser-only: pass through thinking/instant variants for browser label mapping.
+  if (
+    (normalized.includes("5.3") || normalized.includes("5_3")) &&
+    (normalized.includes("instant") || normalized.includes("fast"))
+  ) {
+    return "gpt-5.3-instant" as ModelName;
+  }
   if (
     (normalized.includes("5.2") || normalized.includes("5_2")) &&
     normalized.includes("thinking")
@@ -327,6 +342,7 @@ export function inferModelFromLabel(modelValue: string): ModelName {
     normalized.includes("pro") &&
     !normalized.includes("5.1") &&
     !normalized.includes("5.2") &&
+    !normalized.includes("5.5") &&
     !normalized.includes("5.4")
   ) {
     return "gpt-5-pro";
