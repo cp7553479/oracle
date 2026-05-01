@@ -102,25 +102,35 @@ async function readChromeCookies(
   cookiePath?: string | null,
 ): Promise<CookieParam[]> {
   const origins = Array.from(new Set([stripQuery(url), ...COOKIE_URLS]));
-  const chromeProfile = cookiePath ?? profile ?? undefined;
   const timeoutMs = readDuration("ORACLE_COOKIE_LOAD_TIMEOUT_MS", 5_000);
+  const profileCandidates = getChromeProfilesToTry(profile, cookiePath);
 
   // Learned: read from multiple origins to capture auth cookies that land on chat.openai.com + atlas.
-  const { cookies, warnings } = await getCookies({
-    url,
-    origins,
-    names: filterNames?.length ? filterNames : undefined,
-    browsers: ["chrome"],
-    mode: "merge",
-    chromeProfile,
-    timeoutMs,
-  });
+  for (const chromeProfile of profileCandidates) {
+    const { cookies, warnings } = await getCookies({
+      url,
+      origins,
+      names: filterNames?.length ? filterNames : undefined,
+      browsers: ["chrome"],
+      mode: "merge",
+      chromeProfile,
+      timeoutMs,
+    });
 
-  if (process.env.ORACLE_DEBUG_COOKIES === "1" && warnings.length) {
-    // eslint-disable-next-line no-console
-    console.log(`[cookies] sweet-cookie warnings:\n- ${warnings.join("\n- ")}`);
+    if (process.env.ORACLE_DEBUG_COOKIES === "1" && warnings.length) {
+      // eslint-disable-next-line no-console
+      console.log(`[cookies] sweet-cookie warnings:\n- ${warnings.join("\n- ")}`);
+    }
+
+    if (cookies.length > 0) {
+      return normalizeChromeCookies(cookies);
+    }
   }
 
+  return [];
+}
+
+function normalizeChromeCookies(cookies: Cookie[]): CookieParam[] {
   const merged = new Map<string, CookieParam>();
   for (const cookie of cookies) {
     const normalized = toCdpCookie(cookie);
@@ -131,6 +141,19 @@ async function readChromeCookies(
 
   return Array.from(merged.values());
 }
+
+function getChromeProfilesToTry(profile?: string | null, cookiePath?: string | null): string[] {
+  if (cookiePath) {
+    return [cookiePath];
+  }
+  const selectedProfile = profile?.trim() || "Default";
+  if (selectedProfile !== "Default") {
+    return [selectedProfile];
+  }
+  return ["Default", "Profile 1", "Profile 2"];
+}
+
+export const getChromeProfilesToTryForTest = getChromeProfilesToTry;
 
 function normalizeInlineCookies(rawCookies: CookieParam[], fallbackHost: string): CookieParam[] {
   const merged = new Map<string, CookieParam>();

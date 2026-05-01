@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.4 — 2026-05-01
+
+### Fixed
+
+- Browser: when no Chrome profile is specified, try `Default`, `Profile 1`, then `Profile 2` for ChatGPT cookie sync before falling back to the existing missing-cookie handling.
+
 ## 0.9.2 — 2026-04-30
 
 ### Changed
