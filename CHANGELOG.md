@@ -6,6 +6,7 @@
 
 - Browser: loosen ChatGPT assistant completion detection so a fresh assistant turn can finish when the stop button disappears, completion actions appear, or the text stabilizes; generated image artifacts are still auto-saved and printed even without `--generate-image`.
 - Browser: simplify generated-image CLI output so each saved image path is printed once.
+- Browser: update ChatGPT model selection for the current Instant/Thinking/Pro picker, wait for the hydrated model pill, select Create image mode for `--generate-image`, and recognize uploaded image thumbnails on sent user messages.
 
 ## 0.9.0 — 2026-03-08
 

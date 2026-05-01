@@ -28,6 +28,7 @@ import {
   ensurePromptReady,
   installJavaScriptDialogAutoDismissal,
   ensureModelSelection,
+  ensureCreateImageMode,
   clearPromptComposer,
   waitForAssistantResponse,
   captureAssistantMarkdown,
@@ -485,6 +486,23 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           },
         }),
       );
+    }
+    if (options.generateImagePath) {
+      await raceWithDisconnect(
+        withRetries(() => ensureCreateImageMode(Runtime, logger), {
+          retries: 2,
+          delayMs: 300,
+          onRetry: (attempt, error) => {
+            if (options.verbose) {
+              logger(
+                `[retry] Create image mode attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+              );
+            }
+          },
+        }),
+      );
+      await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
+      logger("Composer mode ready for image generation");
     }
     const profileLockTimeoutMs = manualLogin ? (config.profileLockTimeoutMs ?? 0) : 0;
     let profileLock: ProfileRunLock | null = null;
@@ -1405,6 +1423,21 @@ async function runRemoteBrowserMode(
           }
         },
       });
+    }
+    if (options.generateImagePath) {
+      await withRetries(() => ensureCreateImageMode(Runtime, logger), {
+        retries: 2,
+        delayMs: 300,
+        onRetry: (attempt, error) => {
+          if (options.verbose) {
+            logger(
+              `[retry] Create image mode attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+            );
+          }
+        },
+      });
+      await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
+      logger("Composer mode ready for image generation");
     }
 
     const submitOnce = async (prompt: string, submissionAttachments: BrowserAttachment[]) => {

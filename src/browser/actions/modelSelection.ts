@@ -136,14 +136,19 @@ function buildModelSelectionExpression(
       };
       return candidates.find(isLikelyModelButton) ?? null;
     };
-    const button = findModelButton();
-    if (!button) {
-      return { status: 'button-missing' };
-    }
+    let button = findModelButton();
+    const getButton = () => {
+      if (!button || !document.contains(button)) {
+        button = findModelButton();
+      }
+      return button;
+    };
 
     const closeMenu = () => {
+      const currentButton = getButton();
+      if (!currentButton) return;
       try {
-        if (dispatchClickSequence(button)) {
+        if (dispatchClickSequence(currentButton)) {
           lastPointerClick = performance.now();
           return;
         }
@@ -161,7 +166,7 @@ function buildModelSelectionExpression(
       } catch {}
     };
 
-    const getButtonLabel = () => (button.textContent ?? '').trim();
+    const getButtonLabel = () => (getButton()?.textContent ?? '').trim();
     if (MODEL_STRATEGY === 'current') {
       return { status: 'already-selected', label: getButtonLabel() };
     }
@@ -198,7 +203,8 @@ function buildModelSelectionExpression(
 
     let lastPointerClick = 0;
     const pointerClick = () => {
-      if (dispatchClickSequence(button)) {
+      const currentButton = getButton();
+      if (currentButton && dispatchClickSequence(currentButton)) {
         lastPointerClick = performance.now();
       }
     };
@@ -419,6 +425,14 @@ function buildModelSelectionExpression(
       const openDelay = () => new Promise((r) => setTimeout(r, INITIAL_WAIT_MS));
       let initialized = false;
       const attempt = async () => {
+        if (!getButton()) {
+          if (performance.now() - start > MAX_WAIT_MS) {
+            resolve({ status: 'button-missing' });
+            return;
+          }
+          setTimeout(attempt, REOPEN_INTERVAL_MS / 2);
+          return;
+        }
         if (!initialized) {
           initialized = true;
           await openDelay();
