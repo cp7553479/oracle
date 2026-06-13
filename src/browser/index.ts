@@ -440,10 +440,63 @@ type AssistantAnswer = {
   meta: { turnId?: string | null; messageId?: string | null };
 };
 
+const BROWSER_NO_RESULT_RELOAD_AFTER_MS = 5 * 60_000;
+
+async function waitForBrowserResultWithNoResultReload<T>({
+  timeoutMs,
+  noResultReloadAfterMs = BROWSER_NO_RESULT_RELOAD_AFTER_MS,
+  operation,
+  reload,
+  shouldReloadError,
+}: {
+  timeoutMs: number;
+  noResultReloadAfterMs?: number;
+  operation: (timeoutMs: number) => Promise<T>;
+  reload: (elapsedMs: number) => Promise<void>;
+  shouldReloadError: (error: unknown) => boolean;
+}): Promise<T> {
+  const startedAt = Date.now();
+  const deadline = startedAt + Math.max(0, timeoutMs);
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(0, deadline - Date.now());
+    const sliceMs = Math.min(remainingMs, Math.max(1, noResultReloadAfterMs));
+    try {
+      return await operation(sliceMs);
+    } catch (error) {
+      lastError = error;
+      if (!shouldReloadError(error) || Date.now() >= deadline) {
+        throw error;
+      }
+      await reload(Date.now() - startedAt);
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error("Timed out waiting for browser result.");
+}
+
+async function reloadCurrentPageAfterNoResult(
+  Page: ChromeClient["Page"],
+  logger: BrowserLogger,
+  elapsedMs: number,
+): Promise<void> {
+  logger(
+    `[browser] No new browser result for ${formatElapsed(elapsedMs)}; reloading page and continuing.`,
+  );
+  await Page.reload({ ignoreCache: true });
+  await delay(1000);
+}
+
 async function waitForAssistantOrGeneratedImageResponse(params: {
   Runtime: ChromeClient["Runtime"];
+  Page: ChromeClient["Page"];
   waitForText: () => Promise<AssistantAnswer>;
   timeoutMs: number;
+  noResultReloadAfterMs?: number;
   minTurnIndex?: number;
   expectedConversationId?: string;
   imageOutputRequested: boolean;
@@ -454,20 +507,27 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
   }
 
   params.logger("[browser] Waiting for ChatGPT generated image response.");
-  const response = await pollGeneratedImageOrTextAssistantResponse(
-    params.Runtime,
-    params.timeoutMs,
-    params.minTurnIndex,
-    params.expectedConversationId,
-  );
-  if (response) {
-    if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
-      params.logger("[browser] Captured generated image response before text appeared.");
-    }
-    return response;
-  }
-
-  throw new Error("assistant response timeout while waiting for generated image or text");
+  return waitForBrowserResultWithNoResultReload({
+    timeoutMs: params.timeoutMs,
+    noResultReloadAfterMs: params.noResultReloadAfterMs,
+    shouldReloadError: shouldReloadAfterAssistantError,
+    reload: (elapsedMs) => reloadCurrentPageAfterNoResult(params.Page, params.logger, elapsedMs),
+    operation: async (timeoutMs) => {
+      const response = await pollGeneratedImageOrTextAssistantResponse(
+        params.Runtime,
+        timeoutMs,
+        params.minTurnIndex,
+        params.expectedConversationId,
+      );
+      if (response) {
+        if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
+          params.logger("[browser] Captured generated image response before text appeared.");
+        }
+        return response;
+      }
+      throw new Error("assistant response timeout while waiting for generated image or text");
+    },
+  });
 }
 
 async function attemptAssistantRecheckOrRethrow(
@@ -491,15 +551,21 @@ async function pollGeneratedImageOrTextAssistantResponse(
 ): Promise<AssistantAnswer | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    let snapshot = await readAssistantSnapshot(Runtime, minTurnIndex, expectedConversationId).catch(
-      () => null,
-    );
+    let snapshot: Awaited<ReturnType<typeof readAssistantSnapshot>> = null;
+    try {
+      snapshot = await readAssistantSnapshot(Runtime, minTurnIndex, expectedConversationId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`assistant browser page read failed: ${message}`);
+    }
     if (!snapshot && typeof minTurnIndex === "number" && Number.isFinite(minTurnIndex)) {
-      const relaxedSnapshot = await readAssistantSnapshot(
-        Runtime,
-        undefined,
-        expectedConversationId,
-      ).catch(() => null);
+      let relaxedSnapshot: Awaited<ReturnType<typeof readAssistantSnapshot>> = null;
+      try {
+        relaxedSnapshot = await readAssistantSnapshot(Runtime, undefined, expectedConversationId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`assistant browser page read failed: ${message}`);
+      }
       const relaxedHtml = typeof relaxedSnapshot?.html === "string" ? relaxedSnapshot.html : "";
       if (relaxedHtml.includes("/backend-api/estuary/content?id=file_")) {
         snapshot = relaxedSnapshot;
@@ -1663,6 +1729,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         raceWithDisconnect(
           waitForAssistantOrGeneratedImageResponse({
             Runtime,
+            Page,
             waitForText: () =>
               waitForAssistantResponseWithReload(
                 Runtime,
@@ -1699,6 +1766,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           raceWithDisconnect(
             waitForAssistantOrGeneratedImageResponse({
               Runtime,
+              Page,
               waitForText: () =>
                 waitForAssistantResponseWithReload(
                   Runtime,
@@ -3042,6 +3110,7 @@ async function runRemoteBrowserMode(
       const rechecked = await waitWithThinkingMonitor(() =>
         waitForAssistantOrGeneratedImageResponse({
           Runtime,
+          Page,
           waitForText: () =>
             waitForAssistantResponseWithReload(
               Runtime,
@@ -3080,6 +3149,7 @@ async function runRemoteBrowserMode(
         turnAnswer = await waitWithThinkingMonitor(() =>
           waitForAssistantOrGeneratedImageResponse({
             Runtime,
+            Page,
             waitForText: () =>
               waitForAssistantResponseWithReload(
                 Runtime,
@@ -3474,6 +3544,7 @@ export const __test__ = {
   listIgnoredRemoteChromeFlags,
   resolveManualLoginWaitMs,
   shouldCloseOwnedRunTargetAfterRun,
+  waitForBrowserResultWithNoResultReload,
 };
 export { syncCookies } from "./cookies.js";
 export {
@@ -3527,34 +3598,16 @@ async function waitForAssistantResponseWithReload(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
+  noResultReloadAfterMs?: number,
 ) {
-  try {
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
-  } catch (error) {
-    if (!shouldReloadAfterAssistantError(error)) {
-      throw error;
-    }
-    const conversationUrl = await readConversationUrl(Runtime);
-    if (!conversationUrl || !isConversationUrl(conversationUrl)) {
-      throw error;
-    }
-    logger("Assistant response stalled; reloading conversation and retrying once");
-    await Page.navigate({ url: conversationUrl });
-    await delay(1000);
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
-  }
+  return waitForBrowserResultWithNoResultReload({
+    timeoutMs,
+    noResultReloadAfterMs,
+    shouldReloadError: shouldReloadAfterAssistantError,
+    reload: (elapsedMs) => reloadCurrentPageAfterNoResult(Page, logger, elapsedMs),
+    operation: (waitMs) =>
+      waitForAssistantResponse(Runtime, waitMs, logger, minTurnIndex, expectedConversationId),
+  });
 }
 
 function shouldReloadAfterAssistantError(error: unknown): boolean {
@@ -3564,7 +3617,12 @@ function shouldReloadAfterAssistantError(error: unknown): boolean {
     message.includes("assistant-response") ||
     message.includes("watchdog") ||
     message.includes("timeout") ||
-    message.includes("capture assistant response")
+    message.includes("capture assistant response") ||
+    message.includes("browser page read failed") ||
+    message.includes("execution context was destroyed") ||
+    message.includes("cannot find context") ||
+    message.includes("inspected target navigated") ||
+    message.includes("target closed")
   );
 }
 

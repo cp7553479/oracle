@@ -18,11 +18,10 @@ describe("resolveBrowserConfig", () => {
   test("returns defaults when config missing", () => {
     const resolved = resolveBrowserConfig(undefined);
     expect(resolved.url).toBe(CHATGPT_URL);
-    const isWindows = process.platform === "win32";
-    expect(resolved.cookieSync).toBe(!isWindows);
+    expect(resolved.cookieSync).toBe(false);
     expect(resolved.cookieNames).toEqual(DEFAULT_CHATGPT_COOKIE_NAMES);
     expect(resolved.headless).toBe(false);
-    expect(resolved.manualLogin).toBe(isWindows);
+    expect(resolved.manualLogin).toBe(true);
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(3);

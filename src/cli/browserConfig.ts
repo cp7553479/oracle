@@ -26,7 +26,7 @@ const DEFAULT_CHROME_PROFILE = "Default";
 const BROWSER_MODEL_LABELS: [ModelName, string][] = [
   // Most specific first (e.g., "gpt-5.2-thinking" before "gpt-5.2")
   ["gpt-5.5-pro", "Pro"],
-  ["gpt-5.5-instant", "GPT-5.5 Instant"],
+  ["gpt-5.5-instant", "Instant"],
   ["gpt-5.5", "Thinking 5.5"],
   ["gpt-5.4-pro", "Pro"],
   ["gpt-5.2-thinking", "GPT-5.2 Thinking"],
@@ -162,6 +162,7 @@ export async function buildBrowserConfig(
   });
   const rawUrl = options.chatgptUrl ?? options.browserUrl;
   const url = rawUrl ? normalizeChatgptUrl(rawUrl, CHATGPT_URL) : undefined;
+  const manualLogin = options.browserManualLogin ?? true;
 
   const desiredModel = isChatGptModel
     ? mapModelToBrowserLabel(options.model)
@@ -210,13 +211,13 @@ export async function buildBrowserConfig(
     cookieSyncWaitMs: options.browserCookieWait
       ? parseDuration(options.browserCookieWait, 0)
       : undefined,
-    cookieSync: options.browserNoCookieSync ? false : undefined,
+    cookieSync: options.browserNoCookieSync || manualLogin ? false : undefined,
     cookieNames,
     inlineCookies: inline?.cookies,
     inlineCookiesSource: inline?.source ?? null,
     headless: undefined, // disable headless; Cloudflare blocks it
     keepBrowser: options.browserKeepBrowser ? true : undefined,
-    manualLogin: options.browserManualLogin === undefined ? undefined : options.browserManualLogin,
+    manualLogin,
     manualLoginProfileDir: options.browserManualLoginProfileDir ?? undefined,
     hideWindow: options.browserHideWindow ? true : undefined,
     desiredModel,

@@ -3,10 +3,12 @@ import { joinSelectors } from "../providerDomFlow.js";
 
 const UI_TIMEOUT_MS = 60_000;
 const RESPONSE_TIMEOUT_MS = 10 * 60_000;
+const NO_RESULT_RELOAD_AFTER_MS = 5 * 60_000;
 
 interface GeminiDomProviderState {
   inputTimeoutMs?: number;
   timeoutMs?: number;
+  noResultReloadAfterMs?: number;
 }
 
 export const GEMINI_DEEP_THINK_SELECTORS = {
@@ -206,32 +208,49 @@ async function waitForResponse(ctx: ProviderDomFlowContext): Promise<{ text: str
   const { responseTimeoutMs } = readTimeouts(ctx);
   const responseDeadline = Date.now() + responseTimeoutMs;
   let lastLog = 0;
+  let lastProgressAt = Date.now();
+  let lastReloadAt = 0;
   let responseText = "";
+  let latestText = "";
 
   while (Date.now() < responseDeadline) {
-    const payload = await ctx.evaluate<string>(
-      `(() => {
-        const turns = document.querySelectorAll(${responseTurnSel});
-        if (turns.length === 0) return JSON.stringify({ status: 'waiting' });
-        const lastTurn = turns[turns.length - 1];
-        const footer = lastTurn.querySelector(${responseCompleteSel});
-        const content = lastTurn.querySelector(${responseTextSel});
-        const text = content?.textContent?.trim() ?? '';
-        const lower = text.toLowerCase();
-        if (lower.includes('generating your response') || lower.includes('check back later') || lower.includes("i'm on it")) {
-          return JSON.stringify({ status: 'generating' });
-        }
-        if (footer && text.length > 0) {
-          return JSON.stringify({ status: 'done', text });
-        }
-        const spinners = lastTurn.querySelectorAll(${spinnerSel});
-        const visibleSpinners = Array.from(spinners).filter((s) => s instanceof HTMLElement && s.offsetParent !== null);
-        if (text.length > 0 && visibleSpinners.length === 0 && !footer) {
-          return JSON.stringify({ status: 'streaming' });
-        }
-        return JSON.stringify({ status: 'generating' });
-      })()`,
-    );
+    let payload: string | undefined;
+    try {
+      payload = await ctx.evaluate<string>(
+        `(() => {
+          const turns = document.querySelectorAll(${responseTurnSel});
+          if (turns.length === 0) return JSON.stringify({ status: 'waiting' });
+          const lastTurn = turns[turns.length - 1];
+          const footer = lastTurn.querySelector(${responseCompleteSel});
+          const content = lastTurn.querySelector(${responseTextSel});
+          const text = content?.textContent?.trim() ?? '';
+          const lower = text.toLowerCase();
+          if (lower.includes('generating your response') || lower.includes('check back later') || lower.includes("i'm on it")) {
+            return JSON.stringify({ status: 'generating', text });
+          }
+          if (footer && text.length > 0) {
+            return JSON.stringify({ status: 'done', text });
+          }
+          const spinners = lastTurn.querySelectorAll(${spinnerSel});
+          const visibleSpinners = Array.from(spinners).filter((s) => s instanceof HTMLElement && s.offsetParent !== null);
+          if (text.length > 0 && visibleSpinners.length === 0 && !footer) {
+            return JSON.stringify({ status: 'streaming', text });
+          }
+          return JSON.stringify({ status: 'generating', text });
+        })()`,
+      );
+    } catch (error) {
+      const now = Date.now();
+      if (ctx.reload && now - lastReloadAt >= 10_000) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.log?.(`[gemini-web] Browser read failed (${message}); reloading page and continuing.`);
+        await ctx.reload();
+        lastReloadAt = Date.now();
+        lastProgressAt = lastReloadAt;
+        continue;
+      }
+      throw error;
+    }
 
     try {
       const parsed = JSON.parse(payload ?? "{}") as { status?: string; text?: string };
@@ -240,6 +259,21 @@ async function waitForResponse(ctx: ProviderDomFlowContext): Promise<{ text: str
         break;
       }
       const now = Date.now();
+      if (typeof parsed.text === "string" && parsed.text.length > latestText.length) {
+        latestText = parsed.text;
+        lastProgressAt = now;
+      }
+      const reloadAfterMs =
+        typeof (ctx.state as GeminiDomProviderState | undefined)?.noResultReloadAfterMs === "number"
+          ? Math.max(1_000, (ctx.state as GeminiDomProviderState).noResultReloadAfterMs as number)
+          : NO_RESULT_RELOAD_AFTER_MS;
+      if (ctx.reload && now - lastProgressAt >= reloadAfterMs) {
+        ctx.log?.("[gemini-web] No new Deep Think result; reloading page and continuing.");
+        await ctx.reload();
+        lastReloadAt = Date.now();
+        lastProgressAt = lastReloadAt;
+        continue;
+      }
       if (now - lastLog > 10_000) {
         ctx.log?.(`[gemini-web] Deep Think still generating... (${parsed.status ?? "unknown"})`);
         lastLog = now;

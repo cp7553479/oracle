@@ -37,4 +37,26 @@ describe("geminiDeepThinkDomProvider timeouts", () => {
       }),
     ).rejects.toThrow("Deep Think timed out waiting for response (4 seconds).");
   });
+
+  it("reloads when Deep Think has no new result progress", async () => {
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const reload = vi.fn(async () => {
+      now += 1_000;
+    });
+
+    await expect(
+      geminiDeepThinkDomProvider.waitForResponse({
+        prompt: "hello",
+        evaluate: async <T>() => JSON.stringify({ status: "generating" }) as T,
+        delay: async (ms) => {
+          now += ms;
+        },
+        reload,
+        state: { timeoutMs: 8_000, noResultReloadAfterMs: 4_000 },
+      }),
+    ).rejects.toThrow("Deep Think timed out waiting for response (8 seconds).");
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
 });

@@ -629,6 +629,42 @@ describe("runSubmissionWithRecoveryForTest", () => {
   });
 });
 
+describe("waitForBrowserResultWithNoResultReload", () => {
+  test("reloads after a no-result slice and keeps waiting", async () => {
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      let attempts = 0;
+      const operation = vi.fn(async (timeoutMs: number) => {
+        now += timeoutMs;
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("assistant response timeout while waiting for generated image or text");
+        }
+        return "done";
+      });
+      const reload = vi.fn(async () => undefined);
+
+      await expect(
+        __test__.waitForBrowserResultWithNoResultReload({
+          timeoutMs: 5_000,
+          noResultReloadAfterMs: 1_000,
+          operation,
+          reload,
+          shouldReloadError: () => true,
+        }),
+      ).resolves.toBe("done");
+
+      expect(operation).toHaveBeenNthCalledWith(1, 1_000);
+      expect(operation).toHaveBeenNthCalledWith(2, 1_000);
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(reload).toHaveBeenCalledWith(1_000);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});
+
 describe("resolveRemoteTabLeaseProfileDirForTest", () => {
   test("coordinates remote Chrome only when a manual-login profile is configured", () => {
     const coordinated = resolveBrowserConfig({

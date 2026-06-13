@@ -202,6 +202,11 @@ async function runGeminiDeepThinkViaBrowser(
       prompt,
       evaluate,
       delay,
+      reload: async () => {
+        log?.("[gemini-web] Reloading Gemini page after stalled browser result.");
+        await Page.reload({ ignoreCache: true });
+        await delay(3_000);
+      },
       log,
       state: {
         inputTimeoutMs: browserConfig?.inputTimeoutMs,

@@ -6,6 +6,7 @@ export interface ProviderDomFlowContext {
   prompt: string;
   evaluate: DomEvaluate;
   delay: (ms: number) => Promise<void>;
+  reload?: () => Promise<void>;
   log?: BrowserLogger;
   state?: Record<string, unknown>;
 }
