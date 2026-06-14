@@ -15,6 +15,7 @@ Recommended defaults:
 
 - Engine: browser (`--engine browser`)
 - Model: GPT‑5.5 Pro (either `--model gpt-5.5-pro` or a ChatGPT picker label like `--model "5.5 Pro"`)
+- Profile: use `--profile default` for `~/.oracle/browser-profile`, or a named profile such as `--profile work`.
 - Attachments: directories/globs + excludes; avoid secrets.
 
 ## Golden path (fast + reliable)
@@ -42,6 +43,24 @@ Recommended defaults:
 
 - Browser run (main path; long-running is normal):
   - `npx -y @steipete/oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
+  - `npx -y @steipete/oracle --profile default --model gpt-5.5-pro -p "<task>" --file "src/**"`
+
+## Named browser profiles
+
+Use one browser profile per ChatGPT/Gemini account. `--profile default` maps to the legacy manual-login profile at `~/.oracle/browser-profile`; other names live under `~/.oracle/browser-profiles/<name>`.
+
+- Create or initialize a profile:
+  - `npx -y @steipete/oracle profile add work`
+  - `npx -y @steipete/oracle profile add gemini --url https://gemini.google.com/`
+- Inspect or reopen profiles before rerunning:
+  - `npx -y @steipete/oracle profile list`
+  - `npx -y @steipete/oracle profile open default`
+  - `npx -y @steipete/oracle profile open work`
+- Run with a specific signed-in profile:
+  - `npx -y @steipete/oracle --profile default --model gpt-5.5-pro -p "<task>"`
+  - `npx -y @steipete/oracle --profile work --model gpt-5.5-pro -p "<task>"`
+
+`profile add/open` opens a normal Chrome window with that profile for human login; close it before running Oracle automation. If a browser run hits quota, rate-limit, login, Cloudflare, or assistant-timeout issues, inspect the session first, then retry with another signed-in profile if appropriate.
 
 - Manual paste fallback (assemble bundle, copy to clipboard):
   - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`

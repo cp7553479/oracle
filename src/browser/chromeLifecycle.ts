@@ -35,6 +35,7 @@ export async function launchChrome(
         chromeFlags,
         userDataDir,
         handleSIGINT: false,
+        ignoreDefaultFlags: true,
         port: debugPort ?? undefined,
       });
   const pidLabel = typeof launcher.pid === "number" ? ` (pid ${launcher.pid})` : "";
@@ -606,29 +607,12 @@ function isBlankPageTarget(target: { type?: string; url?: string }): boolean {
 
 function buildChromeFlags(headless: boolean, debugBindAddress?: string | null): string[] {
   const flags = [
-    "--disable-background-networking",
-    "--disable-background-timer-throttling",
-    "--disable-breakpad",
-    "--disable-client-side-phishing-detection",
-    "--disable-default-apps",
-    "--disable-hang-monitor",
-    "--disable-popup-blocking",
-    "--disable-prompt-on-repost",
-    "--disable-sync",
-    "--disable-translate",
-    "--metrics-recording-only",
     "--no-first-run",
-    "--safebrowsing-disable-auto-update",
-    "--disable-features=TranslateUI,AutomationControlled",
-    "--mute-audio",
+    "--no-default-browser-check",
     "--window-size=1280,720",
     "--lang=en-US",
     "--accept-lang=en-US,en",
   ];
-
-  if (process.platform !== "win32" && !isWsl()) {
-    flags.push("--password-store=basic", "--use-mock-keychain");
-  }
 
   if (debugBindAddress) {
     flags.push(`--remote-debugging-address=${debugBindAddress}`);
@@ -703,6 +687,7 @@ async function launchWithCustomHost({
     chromeFlags,
     userDataDir,
     handleSIGINT: false,
+    ignoreDefaultFlags: true,
     port: requestedPort ?? undefined,
   });
 

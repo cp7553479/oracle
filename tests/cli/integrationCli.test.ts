@@ -131,6 +131,110 @@ describe("oracle CLI integration", () => {
   );
 
   test(
+    "rejects named profile on explicit API engine",
+    async () => {
+      const result = await execCli(["--engine", "api", "--profile", "main", "-p", "profile test"], {
+        timeout: INTEGRATION_TIMEOUT,
+      });
+
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "--profile requires browser mode and cannot be combined with --engine api.",
+      );
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
+    "rejects named profile for API-only model targets",
+    async () => {
+      const result = await execCli(
+        ["--profile", "main", "--model", "claude-4.6-sonnet", "-p", "profile test"],
+        { timeout: INTEGRATION_TIMEOUT },
+      );
+
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "Browser engine only supports GPT and Gemini models.",
+      );
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
+    "rejects named profile for codex API-only model targets",
+    async () => {
+      const result = await execCli(
+        ["--profile", "main", "--model", "gpt-5.1-codex", "-p", "profile test"],
+        { timeout: INTEGRATION_TIMEOUT },
+      );
+
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "--profile requires a browser-compatible GPT or Gemini model.",
+      );
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
+    "rejects named profile combined with explicit manual-login profile dir",
+    async () => {
+      const result = await execCli(
+        [
+          "--profile",
+          "main",
+          "--browser-manual-login-profile-dir",
+          "/tmp/oracle-profile",
+          "--dry-run",
+          "summary",
+          "-p",
+          "profile test",
+        ],
+        { timeout: INTEGRATION_TIMEOUT },
+      );
+
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "--profile cannot be combined with --browser-manual-login-profile-dir.",
+      );
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
+    "defaults browser root runs to manual-login even when config disables it",
+    async () => {
+      const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-manual-default-"));
+      await writeFile(
+        path.join(oracleHome, "config.json"),
+        JSON.stringify({ browser: { manualLogin: false } }),
+        "utf8",
+      );
+      try {
+        const result = await execCli(
+          ["--engine", "browser", "--dry-run", "summary", "-p", "manual default test"],
+          {
+            timeout: INTEGRATION_TIMEOUT,
+            env: {
+              ...process.env,
+              ORACLE_HOME_DIR: oracleHome,
+            },
+          },
+        );
+
+        expect(result.code).toBe(0);
+        expect(`${result.stdout}\n${result.stderr}`).toContain(
+          "Manual-login mode may show the persistent Oracle Chrome profile",
+        );
+      } finally {
+        await rm(oracleHome, { recursive: true, force: true });
+      }
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
     "SIGINT exits promptly",
     async () => {
       const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-sigint-"));

@@ -69,6 +69,7 @@ import {
 import { loadUserConfig, type UserConfig } from "../src/config.js";
 import { shouldBlockDuplicatePrompt } from "../src/cli/duplicatePromptGuard.js";
 import { resolveRemoteServiceConfig } from "../src/remote/remoteServiceConfig.js";
+import { applyNamedProfileToBrowserOptions } from "../src/cli/namedProfiles.js";
 import { resolveConfiguredMaxFileSizeBytes } from "../src/cli/fileSize.js";
 import {
   isAzureOpenAICandidateModel,
@@ -115,6 +116,7 @@ interface CliOptions extends OptionValues {
   sessionId?: string;
   engine?: EngineMode;
   browser?: boolean;
+  profile?: string;
   timeout?: number | "auto";
   background?: boolean;
   httpTimeout?: number;
@@ -748,6 +750,12 @@ program
   )
   .addOption(
     new Option(
+      "--profile <name>",
+      "Named manual-login browser profile: default uses ~/.oracle/browser-profile; others use ~/.oracle/browser-profiles/<name>.",
+    ),
+  )
+  .addOption(
+    new Option(
       "--browser-manual-login-profile-dir <path>",
       "Persistent Chrome profile directory for manual-login browser runs.",
     ).hideHelp(),
@@ -942,6 +950,74 @@ program
       manualLoginProfileDir: commandOptions.manualLoginProfileDir,
     });
   });
+
+const profileCommand = program
+  .command("profile")
+  .description("Manage named manual-login browser profiles.");
+
+profileCommand
+  .command("list")
+  .description("List default and named browser profiles.")
+  .action(async () => {
+    const { listNamedProfiles } = await import("../src/cli/namedProfiles.js");
+    const profiles = await listNamedProfiles();
+    if (profiles.length === 0) {
+      console.log(
+        chalk.dim("No named profiles found. Create one with `oracle profile add <name>`."),
+      );
+      return;
+    }
+    const rows = profiles.map((profile) => ({
+      Name: profile.name,
+      Initialized: profile.initialized ? "yes" : "no",
+      Port:
+        profile.devToolsPort == null
+          ? "-"
+          : profile.devToolsReachable
+            ? String(profile.devToolsPort)
+            : `${profile.devToolsPort} (stale)`,
+      Modified: profile.modifiedAt ?? "-",
+      Path: profile.path,
+    }));
+    console.table(rows);
+  });
+
+profileCommand
+  .command("add <name>")
+  .description("Create a named manual-login profile and open Chrome for first-time login.")
+  .option("--url <url>", `Site URL to open (default ${CHATGPT_URL}).`)
+  .option("--browser-chrome-path <path>", "Chrome/Chromium executable to use for setup.")
+  .action(async (name: string, commandOptions: ProfileCommandOptionBag) => {
+    const { openNamedProfileBrowser } = await import("../src/cli/namedProfiles.js");
+    await openNamedProfileBrowser({
+      name,
+      url: commandOptions.url,
+      browserChromePath: commandOptions.browserChromePath,
+      create: true,
+    });
+  });
+
+profileCommand
+  .command("open <name>")
+  .description("Open an existing named manual-login profile for interactive login.")
+  .option("--url <url>", `Site URL to open (default ${CHATGPT_URL}).`)
+  .option("--browser-chrome-path <path>", "Chrome/Chromium executable to use when opening.")
+  .action(async (name: string, commandOptions: ProfileCommandOptionBag) => {
+    const { openNamedProfileBrowser } = await import("../src/cli/namedProfiles.js");
+    await openNamedProfileBrowser({
+      name,
+      url: commandOptions.url,
+      browserChromePath: commandOptions.browserChromePath,
+      create: false,
+    });
+  });
+
+interface ProfileCommandOptions {
+  url?: string;
+  browserChromePath?: string;
+}
+
+type ProfileCommandOptionBag = ProfileCommandOptions;
 
 const projectSourcesCommand = program
   .command("project-sources")
@@ -1439,6 +1515,21 @@ export function enforceBrowserSearchFlag(
   }
 }
 
+function applyEntrypointManualLoginDefault(
+  options: Pick<CliOptions, "browserAttachRunning" | "browserManualLogin">,
+  getSource: (key: keyof CliOptions) => string | undefined,
+): void {
+  if (options.browserAttachRunning) {
+    return;
+  }
+  const source = getSource("browserManualLogin");
+  if (source && source !== "default") {
+    return;
+  }
+  options.browserManualLogin = true;
+  program.setOptionValueWithSource("browserManualLogin", true, "cli");
+}
+
 function resolveHeartbeatIntervalMs(seconds: number | undefined): number | undefined {
   if (typeof seconds !== "number" || seconds <= 0) {
     return undefined;
@@ -1865,17 +1956,24 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const envEnginePreference = (process.env.ORACLE_ENGINE ?? "").trim().toLowerCase();
   const explicitApiEngineRequested =
     options.engine === "api" || (!options.engine && envEnginePreference === "api");
+  if (options.profile && options.engine === "api") {
+    throw new Error("--profile requires browser mode and cannot be combined with --engine api.");
+  }
+  if (options.profile && remoteHost) {
+    throw new Error("--profile cannot be combined with --remote-host.");
+  }
   const configBrowserEngineRequested =
     userConfig.engine === "browser" && !explicitApiEngineRequested && !explicitApiProviderRequested;
   let engine: EngineMode = resolveEngine({
     engine: options.engine,
     configEngine: userConfig.engine,
-    browserFlag: options.browser,
+    browserFlag: options.browser || Boolean(options.profile),
     apiProviderRequested: explicitApiProviderRequested,
     env: process.env,
   });
   const browserEngineRequested =
     options.browser ||
+    Boolean(options.profile) ||
     options.engine === "browser" ||
     Boolean(remoteHost) ||
     configBrowserEngineRequested ||
@@ -1911,7 +2009,8 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const isGemini = primaryModelCandidate.startsWith("gemini");
   const isCodex = primaryModelCandidate.startsWith("gpt-5.1-codex");
   const isClaude = primaryModelCandidate.startsWith("claude");
-  const userForcedBrowser = options.browser || options.engine === "browser";
+  const userForcedBrowser =
+    options.browser || Boolean(options.profile) || options.engine === "browser";
   const browserExplicitlyRequested = browserEngineRequested;
   const isBrowserCompatible = (model: string) =>
     model.startsWith("gpt-") || model.startsWith("gemini");
@@ -1923,6 +2022,9 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     throw new Error(
       "Browser engine only supports GPT and Gemini models. Re-run with --engine api for Grok, Claude, or other models.",
     );
+  }
+  if (options.profile && isCodex) {
+    throw new Error("--profile requires a browser-compatible GPT or Gemini model.");
   }
   if (engine === "browser" && hasNonBrowserCompatibleTarget) {
     engine = "api";
@@ -2040,6 +2142,13 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     program.getOptionValueSource?.(key as string) ?? undefined;
   const { applyBrowserDefaultsFromConfig } = await import("../src/cli/browserDefaults.js");
   applyBrowserDefaultsFromConfig(options, userConfig, getSource);
+  if (engine === "browser") {
+    applyEntrypointManualLoginDefault(options, getSource);
+  }
+  const namedProfileDir = applyNamedProfileToBrowserOptions(options, getSource);
+  if (namedProfileDir) {
+    console.log(chalk.dim(`Using named browser profile ${options.profile}: ${namedProfileDir}`));
+  }
   const attachmentTimeoutEnv = process.env.ORACLE_BROWSER_ATTACHMENT_TIMEOUT?.trim();
   if (
     attachmentTimeoutEnv &&
@@ -2732,6 +2841,10 @@ function printDebugHelp(cliName: string): void {
     [
       "--browser-manual-login",
       "Skip cookie copy; reuse a persistent automation profile and log in manually.",
+    ],
+    [
+      "--profile <name>",
+      "Use default (~/.oracle/browser-profile) or ~/.oracle/browser-profiles/<name>.",
     ],
     ["--browser-headless", "Launch Chrome in headless mode."],
     ["--browser-hide-window", "Hide the Chrome window (macOS headful only)."],
