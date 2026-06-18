@@ -130,11 +130,8 @@ export async function buildBrowserConfig(
   options: BrowserFlagOptions,
 ): Promise<BrowserSessionConfig> {
   const desiredModelOverride = options.browserModelLabel?.trim();
-  const normalizedOverride = desiredModelOverride?.toLowerCase() ?? "";
   const baseModel = options.model.toLowerCase();
   const isChatGptModel = baseModel.startsWith("gpt-") && !baseModel.includes("codex");
-  const shouldUseOverride =
-    !isChatGptModel && normalizedOverride.length > 0 && normalizedOverride !== baseModel;
   const modelStrategy =
     normalizeBrowserModelStrategy(options.browserModelStrategy) ?? DEFAULT_MODEL_STRATEGY;
   const cookieNames = parseCookieNames(
@@ -165,10 +162,8 @@ export async function buildBrowserConfig(
   const manualLogin = options.browserManualLogin ?? true;
 
   const desiredModel = isChatGptModel
-    ? mapModelToBrowserLabel(options.model)
-    : shouldUseOverride
-      ? desiredModelOverride
-      : mapModelToBrowserLabel(options.model);
+    ? (desiredModelOverride ?? String(options.model))
+    : resolveBrowserModelLabel(desiredModelOverride, options.model);
 
   return {
     chromeProfile: options.browserChromeProfile ?? DEFAULT_CHROME_PROFILE,
@@ -299,11 +294,10 @@ export function mapModelToBrowserLabel(model: ModelName): string {
 export function resolveBrowserModelLabel(input: string | undefined, model: ModelName): string {
   const trimmed = input?.trim?.() ?? "";
   if (!trimmed) {
-    return mapModelToBrowserLabel(model);
-  }
-  const normalizedInput = trimmed.toLowerCase();
-  if (normalizedInput === model.toLowerCase()) {
-    return mapModelToBrowserLabel(model);
+    const normalized = model.toLowerCase();
+    return normalized.startsWith("gpt-") && !normalized.includes("codex")
+      ? String(model)
+      : mapModelToBrowserLabel(model);
   }
   return trimmed;
 }

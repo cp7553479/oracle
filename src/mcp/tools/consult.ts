@@ -32,7 +32,7 @@ import { CONSULT_PRESETS, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
 import { resolveNotificationSettings } from "../../cli/notifier.js";
-import { mapModelToBrowserLabel, resolveBrowserModelLabel } from "../../cli/browserConfig.js";
+import { resolveBrowserModelLabel } from "../../cli/browserConfig.js";
 import type { BrowserModelStrategy } from "../../browser/types.js";
 
 // Use raw shapes so the MCP SDK (with its bundled Zod) wraps them and emits valid JSON Schema.
@@ -340,7 +340,7 @@ export function buildConsultBrowserConfig({
   const preferredLabel = (browserModelLabel ?? inputModel)?.trim();
   const isChatGptModel = runModel.startsWith("gpt-") && !runModel.includes("codex");
   const desiredModelLabel = isChatGptModel
-    ? mapModelToBrowserLabel(runModel)
+    ? preferredLabel || runModel
     : resolveBrowserModelLabel(preferredLabel, runModel);
   const configuredUrl = configuredBrowser.chatgptUrl ?? configuredBrowser.url ?? CHATGPT_URL;
   const manualLogin = hasProfileDir ? true : (configuredBrowser.manualLogin ?? true);
@@ -361,7 +361,7 @@ export function buildConsultBrowserConfig({
     modelStrategy: browserModelStrategy ?? configuredBrowser.modelStrategy,
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
-    desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
+    desiredModel: desiredModelLabel || resolveBrowserModelLabel(undefined, runModel),
   };
 }
 

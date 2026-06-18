@@ -165,7 +165,7 @@ describe("summarizeModelRunsForConsult", () => {
       thinkingTime: "extended",
       researchMode: "deep",
       archiveConversations: "never",
-      desiredModel: "GPT-5.2",
+      desiredModel: "gpt-5.1",
       cookieSync: false,
     });
   });
@@ -315,7 +315,7 @@ describe("summarizeModelRunsForConsult", () => {
           resolvedEngine: "browser",
           model: "gpt-5.5-pro",
           browser: expect.objectContaining({
-            desiredModel: "Pro",
+            desiredModel: "gpt-5.5-pro",
             thinkingTime: "extended",
             modelStrategy: "select",
             imageOutputPath: path.join(realpathSync(home), "generated", "from-mcp.png"),

@@ -2,6 +2,10 @@
 
 ## 0.14.1 — Unreleased
 
+### Fixed
+
+- Browser/MCP: keep ChatGPT model IDs as fuzzy picker targets, tolerate unavailable picker options by continuing with the current model, and improve simplified tier matching for Instant, Medium, High, and Pro labels.
+
 ## 0.14.0 — 2026-06-12
 
 ### Added

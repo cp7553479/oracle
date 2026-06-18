@@ -462,10 +462,12 @@ describe("browser model selection matchers", () => {
     expect(testIdTokens).toContain("gpt55");
   });
 
-  it("hard-rejects non-Instant candidates when targeting Instant", () => {
+  it("requires tier words such as Instant when the target includes them", () => {
     const expression = buildModelSelectionExpressionForTest("GPT-5.5 Instant");
-    expect(expression).toContain("const candidateHasInstant =");
-    expect(expression).toContain("if (wantsInstant && !candidateHasInstant) return 0;");
+    expect(expression).toContain("const targetTierWords =");
+    expect(expression).toContain(
+      "if (targetTierWords.length > 0 && !targetTierWords.some(candidateHasWord))",
+    );
   });
 
   it("selects the observed bare GPT-5.5 row when its label is Instant", async () => {
@@ -551,16 +553,17 @@ describe("browser model selection matchers", () => {
     expect(result).toEqual({ status: "already-selected", label: "Extended + Pro" });
   });
 
-  it("hard-rejects Thinking candidates when targeting Pro", () => {
+  it("downranks Thinking candidates when targeting Pro", () => {
     const expression = buildModelSelectionExpressionForTest("gpt-5.5-pro");
     expect(expression).toContain("const candidateHasThinking =");
-    expect(expression).toContain("if (wantsPro && candidateHasThinking) return 0;");
-    expect(expression).toContain("if (wantsPro && !candidateHasPro) return 0;");
+    expect(expression).toContain("if (wantsPro && candidateHasThinking");
+    expect(expression).toContain("score -= 40;");
+    expect(expression).toContain("if (wantsPro && !candidateHasPro) score -= 50;");
   });
 
-  it("hard-rejects non-Thinking candidates when targeting Thinking", () => {
+  it("downranks non-Thinking candidates when targeting Thinking", () => {
     const expression = buildModelSelectionExpressionForTest("Thinking 5.5");
-    expect(expression).toContain("if (wantsThinking && !candidateHasThinking) return 0;");
+    expect(expression).toContain("if (wantsThinking && !candidateHasThinking) score -= 50;");
     expect(expression).not.toContain("candidateGpt55VisibleAlias ||\n        labelHasProWord");
   });
 
@@ -584,9 +587,9 @@ describe("browser model selection matchers", () => {
     expect(expression).toContain("isTargetGpt55VisibleAlias(readComposerModelSignal())");
   });
 
-  it("accepts exact version row ids for Thinking models without Thinking in the label", async () => {
+  it("accepts exact version row ids when the target has no tier word", async () => {
     await expect(
-      evaluateMenuModelSelectionExpression("Thinking 5.4", {
+      evaluateMenuModelSelectionExpression("gpt-5.4", {
         label: "GPT-5.4",
         testId: "model-switcher-gpt-5-4",
       }),
@@ -651,6 +654,47 @@ describe("browser model selection matchers", () => {
     await expect(
       evaluateMenuModelSelectionExpression("Thinking 5.5", { label: "Thinking Heavy" }),
     ).resolves.toEqual({ status: "switched", label: "Thinking Heavy" });
+  });
+
+  it("fuzzy-selects the highest scoring simplified tier label", async () => {
+    await expect(
+      evaluateMenuModelSelectionExpression("gpt 5.5 medium", [
+        { label: "Instant" },
+        { label: "Medium" },
+        { label: "High" },
+        { label: "Pro Extended" },
+        { label: "Pro" },
+      ]),
+    ).resolves.toEqual({ status: "switched-best-effort", label: "Medium" });
+  });
+
+  it("continues with current model and logs available options when no match exists", async () => {
+    const runtime = {
+      evaluate: vi.fn().mockResolvedValue({
+        result: {
+          value: {
+            status: "option-not-found",
+            hint: {
+              currentLabel: "Instant",
+              availableOptions: ["Instant", "Medium", "High", "Pro Extended", "Pro"],
+            },
+          },
+        },
+      }),
+    };
+    const logger = vi.fn();
+
+    await expect(
+      ensureModelSelection(runtime as never, "gpt-5.5", logger as never, "select"),
+    ).resolves.toMatchObject({
+      requestedModel: "gpt-5.5",
+      resolvedLabel: "Instant",
+      status: "unavailable",
+      verified: false,
+    });
+    expect(logger).toHaveBeenCalledWith(
+      'Model picker: no option matching "gpt-5.5"; continuing with current ChatGPT model. Current: Instant. Available: Instant, Medium, High, Pro Extended, Pro.',
+    );
   });
 
   it("keeps model-looking text fallback roots when a marked picker root is present", async () => {

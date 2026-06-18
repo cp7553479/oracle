@@ -30,7 +30,11 @@ export async function ensureModelSelection(
     | { status: "switched-best-effort"; label?: string | null }
     | {
         status: "option-not-found";
-        hint?: { temporaryChat?: boolean; availableOptions?: string[] };
+        hint?: {
+          temporaryChat?: boolean;
+          availableOptions?: string[];
+          currentLabel?: string | null;
+        };
       }
     | { status: "button-missing" }
     | undefined;
@@ -40,9 +44,6 @@ export async function ensureModelSelection(
     case "switched":
     case "switched-best-effort": {
       const label = result.label?.trim() || (strategy === "current" ? null : desiredModel);
-      if (strategy !== "current") {
-        assertResolvedModelSelection(desiredModel, label ?? desiredModel);
-      }
       logger(`Model picker: ${label ?? "current model (label unavailable)"}`);
       return {
         requestedModel: desiredModel,
@@ -56,22 +57,37 @@ export async function ensureModelSelection(
     }
     case "option-not-found": {
       await logDomFailure(Runtime, logger, "model-switcher-option");
-      const isTemporary = result.hint?.temporaryChat ?? false;
       const available = (result.hint?.availableOptions ?? []).filter(Boolean);
       const availableHint = available.length > 0 ? ` Available: ${available.join(", ")}.` : "";
-      const tempHint =
-        isTemporary && /\bpro\b/i.test(desiredModel)
-          ? " You are in Temporary Chat mode; model labels may differ there. If the current Temporary Chat already shows the desired Pro mode, retry with --browser-model-strategy current; otherwise choose an available model or turn Temporary Chat off."
-          : "";
-      throw new Error(
-        `Unable to find model option matching "${desiredModel}" in the model switcher.${availableHint}${tempHint}`,
+      const currentLabel = result.hint?.currentLabel?.trim() || null;
+      const currentHint = currentLabel ? ` Current: ${currentLabel}.` : "";
+      logger(
+        `Model picker: no option matching "${desiredModel}"; continuing with current ChatGPT model.${currentHint}${availableHint}`,
       );
+      return {
+        requestedModel: desiredModel,
+        resolvedLabel: currentLabel,
+        strategy,
+        status: "unavailable",
+        verified: false,
+        source: "chatgpt-model-picker",
+        capturedAt: new Date().toISOString(),
+      };
     }
     default: {
       await logDomFailure(Runtime, logger, "model-switcher-button");
-      throw new Error(
-        "Unable to locate the ChatGPT model selector button. If the desired model is already selected in the browser, retry with --browser-model-strategy current; otherwise retry with --browser-model-strategy ignore to skip model selection.",
+      logger(
+        `Model picker: selector unavailable for "${desiredModel}"; continuing with current ChatGPT model.`,
       );
+      return {
+        requestedModel: desiredModel,
+        resolvedLabel: null,
+        strategy,
+        status: "unavailable",
+        verified: false,
+        source: "chatgpt-model-picker",
+        capturedAt: new Date().toISOString(),
+      };
     }
   }
 }
@@ -179,6 +195,9 @@ function buildModelSelectionExpression(
       .map((token) => normalizeText(token))
       .filter(Boolean);
     const targetWords = normalizedTarget.split(' ').filter(Boolean);
+    const meaningfulTargetWords = targetWords.filter((word) => word.length > 1);
+    const tierWords = ['instant', 'medium', 'high', 'pro', 'extended', 'thinking', 'heavy', 'standard', 'light'];
+    const targetTierWords = tierWords.filter((word) => targetWords.includes(word));
     const desiredVersion = normalizedTarget.includes('5 4')
       ? '5-4'
       : normalizedTarget.includes('5 5')
@@ -292,7 +311,12 @@ function buildModelSelectionExpression(
     const getResolvedLabel = (fallback) =>
       withProPillSignal(getComposerModelLabel() || getButtonLabel() || fallback);
     const isThinkingEffortLabel = (label) =>
-      label === 'extended' || label === 'standard' || label === 'heavy' || label === 'light';
+      label === 'extended' ||
+      label === 'standard' ||
+      label === 'heavy' ||
+      label === 'light' ||
+      label === 'medium' ||
+      label === 'high';
     if (MODEL_STRATEGY === 'current') {
       const currentLabel = getResolvedLabel('') || null;
       return {
@@ -438,6 +462,17 @@ function buildModelSelectionExpression(
       }
       let score = 0;
       const normalizedTestId = (testid ?? '').toLowerCase();
+      const candidateWords = Array.from(
+        new Set((normalizedText + ' ' + normalizeText(normalizedTestId)).split(' ').filter(Boolean)),
+      );
+      const candidateHasWord = (word) =>
+        candidateWords.includes(word) ||
+        normalizedText.includes(word) ||
+        normalizeText(normalizedTestId).includes(word);
+      const matchedTargetWords = meaningfulTargetWords.filter(candidateHasWord);
+      if (targetTierWords.length > 0 && !targetTierWords.some(candidateHasWord)) {
+        return 0;
+      }
       let exactTestIdMatch = false;
       if (normalizedTestId) {
         if (desiredVersion) {
@@ -512,12 +547,12 @@ function buildModelSelectionExpression(
         normalizedTestId.includes('pro');
       const candidateHasInstant =
         normalizedText.includes('instant') || normalizedTestId.includes('instant');
-      if (wantsPro && candidateHasThinking) return 0;
-      if (wantsPro && candidateHasLegacyProVersion) return 0;
-      if (wantsPro && !candidateHasPro) return 0;
-      if (wantsInstant && !candidateHasInstant) return 0;
-      if (wantsThinking && candidateHasPro) return 0;
-      if (wantsThinking && !candidateHasThinking) return 0;
+      if (wantsPro && candidateHasThinking && !targetTierWords.includes('thinking')) score -= 40;
+      if (wantsPro && candidateHasLegacyProVersion) score -= 30;
+      if (wantsPro && !candidateHasPro) score -= 50;
+      if (wantsInstant && !candidateHasInstant) score -= 50;
+      if (wantsThinking && candidateHasPro && !targetTierWords.includes('pro')) score -= 40;
+      if (wantsThinking && !candidateHasThinking) score -= 50;
       if (desiredVersion === '5-5' && normalizedText && !candidateGpt55VisibleAlias) {
         const candidateHasVersion =
           normalizedText.includes('5 5') ||
@@ -530,6 +565,13 @@ function buildModelSelectionExpression(
       }
       if (candidateGpt55VisibleAlias) {
         score += 900;
+      }
+      if (matchedTargetWords.length > 0) {
+        score += matchedTargetWords.length * 140;
+      }
+      if (targetTierWords.length > 0) {
+        const matchedTierWords = targetTierWords.filter(candidateHasWord);
+        score += matchedTierWords.length * 220;
       }
       if (normalizedText && normalizedTarget) {
         if (normalizedText === normalizedTarget) {
@@ -547,14 +589,9 @@ function buildModelSelectionExpression(
           score += tokenWeight;
         }
       }
-      if (targetWords.length > 1) {
-        let missing = 0;
-        for (const word of targetWords) {
-          if (!normalizedText.includes(word)) {
-            missing += 1;
-          }
-        }
-        score -= missing * 12;
+      if (meaningfulTargetWords.length > 1) {
+        const missing = meaningfulTargetWords.length - matchedTargetWords.length;
+        score -= Math.min(40, Math.max(0, missing) * 6);
       }
       // If the caller didn't explicitly ask for Pro, prefer non-Pro options when both exist.
       if (wantsPro) {
@@ -589,6 +626,9 @@ function buildModelSelectionExpression(
       const text = normalizeText(node?.textContent ?? '');
       return (
         text.includes('instant') ||
+        text.includes('medium') ||
+        text.includes('high') ||
+        text.includes('extended') ||
         text.includes('thinking') ||
         labelHasProWord(text) ||
         text.includes('5 5') ||
@@ -726,6 +766,11 @@ function buildModelSelectionExpression(
               resolve({ status: 'switched', label: getResolvedLabel(match.label) });
               return;
             }
+            if (selectionSettled === 'changed') {
+              closeMenu();
+              resolve({ status: 'switched-best-effort', label: getResolvedLabel(match.label) });
+              return;
+            }
             attempt();
           });
           return;
@@ -733,7 +778,11 @@ function buildModelSelectionExpression(
         if (performance.now() - start > MAX_WAIT_MS) {
           resolve({
             status: 'option-not-found',
-            hint: { temporaryChat: detectTemporaryChat(), availableOptions: collectAvailableOptions() },
+            hint: {
+              temporaryChat: detectTemporaryChat(),
+              availableOptions: collectAvailableOptions(),
+              currentLabel: getResolvedLabel('') || null,
+            },
           });
           return;
         }
@@ -771,7 +820,12 @@ function buildComposerSignalMatchers(targetModel: string): ComposerSignalMatcher
   if (normalized.includes("instant")) {
     return { includesAny: ["instant"], excludesAny: ["thinking", "pro"], allowBlank: false };
   }
-  return { includesAny: [], excludesAny: ["thinking", "pro"], allowBlank: true };
+  for (const tier of ["medium", "high", "extended", "heavy", "standard", "light"]) {
+    if (normalized.split(" ").includes(tier)) {
+      return { includesAny: [tier], excludesAny: [], allowBlank: false };
+    }
+  }
+  return { includesAny: [], excludesAny: ["thinking", "pro"], allowBlank: false };
 }
 
 export function buildComposerSignalMatchersForTest(targetModel: string): ComposerSignalMatchers {
@@ -803,6 +857,11 @@ function buildModelMatchersLiteral(targetModel: string): {
   push(`chatgpt ${dotless}`, labelTokens);
   push(`gpt ${base}`, labelTokens);
   push(`gpt ${dotless}`, labelTokens);
+  for (const word of base.replace(/[^a-z0-9]+/g, " ").split(/\s+/)) {
+    if (word.length > 1) {
+      push(word, labelTokens);
+    }
+  }
   // Numeric variations (5.5 <-> 55 <-> gpt-5-5)
   if (base.includes("5.5") || base.includes("5-5") || base.includes("55")) {
     push("5.5", labelTokens);
