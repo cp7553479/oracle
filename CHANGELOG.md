@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Dependencies: update Vitest, coverage tooling, and Vite to remove the vulnerable transitive esbuild release.
+- Dependencies: update Vitest, coverage tooling, Vite, Hono, and protobufjs to remove vulnerable transitive releases.
 
 ### Fixed
 
