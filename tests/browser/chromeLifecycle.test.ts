@@ -134,6 +134,30 @@ describe("connectWithNewTab", () => {
   });
 });
 
+describe("openBlankTab", () => {
+  beforeEach(() => {
+    cdpMock.mockReset();
+    cdpNewMock.mockReset();
+    cdpCloseMock.mockReset();
+    cdpListMock.mockReset();
+  });
+
+  test("opens a blank survivor tab", async () => {
+    cdpNewMock.mockResolvedValue({ id: "blank-survivor" });
+
+    const { openBlankTab } = await import("../../src/browser/chromeLifecycle.js");
+    const logger = Object.assign(vi.fn(), { verbose: true });
+
+    await expect(openBlankTab(9222, logger, "127.0.0.1")).resolves.toBe("blank-survivor");
+    expect(cdpNewMock).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 9222,
+      url: "about:blank",
+    });
+    expect(logger).toHaveBeenCalledWith("Opened blank browser tab (target=blank-survivor)");
+  });
+});
+
 describe("closeBlankChromeTabs", () => {
   beforeEach(() => {
     cdpMock.mockReset();

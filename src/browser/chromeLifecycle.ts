@@ -552,6 +552,26 @@ export async function closeTab(
   }
 }
 
+export async function openBlankTab(
+  port: number,
+  logger: BrowserLogger,
+  host?: string,
+): Promise<string | undefined> {
+  const effectiveHost = host ?? "127.0.0.1";
+  try {
+    const target = await CDP.New({ host: effectiveHost, port, url: "about:blank" });
+    const targetId = target?.id;
+    if (targetId && logger.verbose) {
+      logger(`Opened blank browser tab (target=${targetId})`);
+    }
+    return targetId;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger(`Failed to open blank browser tab: ${message}`);
+    return undefined;
+  }
+}
+
 export async function closeBlankChromeTabs(
   port: number,
   logger: BrowserLogger,

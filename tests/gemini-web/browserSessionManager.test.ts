@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 
 const {
   launchChrome,
@@ -149,5 +149,24 @@ describe("openGeminiBrowserSession", () => {
       expect.any(Function),
     );
     homedirSpy.mockRestore();
+  });
+
+  it("preserves the manual-login profile directory after closing a launched session", async () => {
+    const explicitDir = path.join(tempRoot, "persistent-profile");
+
+    const { openGeminiBrowserSession } =
+      await import("../../src/gemini-web/browserSessionManager.js");
+    const session = await openGeminiBrowserSession({
+      browserConfig: { manualLoginProfileDir: explicitDir },
+      keepBrowserDefault: false,
+      purpose: "test",
+    });
+
+    await session.close();
+
+    await expect(access(explicitDir)).resolves.toBeUndefined();
+    expect(cleanupStaleProfileState).toHaveBeenCalledWith(explicitDir, undefined, {
+      lockRemovalMode: "never",
+    });
   });
 });

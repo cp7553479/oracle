@@ -19,6 +19,7 @@ import {
   connectToRemoteChrome,
   connectWithNewTab,
   closeTab,
+  openBlankTab,
   closeRemoteChromeTarget,
   closeBlankChromeTabs,
 } from "./chromeLifecycle.js";
@@ -66,7 +67,6 @@ import {
   readChromePid,
   readDevToolsPort,
   shouldCleanupManualLoginProfileState,
-  terminateRecordedChromeForProfile,
   verifyDevToolsReachable,
   writeChromePid,
   writeDevToolsActivePort,
@@ -2196,6 +2196,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     } catch {
       // ignore
     }
+    let survivorBlankTargetId: string | undefined;
+    let runTargetClosed = false;
     // Close the isolated tab once the response has been fully captured to prevent
     // tab accumulation across repeated runs. Keep the tab open on incomplete runs
     // so reattach can recover the response.
@@ -2208,11 +2210,14 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       isolatedTargetId &&
       chrome?.port
     ) {
+      survivorBlankTargetId = await openBlankTab(chrome.port, logger, chromeHost).catch(
+        () => undefined,
+      );
       await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
+      runTargetClosed = true;
     }
     let keepBrowserOpen = effectiveKeepBrowser || preserveBrowserOnError;
     let cleanupProfileLock: ProfileRunLock | null = null;
-    let terminatedRecordedChrome = false;
     let otherActiveBrowserTabLeases: boolean | null = null;
     const hasOtherActiveLeases = async () => {
       if (!manualLogin || !tabLease) {
@@ -2236,7 +2241,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const otherLeasesActive = await hasOtherActiveLeases().catch(() => true);
       if (!otherLeasesActive) {
         await closeBlankChromeTabs(chrome.port, logger, chromeHost, {
-          excludeTargetIds: [isolatedTargetId, lastTargetId],
+          excludeTargetIds: [isolatedTargetId, lastTargetId, survivorBlankTargetId],
         }).catch(() => undefined);
       }
     }
@@ -2253,10 +2258,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       if (keepBrowserOpen) {
         logger("[browser] Other ChatGPT tab leases still active; leaving shared Chrome running.");
       } else if (reusedChrome && !connectionClosedUnexpectedly) {
-        terminatedRecordedChrome = await terminateRecordedChromeForProfile(
-          userDataDir,
-          logger,
-        ).catch(() => false);
+        keepBrowserOpen = true;
+        logger("[browser] Reused shared Chrome; leaving browser process running.");
       }
     }
     if (tabLease) {
@@ -2266,14 +2269,28 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     }
     removeDialogHandler?.();
     removeTerminationHooks?.();
+    if (!keepBrowserOpen && !connectionClosedUnexpectedly) {
+      if (!runTargetClosed && isolatedTargetId && chrome?.port) {
+        survivorBlankTargetId = await openBlankTab(chrome.port, logger, chromeHost).catch(
+          () => undefined,
+        );
+        await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
+        runTargetClosed = true;
+      }
+      keepBrowserOpen = true;
+    }
     if (!keepBrowserOpen) {
       if (!connectionClosedUnexpectedly) {
         try {
-          if (!terminatedRecordedChrome) {
-            await chrome.kill();
+          if (!runTargetClosed && isolatedTargetId && chrome?.port) {
+            await openBlankTab(chrome.port, logger, chromeHost).catch(() => undefined);
+            await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(
+              () => undefined,
+            );
+            runTargetClosed = true;
           }
         } catch {
-          // ignore kill failures
+          // ignore tab close failures
         }
       }
       if (manualLogin) {

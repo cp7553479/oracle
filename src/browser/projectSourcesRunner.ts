@@ -7,6 +7,7 @@ import {
   connectWithNewTab,
   hideChromeWindow,
   launchChrome,
+  openBlankTab,
   registerTerminationHooks,
 } from "./chromeLifecycle.js";
 import { resolveBrowserConfig } from "./config.js";
@@ -253,13 +254,19 @@ export async function runBrowserProjectSources(
     } catch {
       // ignore close failures
     }
+    let runTargetClosed = false;
     if (completed && isolatedTargetId && chrome?.port) {
+      await openBlankTab(
+        chrome.port,
+        logger,
+        chrome.host ?? "127.0.0.1",
+      ).catch(() => undefined);
       await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
+      runTargetClosed = true;
     }
 
     let keepBrowserOpen = effectiveKeepBrowser;
     let cleanupProfileLock: ProfileRunLock | null = null;
-    let terminatedRecordedChrome = false;
     if (!keepBrowserOpen && manualLogin && tabLease) {
       const cleanupLockTimeoutMs = Math.max(0, config.profileLockTimeoutMs ?? 0);
       if (cleanupLockTimeoutMs > 0) {
@@ -284,14 +291,26 @@ export async function runBrowserProjectSources(
       tabLease = null;
       await handle.release().catch(() => undefined);
     }
+    if (!keepBrowserOpen && !connectionClosedUnexpectedly) {
+      if (!runTargetClosed && isolatedTargetId && chrome?.port) {
+        await openBlankTab(chrome.port, logger, chromeHost).catch(() => undefined);
+        await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
+        runTargetClosed = true;
+      }
+      keepBrowserOpen = true;
+    }
     if (!keepBrowserOpen && chrome) {
       if (!connectionClosedUnexpectedly) {
         try {
-          if (!terminatedRecordedChrome) {
-            await chrome.kill();
+          if (!runTargetClosed && isolatedTargetId && chrome?.port) {
+            await openBlankTab(chrome.port, logger, chromeHost).catch(() => undefined);
+            await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(
+              () => undefined,
+            );
+            runTargetClosed = true;
           }
         } catch {
-          // ignore kill failures
+          // ignore tab close failures
         }
       }
       if (manualLogin) {
