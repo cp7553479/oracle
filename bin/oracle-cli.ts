@@ -33,6 +33,7 @@ import {
   parseFloatOption,
   parseIntOption,
   parseSearchOption,
+  parseThinkingTimeOption,
   usesDefaultStatusFilters,
   resolvePreviewMode,
   normalizeModelOption,
@@ -152,7 +153,7 @@ interface CliOptions extends OptionValues {
   browserAttachments?: string;
   browserInlineFiles?: boolean;
   browserBundleFiles?: boolean;
-  browserBundleFormat?: "text" | "zip";
+  browserBundleFormat?: "auto" | "text" | "zip";
   remoteChrome?: string;
   browserPort?: number;
   browserDebugPort?: number;
@@ -779,9 +780,9 @@ program
   .addOption(
     new Option(
       "--browser-thinking-time <level>",
-      "Thinking time intensity for Thinking/Pro models: light, standard, extended, heavy.",
+      "Thinking time intensity for Thinking/Pro models: light, standard, extended, heavy, or ChatGPT UI aliases.",
     )
-      .choices(["light", "standard", "extended", "heavy"])
+      .argParser(parseThinkingTimeOption)
       .hideHelp(),
   )
   .addOption(
@@ -813,7 +814,7 @@ program
   .addOption(
     new Option(
       "--browser-attachments <mode>",
-      "How to deliver --file inputs in browser mode: auto (default) pastes inline up to ~60k chars then uploads; never always paste inline; always always upload.",
+      "How to deliver --file inputs in browser mode: auto (default) pastes text inline up to ~60k chars then uploads; never requires inline-compatible text files; always uploads.",
     )
       .choices(["auto", "never", "always"])
       .default("auto"),
@@ -852,10 +853,10 @@ program
   .addOption(
     new Option(
       "--browser-bundle-format <format>",
-      "Bundle format for browser uploads when files are bundled: text (default) or zip.",
+      "Bundle format for browser uploads when files are bundled: auto (default), text, or zip.",
     )
-      .choices(["text", "zip"])
-      .default("text"),
+      .choices(["auto", "text", "zip"])
+      .default("auto"),
   )
   .addOption(
     new Option(
@@ -1426,7 +1427,7 @@ function buildRunOptions(
       "auto",
     browserInlineFiles: overrides.browserInlineFiles ?? options.browserInlineFiles ?? false,
     browserBundleFiles: overrides.browserBundleFiles ?? options.browserBundleFiles ?? false,
-    browserBundleFormat: overrides.browserBundleFormat ?? options.browserBundleFormat ?? "text",
+    browserBundleFormat: overrides.browserBundleFormat ?? options.browserBundleFormat ?? "auto",
     generateImage: overrides.generateImage ?? options.generateImage,
     outputPath: overrides.outputPath ?? options.output,
     browserFollowUps: overrides.browserFollowUps ?? options.browserFollowUp ?? [],
@@ -2201,6 +2202,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
       await import("../src/cli/browserConfig.js");
     const config = await buildBrowserConfig({
       ...options,
+      remoteHost: remoteHost ?? undefined,
       model: activeModel,
       browserModelLabel: resolveBrowserModelLabel(cliModelArg, activeModel),
     });

@@ -28,12 +28,13 @@ async function readSessionLogTail(sessionId: string, maxBytes: number): Promise<
 import { performSessionRun } from "../../cli/sessionRunner.js";
 import { runDryRunSummary } from "../../cli/dryRun.js";
 import { CHATGPT_URL } from "../../browser/constants.js";
-import { CONSULT_PRESETS, consultInputSchema } from "../types.js";
+import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
 import { resolveNotificationSettings } from "../../cli/notifier.js";
-import { resolveBrowserModelLabel } from "../../cli/browserConfig.js";
+import { mapModelToBrowserLabel, resolveBrowserModelLabel } from "../../cli/browserConfig.js";
 import type { BrowserModelStrategy } from "../../browser/types.js";
+import { normalizeThinkingTimeLevel } from "../../oracle/thinkingTime.js";
 
 // Use raw shapes so the MCP SDK (with its bundled Zod) wraps them and emits valid JSON Schema.
 const consultInputShape = {
@@ -83,13 +84,12 @@ const consultInputShape = {
     .optional()
     .describe("Browser-only: bundle many files into a single upload (helps with upload limits)."),
   browserBundleFormat: z
-    .enum(["text", "zip"])
+    .enum(["auto", "text", "zip"])
     .optional()
     .describe(
-      'Browser-only: bundle upload format when browserBundleFiles is true or auto-bundling is needed. Defaults to "text"; "zip" preserves individual file names in one uploaded archive.',
+      'Browser-only: bundle upload format when browserBundleFiles is true or auto-bundling is needed. Defaults to "auto"; "auto" uses ZIP when bundled inputs include raw/binary files.',
     ),
-  browserThinkingTime: z
-    .enum(["light", "standard", "extended", "heavy"])
+  browserThinkingTime: browserThinkingTimeRawSchema
     .optional()
     .describe("Browser-only: set ChatGPT thinking time when supported by the chosen model."),
   browserModelStrategy: z
@@ -206,7 +206,7 @@ const consultDryRunResolvedShape = z.object({
       researchMode: z.string().nullable().optional(),
       attachments: z.string().optional(),
       bundleFiles: z.boolean().optional(),
-      bundleFormat: z.enum(["text", "zip"]).optional(),
+      bundleFormat: z.enum(["auto", "text", "zip"]).optional(),
       keepBrowser: z.boolean().optional(),
       manualLogin: z.boolean().optional(),
       profileDir: z.string().nullable().optional(),
@@ -340,10 +340,13 @@ export function buildConsultBrowserConfig({
   const preferredLabel = (browserModelLabel ?? inputModel)?.trim();
   const isChatGptModel = runModel.startsWith("gpt-") && !runModel.includes("codex");
   const desiredModelLabel = isChatGptModel
-    ? preferredLabel || runModel
+    ? mapModelToBrowserLabel(runModel)
     : resolveBrowserModelLabel(preferredLabel, runModel);
   const configuredUrl = configuredBrowser.chatgptUrl ?? configuredBrowser.url ?? CHATGPT_URL;
-  const manualLogin = hasProfileDir ? true : (configuredBrowser.manualLogin ?? true);
+  const manualLogin = hasProfileDir
+    ? true
+    : (configuredBrowser.manualLogin ?? process.platform === "win32");
+  const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
 
   return {
     ...configuredBrowser,
@@ -357,11 +360,11 @@ export function buildConsultBrowserConfig({
     manualLoginProfileDir: manualLogin
       ? ((envProfileDir || configuredBrowser.manualLoginProfileDir) ?? null)
       : null,
-    thinkingTime: browserThinkingTime ?? configuredBrowser.thinkingTime,
+    thinkingTime: browserThinkingTime ?? configuredThinkingTime ?? undefined,
     modelStrategy: browserModelStrategy ?? configuredBrowser.modelStrategy,
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
-    desiredModel: desiredModelLabel || resolveBrowserModelLabel(undefined, runModel),
+    desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
   };
 }
 
@@ -466,7 +469,7 @@ export function formatConsultDryRunResolved(details: ConsultDryRunResolved): str
     lines.push(`  browser research mode: ${details.browser.researchMode ?? "off"}`);
     lines.push(`  browser attachments: ${details.browser.attachments ?? "auto"}`);
     lines.push(`  browser bundle files: ${details.browser.bundleFiles ? "yes" : "no"}`);
-    lines.push(`  browser bundle format: ${details.browser.bundleFormat ?? "text"}`);
+    lines.push(`  browser bundle format: ${details.browser.bundleFormat ?? "auto"}`);
     lines.push(`  browser keep browser: ${details.browser.keepBrowser ? "yes" : "no"}`);
     lines.push(`  browser manual login: ${details.browser.manualLogin ? "yes" : "no"}`);
     if (details.browser.profileDir) {

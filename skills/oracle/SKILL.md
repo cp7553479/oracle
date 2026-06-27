@@ -28,42 +28,42 @@ Recommended defaults:
 ## Commands (preferred)
 
 - Show help (once/session):
-  - `npx -y @steipete/oracle --help`
+  - `oracle --help`
 
 - Preview (no tokens):
-  - `npx -y @steipete/oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
-  - `npx -y @steipete/oracle --dry-run full -p "<task>" --file "src/**"`
+  - `oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
+  - `oracle --dry-run full -p "<task>" --file "src/**"`
 
 - Token/cost sanity:
-  - `npx -y @steipete/oracle --dry-run summary --files-report -p "<task>" --file "src/**"`
+  - `oracle --dry-run summary --files-report -p "<task>" --file "src/**"`
 
 - Startup/perf trace:
-  - `npx -y @steipete/oracle --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
+  - `oracle --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
   - Use when CLI startup or time-to-first-output feels slow; inspect `first-output` and `exit`.
 
 - Browser run (main path; long-running is normal):
-  - `npx -y @steipete/oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
-  - `npx -y @steipete/oracle --profile default --model gpt-5.5-pro -p "<task>" --file "src/**"`
+  - `oracle --engine browser --model gpt-5.5-pro -p "<task>" --file "src/**"`
+  - `oracle --profile default --model gpt-5.5-pro -p "<task>" --file "src/**"`
 
 ## Named browser profiles
 
 Use one browser profile per ChatGPT/Gemini account. `--profile default` maps to the legacy manual-login profile at `~/.oracle/browser-profile`; other names live under `~/.oracle/browser-profiles/<name>`.
 
 - Create or initialize a profile:
-  - `npx -y @steipete/oracle profile add work`
-  - `npx -y @steipete/oracle profile add gemini --url https://gemini.google.com/`
+  - `oracle profile add work`
+  - `oracle profile add gemini --url https://gemini.google.com/`
 - Inspect or reopen profiles before rerunning:
-  - `npx -y @steipete/oracle profile list`
-  - `npx -y @steipete/oracle profile open default`
-  - `npx -y @steipete/oracle profile open work`
+  - `oracle profile list`
+  - `oracle profile open default`
+  - `oracle profile open work`
 - Run with a specific signed-in profile:
-  - `npx -y @steipete/oracle --profile default --model gpt-5.5-pro -p "<task>"`
-  - `npx -y @steipete/oracle --profile work --model gpt-5.5-pro -p "<task>"`
+  - `oracle --profile default --model gpt-5.5-pro -p "<task>"`
+  - `oracle --profile work --model gpt-5.5-pro -p "<task>"`
 
 `profile add/open` opens a normal Chrome window with that profile for human login; close it before running Oracle automation. If a browser run hits quota, rate-limit, login, Cloudflare, or assistant-timeout issues, inspect the session first, then retry with another signed-in profile if appropriate.
 
 - Manual paste fallback (assemble bundle, copy to clipboard):
-  - `npx -y @steipete/oracle --render --copy -p "<task>" --file "src/**"`
+  - `oracle --render --copy -p "<task>" --file "src/**"`
   - Note: `--copy` is a hidden alias for `--copy-markdown`.
 
 ## Attaching files (`--file`)
@@ -90,7 +90,7 @@ Use one browser profile per ChatGPT/Gemini account. `--profile default` maps to 
 - Target: keep total input under ~196k tokens.
 - Use `--files-report` (and/or `--dry-run json`) to spot the token hogs before spending.
 - Use `--perf-trace` / `ORACLE_PERF_TRACE=1` for startup and first-output timing. Traces redact prompts, tokens, keys, cookies, and inline cookie payloads; detached API children write a session-suffixed sidecar trace.
-- If you need hidden/advanced knobs: `npx -y @steipete/oracle --help --verbose`.
+- If you need hidden/advanced knobs: `oracle --help --verbose`.
 
 ## Engines (API vs browser)
 
@@ -99,7 +99,7 @@ Use one browser profile per ChatGPT/Gemini account. `--profile default` maps to 
 - **API runs require explicit user consent** before starting because they incur usage costs.
 - Browser attachments:
   - `--browser-attachments auto|never|always` (auto pastes inline up to ~60k chars then uploads).
-  - Add `--browser-bundle-files --browser-bundle-format zip` to upload many text files as one ZIP while preserving file names.
+  - Add `--browser-bundle-files --browser-bundle-format auto|zip` to upload many files as one bundle; ZIP bundles preserve original file bytes.
 - Remote browser host (signed-in machine runs automation):
   - Host: `oracle serve --host 0.0.0.0 --port 9473 --token <secret>`
   - Client: `oracle --engine browser --remote-host <host:port> --remote-token <secret> -p "<task>" --file "src/**"`

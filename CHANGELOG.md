@@ -1,6 +1,35 @@
 # Changelog
 
-## 0.14.1 — Unreleased
+## 0.15.1 — Unreleased
+
+### Fixed
+
+- Browser: wait up to eight seconds for the ChatGPT model/effort composer pill to mount before failing explicit selection, while leaving `option-not-found` failures immediate. Thanks @gustavosmendes!
+
+## 0.15.0 — 2026-06-19
+
+### Changed
+
+- Dependencies: update Vitest, coverage tooling, Vite, Hono, and protobufjs to remove vulnerable transitive releases.
+
+### Fixed
+
+- Browser: wait for the current ChatGPT Intelligence pill before falling back to the default thinking level, and make `--browser-model-strategy select` prefer concrete requested variants over version-only submenu wrappers with bounded retries. This lets current-model runs select and verify Extra High before submitting and prevents explicit Instant selection from hanging (thanks @alex-on-java and @servrox).
+- Browser: save ChatGPT generated-file button downloads sequentially, preserve browser-provided filenames for generic endpoints, and stop after a timed-out download so late completions cannot be attributed to the next file. Thanks @orbitingflea!
+- Browser: reject Deep Research planning/status captures and fail clearly when ChatGPT silently returns a normal response without observable research activity, instead of saving either as the final report. Fixes #261. Thanks @aaronflorey!
+
+## 0.14.1 — 2026-06-15
+
+### Changed
+
+- Dependencies: update sweet-cookie, Markdansi, osc-progress, esbuild, TypeScript native preview, es-toolkit, and related Node/Inquirer type packages.
+
+### Fixed
+
+- Browser: preserve original bytes when ZIP-bundling raw, archive, office, and media uploads; choose byte-preserving ZIPs automatically for mixed bundles while enforcing attachment and memory limits. Thanks @orbitingflea!
+- Browser: select explicit Thinking model versions through ChatGPT's current `Configure...` Intelligence dialog, retain support for the earlier direct-version submenu, and require observable version evidence before reporting success. Thanks @aaronflorey!
+- Browser: retry manual-login DevTools tab creation on fresh Chrome launches, recover ChatGPT generated-image downloads through the authenticated browser context when Node-side fetch fails, and keep generated-image artifact waits fail-fast on visible ChatGPT warnings. Thanks @derekszen!
+- Browser: support ChatGPT's updated Intelligence model picker and Pro effort submenu, and accept `instant`, `medium`, `high`, and `extra-high` as thinking-time aliases while preserving existing Oracle names. Thanks @orbitingflea!
 
 ### Fixed
 

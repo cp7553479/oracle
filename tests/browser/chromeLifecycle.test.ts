@@ -132,6 +132,28 @@ describe("connectWithNewTab", () => {
     expect(cdpNewMock).toHaveBeenCalledTimes(1);
     expect(cdpMock).toHaveBeenCalledWith({ host: "127.0.0.1", port: 9222, target: "target-2" });
   });
+
+  test("retries transient DevTools connection failures before falling back", async () => {
+    vi.useFakeTimers();
+    cdpNewMock
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:9222"))
+      .mockResolvedValueOnce({ id: "target-3" });
+    cdpMock.mockResolvedValue({});
+
+    const { connectWithNewTab } = await import("../../src/browser/chromeLifecycle.js");
+    const logger = vi.fn();
+
+    const resultPromise = connectWithNewTab(9222, logger, undefined, undefined, {
+      retries: 1,
+      retryDelayMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await resultPromise;
+
+    expect(result.targetId).toBe("target-3");
+    expect(cdpNewMock).toHaveBeenCalledTimes(2);
+    expect(cdpMock).toHaveBeenCalledWith({ host: "127.0.0.1", port: 9222, target: "target-3" });
+  });
 });
 
 describe("openBlankTab", () => {
@@ -203,6 +225,7 @@ describe("closeBlankChromeTabs", () => {
   });
 
   test("opens a dedicated tab through a browser websocket endpoint", async () => {
+    const send = vi.fn(async () => ({}));
     const browserClient = {
       Target: {
         createTarget: vi.fn(async () => ({ targetId: "target-9" })),
@@ -220,6 +243,7 @@ describe("closeBlankChromeTabs", () => {
       removeListener: vi.fn(),
       close: vi.fn(async () => {}),
     };
+    Object.defineProperty(browserClient, "send", { value: send });
     cdpMock.mockResolvedValue(browserClient);
 
     const { connectToRemoteChrome } = await import("../../src/browser/chromeLifecycle.js");
@@ -243,6 +267,12 @@ describe("closeBlankChromeTabs", () => {
       flatten: true,
     });
     expect(connection.targetId).toBe("target-9");
+    await (
+      connection.client as typeof connection.client & {
+        send: (method: string, params: unknown, sessionId: string) => Promise<unknown>;
+      }
+    ).send("Target.setAutoAttach", { autoAttach: true }, "session-9");
+    expect(send).toHaveBeenCalledWith("Target.setAutoAttach", { autoAttach: true }, "session-9");
   });
 
   test("waits on a single websocket connection attempt for Chrome approval", async () => {

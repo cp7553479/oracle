@@ -2,8 +2,10 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 import type { SessionModelRun } from "../../src/sessionStore.js";
 import { applyConsultPreset } from "../../src/mcp/consultPresets.ts";
+import { consultInputSchema } from "../../src/mcp/types.ts";
 import { setOracleHomeDirOverrideForTest } from "../../src/oracleHome.js";
 import {
   buildConsultBrowserConfig,
@@ -53,6 +55,33 @@ describe("summarizeModelRunsForConsult", () => {
         models: ["gpt-5.1", "gpt-5.2"],
       }),
     ).toThrow(/cannot be combined with models/i);
+  });
+
+  test("normalizes browser thinking-time aliases for MCP callers", () => {
+    expect(
+      consultInputSchema.parse({
+        prompt: "review this plan",
+        files: [],
+        browserThinkingTime: "xhigh",
+      }),
+    ).toMatchObject({
+      browserThinkingTime: "heavy",
+    });
+  });
+
+  test("keeps the registered MCP input schema JSON-schema compatible", () => {
+    let inputSchema: z.ZodRawShape | undefined;
+    registerConsultTool({
+      registerTool: (_name: string, def: unknown) => {
+        inputSchema = (def as { inputSchema: z.ZodRawShape }).inputSchema;
+      },
+      server: {
+        sendLoggingMessage: async () => undefined,
+      },
+    } as unknown as Parameters<typeof registerConsultTool>[0]);
+
+    expect(inputSchema).toBeDefined();
+    expect(() => z.toJSONSchema(z.object(inputSchema!))).not.toThrow();
   });
 
   test("maps per-model metadata into consult summaries", () => {
@@ -145,7 +174,7 @@ describe("summarizeModelRunsForConsult", () => {
           keepBrowser: true,
           manualLogin: true,
           manualLoginProfileDir: "/tmp/oracle-profile",
-          thinkingTime: "extended",
+          thinkingTime: "high" as never,
           researchMode: "deep",
           archiveConversations: "never",
         },
@@ -165,12 +194,12 @@ describe("summarizeModelRunsForConsult", () => {
       thinkingTime: "extended",
       researchMode: "deep",
       archiveConversations: "never",
-      desiredModel: "gpt-5.1",
+      desiredModel: "GPT-5.2",
       cookieSync: false,
     });
   });
 
-  test("defaults MCP browser consults to manual-login profile", () => {
+  test("defaults MCP browser consults to manual login on Windows", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {},
       env: {},
@@ -178,8 +207,8 @@ describe("summarizeModelRunsForConsult", () => {
       inputModel: "gpt-5.5-pro",
     });
 
-    expect(config.manualLogin).toBe(true);
-    expect(config.cookieSync).toBe(false);
+    expect(config.manualLogin).toBe(process.platform === "win32");
+    expect(config.cookieSync).toBe(process.platform !== "win32");
   });
 
   test("lets explicit consult inputs override config defaults", () => {
@@ -315,7 +344,7 @@ describe("summarizeModelRunsForConsult", () => {
           resolvedEngine: "browser",
           model: "gpt-5.5-pro",
           browser: expect.objectContaining({
-            desiredModel: "gpt-5.5-pro",
+            desiredModel: "Pro",
             thinkingTime: "extended",
             modelStrategy: "select",
             imageOutputPath: path.join(realpathSync(home), "generated", "from-mcp.png"),

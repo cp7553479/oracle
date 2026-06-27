@@ -633,9 +633,7 @@ export async function performSessionRun({
     }
     if (cloudflareChallenge && mode === "browser") {
       const details = userError.details as { reuseProfileHint?: string } | undefined;
-      log(
-        dim("Cloudflare challenge detected; browser left running so you can complete the check."),
-      );
+      log(dim("Cloudflare challenge detected; browser left running so you can complete the check."));
       if (details?.reuseProfileHint) {
         log(dim(`Reuse this browser profile with: ${details.reuseProfileHint}`));
       }
