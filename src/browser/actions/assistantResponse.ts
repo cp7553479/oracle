@@ -607,7 +607,8 @@ async function isCompletionVisible(Runtime: ChromeClient["Runtime"]): Promise<bo
           return Boolean(node.querySelector(ASSISTANT_SELECTOR) || node.querySelector('[data-testid*="assistant"]'));
         };
 
-        const turns = Array.from(document.querySelectorAll('${CONVERSATION_TURN_SELECTOR}'));
+        const preciseTurns = Array.from(document.querySelectorAll('[data-testid^="conversation-turn"]'));
+        const turns = preciseTurns.length > 0 ? preciseTurns : Array.from(document.querySelectorAll('${CONVERSATION_TURN_SELECTOR}'));
         let lastAssistantTurn = null;
         for (let i = turns.length - 1; i >= 0; i--) {
           if (isAssistantTurn(turns[i])) {
@@ -878,7 +879,8 @@ function buildResponseObserverExpression(
 
     // Check if the last assistant turn has finished (scoped to avoid detecting old turns).
     const isLastAssistantTurnFinished = () => {
-      const turns = Array.from(document.querySelectorAll(CONVERSATION_SELECTOR));
+      const preciseTurns = Array.from(document.querySelectorAll('[data-testid^="conversation-turn"]'));
+      const turns = preciseTurns.length > 0 ? preciseTurns : Array.from(document.querySelectorAll(CONVERSATION_SELECTOR));
       let lastAssistantTurn = null;
       for (let i = turns.length - 1; i >= 0; i--) {
         if (isAssistantTurn(turns[i])) {
@@ -1018,7 +1020,15 @@ function buildAssistantExtractor(functionName: string): string {
       }
     };
 
-    const turns = Array.from(document.querySelectorAll(CONVERSATION_SELECTOR));
+    // Prefer the precise testid-based turn containers when present; the broad
+    // CONVERSATION_SELECTOR can double-count nested message divs and shift the
+    // assistant turnIndex out of sync with the baseline count.
+    const containerTurns = Array.from(
+      document.querySelectorAll('[data-testid^="conversation-turn"]'),
+    );
+    const turns = containerTurns.length > 0
+      ? containerTurns
+      : Array.from(document.querySelectorAll(CONVERSATION_SELECTOR));
     for (let index = turns.length - 1; index >= 0; index -= 1) {
       const turn = turns[index];
       if (!isAssistantTurn(turn)) {
