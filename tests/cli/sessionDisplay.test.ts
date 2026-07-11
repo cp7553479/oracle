@@ -196,6 +196,19 @@ describe("trimBeforeFirstAnswer", () => {
 
     expect(trimBeforeFirstAnswer(input)).toBe("Answer:\nRecovered report");
   });
+
+  test("skips a stale Deep Research App wrapper before a recovered answer", () => {
+    const input =
+      "Answer:\n" +
+      "Called tool\n" +
+      "Deep Research App\n" +
+      "Response { session_id: abc123 }\n" +
+      "[reattach] captured assistant response from existing Chrome tab\n" +
+      "Answer:\n" +
+      "# Recovered report";
+
+    expect(trimBeforeFirstAnswer(input)).toBe("Answer:\n# Recovered report");
+  });
 });
 
 describe("isDeepResearchPlaceholderCapture", () => {
@@ -233,6 +246,14 @@ describe("isDeepResearchPlaceholderCapture", () => {
       "Answer:\n" +
       "# Research Report\n" +
       "The findings show that the market grew 12% year over year.\n";
+    expect(isDeepResearchPlaceholderCapture(deepResearchMeta, log)).toBe(false);
+  });
+
+  test("does not flag prose that happens to begin with a tool-call phrase", () => {
+    const log =
+      "Answer:\n" +
+      "Called tool adoption is accelerating across the market.\n" +
+      "The report analyzes the evidence in detail.\n";
     expect(isDeepResearchPlaceholderCapture(deepResearchMeta, log)).toBe(false);
   });
 
