@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CHATGPT_COOKIE_NAMES, resolveBrowserConfig } from "../../src/browser/config.js";
@@ -6,12 +6,25 @@ import { CHATGPT_URL, DEEP_RESEARCH_DEFAULT_TIMEOUT_MS } from "../../src/browser
 
 describe("resolveBrowserConfig", () => {
   const originalProfileDir = process.env.ORACLE_BROWSER_PROFILE_DIR;
+  const originalMaxTabs = process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
+
+  beforeEach(() => {
+    // Isolate from the caller's environment: a developer/CI export of the max-tabs
+    // override must not leak into tests that assert built-in defaults. afterEach
+    // below still restores the caller's original value once the suite finishes.
+    delete process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
+  });
 
   afterEach(() => {
     if (originalProfileDir === undefined) {
       delete process.env.ORACLE_BROWSER_PROFILE_DIR;
     } else {
       process.env.ORACLE_BROWSER_PROFILE_DIR = originalProfileDir;
+    }
+    if (originalMaxTabs === undefined) {
+      delete process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
+    } else {
+      process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = originalMaxTabs;
     }
   });
 
@@ -94,6 +107,23 @@ describe("resolveBrowserConfig", () => {
     );
 
     expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBeNull();
+  });
+
+  test("resolves maxConcurrentTabs from config, env, and default", () => {
+    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "5";
+    expect(resolveBrowserConfig({ maxConcurrentTabs: 2 }).maxConcurrentTabs).toBe(2);
+    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(5);
+
+    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "0";
+    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+
+    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "not-a-number";
+    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+
+    for (const malformed of ["5junk", "2.5", "1e2"]) {
+      process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = malformed;
+      expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+    }
   });
 
   test("uses the longer Deep Research timeout unless explicitly overridden", () => {
