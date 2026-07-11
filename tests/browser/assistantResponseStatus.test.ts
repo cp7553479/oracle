@@ -10,7 +10,10 @@ import {
   type TerminalGateConfig,
   type TerminalSample,
 } from "../../src/browser/actions/assistantResponse.js";
-import { buildThinkingActivePredicateJsForTest } from "../../src/browser/actions/thinkingStatus.js";
+import {
+  buildThinkingActivePredicateJsForTest,
+  buildThinkingActivityDetailsPredicateJsForTest,
+} from "../../src/browser/actions/thinkingStatus.js";
 import { STOP_BUTTON_SELECTORS } from "../../src/browser/constants.js";
 
 // Completed-summary shapes the veto must treat as NOT active: bare, heading-prefixed
@@ -191,6 +194,7 @@ describe("classifyTurnTerminal", () => {
         stopVisible: partial.stopVisible ?? false,
         barVisible: partial.barVisible ?? false,
         thinkingActive: partial.thinkingActive ?? false,
+        strongThinkingActive: partial.strongThinkingActive ?? false,
       };
       const result = classifyTurnTerminal(state, sample, cfg);
       state = result.state;
@@ -240,7 +244,7 @@ describe("classifyTurnTerminal", () => {
     expect(out.at(-1)).toBe(true);
   });
 
-  test("proofA fires even if a stale thinking panel lingers (bar bypasses the veto)", () => {
+  test("proofA fires even if weak stale-sidecar evidence lingers", () => {
     const out = runGate([
       { len: 800, stopVisible: true },
       { len: 800, barVisible: true, thinkingActive: true },
@@ -248,9 +252,27 @@ describe("classifyTurnTerminal", () => {
       { len: 800, barVisible: true, thinkingActive: true },
       { len: 800, barVisible: true, thinkingActive: true },
     ]);
-    // The debounce increments on barVisible && !stop && !grew (NOT gated on thinking), so a
-    // debounced action bar proves completion even if a false-positive or stale thinking signal
-    // lingers. This avoids hanging a finished turn whose reasoning panel is still mounted.
+    // Weak activity can be a stale mounted sidecar; the debounced bar may override it.
+    expect(out.at(-1)).toBe(true);
+  });
+
+  test("proofA cannot override strong live activity and rebuilds its debounce afterward", () => {
+    const samples: Array<Partial<TerminalSample> & { len: number }> = [
+      { len: 800, stopVisible: true },
+    ];
+    for (let i = 0; i < 5; i++) {
+      samples.push({
+        len: 800,
+        barVisible: true,
+        thinkingActive: true,
+        strongThinkingActive: true,
+      });
+    }
+    samples.push({ len: 800, barVisible: true });
+    samples.push({ len: 800, barVisible: true });
+    samples.push({ len: 800, barVisible: true });
+    const out = runGate(samples);
+    expect(out.slice(0, 6).some(Boolean)).toBe(false);
     expect(out.at(-1)).toBe(true);
   });
 
@@ -349,7 +371,7 @@ describe("thinking-active completion veto", () => {
     public children: FakeEl[] = [];
   }
 
-  function evalThinkingActive(opts: {
+  interface ThinkingFixtureOptions {
     stop?: boolean;
     shimmer?: boolean;
     ariaBusy?: boolean;
@@ -359,8 +381,9 @@ describe("thinking-active completion veto", () => {
     progressMax?: number;
     unrelatedProgress?: boolean;
     panel?: FakeEl;
-  }): boolean {
-    const predicate = buildThinkingActivePredicateJsForTest("isThinkingActive");
+  }
+
+  function createThinkingContext(opts: ThinkingFixtureOptions) {
     const statusNodes = opts.statusText != null ? [new FakeEl(opts.statusText)] : [];
     const progressAttrs: Record<string, string> =
       opts.progressNow != null
@@ -378,7 +401,7 @@ describe("thinking-active completion veto", () => {
     turn.children = progressNodes;
     const turnNodes = [turn];
     const panelNodes = opts.panel ? [opts.panel] : [];
-    const context = createContext({
+    return createContext({
       Array,
       Number,
       String,
@@ -426,7 +449,23 @@ describe("thinking-active completion veto", () => {
         innerWidth: 1440,
       },
     });
-    return new Script(`${predicate}\nisThinkingActive();`).runInContext(context) as boolean;
+  }
+
+  function evalThinkingActive(opts: ThinkingFixtureOptions): boolean {
+    const predicate = buildThinkingActivePredicateJsForTest("isThinkingActive");
+    return new Script(`${predicate}\nisThinkingActive();`).runInContext(
+      createThinkingContext(opts),
+    ) as boolean;
+  }
+
+  function evalThinkingActivityDetails(opts: ThinkingFixtureOptions): {
+    active: boolean;
+    strong: boolean;
+  } {
+    const predicate = buildThinkingActivityDetailsPredicateJsForTest("readThinkingActivity");
+    return new Script(`${predicate}\nreadThinkingActivity();`).runInContext(
+      createThinkingContext(opts),
+    ) as { active: boolean; strong: boolean };
   }
 
   test("fires on a visible stop control", () => {
@@ -459,6 +498,7 @@ describe("thinking-active completion veto", () => {
 
   test("fires on a live progress bar inside the current assistant turn", () => {
     expect(evalThinkingActive({ progress: true })).toBe(true);
+    expect(evalThinkingActivityDetails({ progress: true })).toEqual({ active: true, strong: true });
   });
 
   test("does NOT fire on a completed progress bar (value at max)", () => {
@@ -476,6 +516,7 @@ describe("thinking-active completion veto", () => {
     const panel = new FakeEl("Reasoning");
     panel.rect = { left: 1000, top: 100, width: 380, height: 400 }; // right side, large
     expect(evalThinkingActive({ panel })).toBe(true);
+    expect(evalThinkingActivityDetails({ panel })).toEqual({ active: true, strong: false });
   });
 
   test.each(COMPLETED_SUMMARY_LABELS)("does NOT fire on completed sidecar summary %s", (text) => {

@@ -8,7 +8,7 @@ import {
   STOP_BUTTON_SELECTORS,
 } from "../constants.js";
 import { buildConversationTurnListExpression } from "../conversationTurns.js";
-import { buildThinkingActivePredicateJs, isThinkingActive } from "./thinkingStatus.js";
+import { buildThinkingActivePredicateJs, readThinkingActivity } from "./thinkingStatus.js";
 import { delay } from "../utils.js";
 import {
   logDomFailure,
@@ -74,6 +74,9 @@ export interface TerminalSample {
   stopVisible: boolean;
   barVisible: boolean;
   thinkingActive: boolean;
+  // Strong signals prove live work (stop/shimmer/aria-busy/status/progress). Weak activity is
+  // limited to a heuristic sidecar match that can linger after completion.
+  strongThinkingActive: boolean;
 }
 
 export function createTerminalGateState(now: number): TerminalGateState {
@@ -97,12 +100,13 @@ export function classifyTurnTerminal(
   const lastChangeAt = changed ? sample.now : state.lastChangeAt;
   const disturbed = changed || sample.stopVisible || sample.thinkingActive;
   const lastDisturbanceAt = disturbed ? sample.now : state.lastDisturbanceAt;
-  // proofA debounce: intentionally NOT gated on !thinkingActive, so a debounced action bar
-  // proves completion even if a stale/false-positive thinking signal lingers (a finished turn
-  // can keep a reasoning panel mounted). It resets on ANY content change so a bar that appears
-  // while the answer is still rendering (the transient-bar / first-tokens race) cannot finalize.
+  // proofA debounce: weak/stale sidecar evidence may be overridden, but strong live activity
+  // must reset the debounce. It also resets on ANY content change so a bar that appears while
+  // the answer is still rendering (the transient-bar / first-tokens race) cannot finalize.
   const barStableCycles =
-    sample.barVisible && !sample.stopVisible && !changed ? state.barStableCycles + 1 : 0;
+    sample.barVisible && !sample.stopVisible && !sample.strongThinkingActive && !changed
+      ? state.barStableCycles + 1
+      : 0;
   const next: TerminalGateState = {
     lastKey: sample.contentKey,
     lastChangeAt,
@@ -117,10 +121,11 @@ export function classifyTurnTerminal(
     const stableMs = sample.now - lastChangeAt;
     // proofA — debounced action bar AND content stable for a minimum time. The time-stability
     // requirement guards the documented race where finished-action controls surface while only
-    // the first tokens have rendered. Not vetoed by thinkingActive (a debounced+stable bar must
-    // not hang on a stale reasoning panel), but a still-changing answer keeps stableMs at zero.
+    // the first tokens have rendered. Weak sidecar evidence cannot hang a finished turn, but
+    // strong live activity vetoes this proof and restarts its debounce.
     const barProof =
       sample.barVisible &&
+      !sample.strongThinkingActive &&
       barStableCycles >= config.barConfirmCycles &&
       stableMs >= config.minStableMs;
     // proofB — generous quiet with no active thinking; the selector-drift-safe fallback.
@@ -659,10 +664,10 @@ async function pollAssistantCompletion(
       if (isGeneratedImageAssistantAnswer(normalized)) {
         return normalized;
       }
-      const [stopVisible, barVisible, thinkingActive] = await Promise.all([
+      const [stopVisible, barVisible, thinkingActivity] = await Promise.all([
         isStopButtonVisible(Runtime),
         isCompletionVisible(Runtime),
-        isThinkingActive(Runtime),
+        readThinkingActivity(Runtime),
       ]);
       const decision = classifyTurnTerminal(
         gate,
@@ -674,7 +679,8 @@ async function pollAssistantCompletion(
           contentKey: `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text}`,
           stopVisible,
           barVisible,
-          thinkingActive,
+          thinkingActive: thinkingActivity.active,
+          strongThinkingActive: thinkingActivity.strong,
         },
         TERMINAL_GATE_CONFIG,
       );

@@ -478,11 +478,14 @@ const ACTIVE_THINKING_LABELS = [
 // loading-shimmer skeleton, aria-busy, a visible thinking sidecar panel with live progress,
 // or a visible ACTIVE (present-tense) thinking status label. Used as a completion VETO so a
 // settled preamble is never finalized while the reasoning/tool phase is still running.
-export function buildThinkingActivePredicateJs(fnName: string): string {
+function buildThinkingActivityPredicateJs(fnName: string, detailed: boolean): string {
   const stopLiteral = JSON.stringify(STOP_BUTTON_SELECTORS.join(", "));
   const activeLabelsLiteral = JSON.stringify(ACTIVE_THINKING_LABELS);
   const conversationLiteral = JSON.stringify(CONVERSATION_TURN_SELECTOR);
   const assistantLiteral = JSON.stringify(ASSISTANT_ROLE_SELECTOR);
+  const strong = detailed ? "{ active: true, strong: true }" : "true";
+  const weak = detailed ? "{ active: true, strong: false }" : "true";
+  const idle = detailed ? "{ active: false, strong: false }" : "false";
   return `const ${fnName} = () => {
     const STOP_SELECTOR = ${stopLiteral};
     const ACTIVE_LABELS = ${activeLabelsLiteral};
@@ -508,11 +511,11 @@ export function buildThinkingActivePredicateJs(fnName: string): string {
       return Array.from(nodes).some((node) => pred(node));
     };
     // 1) Stop/interrupt control visible -> generation is active (language-independent).
-    if (some(STOP_SELECTOR, isVisible)) return true;
+    if (some(STOP_SELECTOR, isVisible)) return ${strong};
     // 2) Visible animated loading-shimmer skeleton (only mounted while streaming/thinking).
-    if (some('span.loading-shimmer, .loading-shimmer, [class*="loading-shimmer"]', isVisible)) return true;
+    if (some('span.loading-shimmer, .loading-shimmer, [class*="loading-shimmer"]', isVisible)) return ${strong};
     // 3) aria-busy live region.
-    if (some('[aria-busy="true"]', isVisible)) return true;
+    if (some('[aria-busy="true"]', isVisible)) return ${strong};
     // 4) Active (present-tense) thinking status label near a status/reasoning node.
     const norm = (value) =>
       String(value || '')
@@ -546,7 +549,7 @@ export function buildThinkingActivePredicateJs(fnName: string): string {
     })();
     for (const node of statusNodes) {
       if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
-      if (isActiveLabel(node.textContent) || isActiveLabel(node.getAttribute('aria-label'))) return true;
+      if (isActiveLabel(node.textContent) || isActiveLabel(node.getAttribute('aria-label'))) return ${strong};
     }
     // 5) A live progress bar (determinate or indeterminate) is active generation, even when no
     //    label or shimmer is present (some connector/tool phases surface only a progress bar).
@@ -582,7 +585,7 @@ export function buildThinkingActivePredicateJs(fnName: string): string {
       try { return document.querySelectorAll(CONVERSATION_SELECTOR); } catch { return []; }
     })();
     const lastTurn = turns.length ? turns[turns.length - 1] : null;
-    if (lastTurn instanceof HTMLElement && hasLiveProgress(lastTurn)) return true;
+    if (lastTurn instanceof HTMLElement && hasLiveProgress(lastTurn)) return ${strong};
     // 6) A visible thinking/reasoning sidecar panel (the connector/reasoning phase is often
     //    exposed ONLY through a right-side panel with no inline label). Match the existing
     //    thinking-monitor heuristic: a right-side panel that looks like thinking, or any such
@@ -611,29 +614,55 @@ export function buildThinkingActivePredicateJs(fnName: string): string {
       if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
       const rect = node.getBoundingClientRect();
       const rightSide = rect.left >= window.innerWidth * 0.35 && rect.width >= 180 && rect.height >= 120;
-      if (hasLiveProgress(node) || (rightSide && looksLikeThinking(node))) return true;
+      if (hasLiveProgress(node)) return ${strong};
+      // A text-only sidecar match is intentionally weak: completed turns can retain a mounted
+      // reasoning panel whose shape/text heuristics still look active. The terminal gate may
+      // override only this weak evidence after a stable, debounced finished-action bar.
+      if (rightSide && looksLikeThinking(node)) return ${weak};
     }
-    return false;
+    return ${idle};
   };`;
 }
 
-export async function isThinkingActive(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
+export function buildThinkingActivePredicateJs(fnName: string): string {
+  return buildThinkingActivityPredicateJs(fnName, false);
+}
+
+export interface ThinkingActivity {
+  active: boolean;
+  strong: boolean;
+}
+
+export function buildThinkingActivityDetailsPredicateJs(fnName: string): string {
+  return buildThinkingActivityPredicateJs(fnName, true);
+}
+
+export async function readThinkingActivity(
+  Runtime: ChromeClient["Runtime"],
+): Promise<ThinkingActivity> {
   try {
     const { result } = await Runtime.evaluate({
       expression: `(() => {
-        ${buildThinkingActivePredicateJs("isThinkingActive")}
-        return isThinkingActive();
+        ${buildThinkingActivityDetailsPredicateJs("readThinkingActivity")}
+        return readThinkingActivity();
       })()`,
       returnByValue: true,
     });
-    return Boolean(result?.value);
+    const value = result?.value as Partial<ThinkingActivity> | undefined;
+    return { active: Boolean(value?.active), strong: Boolean(value?.strong) };
   } catch {
-    return false;
+    return { active: false, strong: false };
   }
+}
+
+export async function isThinkingActive(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
+  return (await readThinkingActivity(Runtime)).active;
 }
 
 export const startThinkingStatusMonitorForTest = startThinkingStatusMonitor;
 export const readThinkingStatusForTest = readThinkingStatus;
 export const buildThinkingStatusExpressionForTest = buildThinkingStatusExpression;
 export const buildThinkingActivePredicateJsForTest = buildThinkingActivePredicateJs;
+export const buildThinkingActivityDetailsPredicateJsForTest =
+  buildThinkingActivityDetailsPredicateJs;
 export { ACTIVE_THINKING_LABELS };
