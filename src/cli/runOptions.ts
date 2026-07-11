@@ -6,7 +6,6 @@ import { resolveEngine } from "./engine.js";
 import {
   normalizeModelOption,
   inferModelFromLabel,
-  isBrowserOnlyGpt56Model,
   resolveApiModel,
   normalizeBaseUrl,
 } from "./options.js";
@@ -59,11 +58,14 @@ export function resolveRunOptionsFromConfig({
     .filter(Boolean);
 
   const cliModelArg = normalizeModelOption(model ?? userConfig?.model) || DEFAULT_MODEL;
-  const browserModel = normalizeChatGptModelForBrowser(inferModelFromLabel(cliModelArg));
-  const apiModel =
-    resolvedEngine === "browser" && browserEngineRequested
-      ? browserModel
-      : resolveApiModel(cliModelArg);
+  const apiModel = resolveApiModel(cliModelArg);
+  // Browser label inference is intentionally engine-scoped: API model ids such as
+  // gpt-5.6-luna must remain provider values even though browser mode rejects
+  // unrecognized GPT-5.6 picker variants.
+  const browserModel =
+    resolvedEngine === "browser"
+      ? normalizeChatGptModelForBrowser(inferModelFromLabel(cliModelArg))
+      : apiModel;
   const isCodex = apiModel.startsWith("gpt-5.1-codex");
   const isClaude = apiModel.startsWith("claude");
   const isGrok = apiModel.startsWith("grok");
@@ -95,15 +97,6 @@ export function resolveRunOptionsFromConfig({
     isCodex || isClaude || isGrok || azureAutoApi || normalizedRequestedModels.length > 0
       ? "api"
       : resolvedEngine;
-  if (
-    fixedEngine === "api" &&
-    [cliModelArg, ...normalizedRequestedModels].some(isBrowserOnlyGpt56Model)
-  ) {
-    throw new PromptValidationError(
-      "GPT-5.6 Sol is browser-only today. Re-run with --engine browser.",
-      { engine: "api", models: [cliModelArg, ...normalizedRequestedModels] },
-    );
-  }
   // Browser runs use ChatGPT picker labels/aliases; API runs must keep API model ids intact.
   const resolvedModel = fixedEngine === "browser" ? browserModel : apiModel;
 

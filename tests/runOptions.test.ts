@@ -386,21 +386,39 @@ describe("resolveRunOptionsFromConfig", () => {
     expect(sol.runOptions.model).toBe("gpt-5.6-sol");
   });
 
-  it("rejects bare GPT-5.6 aliases for API and multi-model runs", () => {
-    expect(() =>
-      resolveRunOptionsFromConfig({
-        prompt: basePrompt,
-        model: "gpt-5.6",
-        engine: "api",
-      }),
-    ).toThrow(/browser-only/);
-    expect(() =>
-      resolveRunOptionsFromConfig({
-        prompt: basePrompt,
-        models: ["gpt-5.6", "gpt-5.5"],
-        engine: "browser",
-      }),
-    ).toThrow(/browser-only/);
+  it("keeps GPT-5.6 aliases in API and multi-model runs", () => {
+    const single = resolveRunOptionsFromConfig({
+      prompt: basePrompt,
+      model: "gpt-5.6",
+      engine: "api",
+    });
+    expect(single.resolvedEngine).toBe("api");
+    expect(single.runOptions.model).toBe("gpt-5.6");
+
+    const multi = resolveRunOptionsFromConfig({
+      prompt: basePrompt,
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+      engine: "browser",
+    });
+    expect(multi.resolvedEngine).toBe("api");
+    expect(multi.runOptions.models).toEqual(["gpt-5.6-sol", "gpt-5.5"]);
+  });
+
+  it("preserves unrelated slashless 5.6 model ids in API runs", () => {
+    const { resolvedEngine, runOptions } = resolveRunOptionsFromConfig({
+      prompt: basePrompt,
+      model: "vendor-5.6-large",
+      engine: "api",
+    });
+    expect(resolvedEngine).toBe("api");
+    expect(runOptions.model).toBe("vendor-5.6-large");
+
+    const officialSibling = resolveRunOptionsFromConfig({
+      prompt: basePrompt,
+      model: "gpt-5.6-luna",
+      engine: "api",
+    });
+    expect(officialSibling.runOptions.model).toBe("gpt-5.6-luna");
   });
 
   it("maps browser engine Pro aliases to gpt-5.5-pro", () => {

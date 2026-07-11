@@ -42,6 +42,28 @@ const countTokensAnthropic: TokenizerFn = (input: unknown): number => {
 };
 
 export const MODEL_CONFIGS: Record<KnownModelName, ModelConfig> = {
+  "gpt-5.6": {
+    model: "gpt-5.6",
+    provider: "openai",
+    tokenizer: countTokensGpt5 as TokenizerFn,
+    inputLimit: 1_050_000,
+    pricing: {
+      inputPerToken: 5 / 1_000_000,
+      outputPerToken: 30 / 1_000_000,
+    },
+    reasoning: { effort: "xhigh" },
+  },
+  "gpt-5.6-sol": {
+    model: "gpt-5.6-sol",
+    provider: "openai",
+    tokenizer: countTokensGpt5 as TokenizerFn,
+    inputLimit: 1_050_000,
+    pricing: {
+      inputPerToken: 5 / 1_000_000,
+      outputPerToken: 30 / 1_000_000,
+    },
+    reasoning: { effort: "xhigh" },
+  },
   "gpt-5.5-pro": {
     model: "gpt-5.5-pro",
     provider: "openai",

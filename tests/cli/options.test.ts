@@ -10,6 +10,7 @@ import {
   resolvePreviewMode,
   resolveApiModel,
   inferModelFromLabel,
+  isGpt56BrowserLabel,
   normalizeModelOption,
   parseHeartbeatOption,
   parseTimeoutOption,
@@ -284,9 +285,14 @@ describe("inferModelFromLabel", () => {
     expect(inferModelFromLabel("gemini-3.1-flash-lite")).toBe("gemini-3.1-flash-lite");
   });
 
-  test("infers the browser-only GPT-5.6 Sol family", () => {
+  test("infers the browser GPT-5.6 Sol family", () => {
     expect(inferModelFromLabel("GPT-5.6 Sol")).toBe("gpt-5.6-sol");
     expect(inferModelFromLabel("ChatGPT 5_6")).toBe("gpt-5.6");
+  });
+
+  test("does not reserve unrelated slashless API model ids containing 5.6", () => {
+    expect(isGpt56BrowserLabel("vendor-5.6-large")).toBe(false);
+    expect(isGpt56BrowserLabel("model_5_6_custom")).toBe(false);
   });
 
   test("rejects unknown bare GPT-5.6 browser variants", () => {

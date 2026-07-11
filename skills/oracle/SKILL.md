@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: "Oracle second-model review with browser/API execution, GPT-5.6 Sol model selection, file bundling, debugging, refactoring, and design checks."
+description: "Oracle second-model review: bundle prompts/files, debug, refactor, design."
 ---
 
 # Oracle (CLI) — best use
@@ -32,7 +32,7 @@ selection but does not, by itself, prove the server-side Pro generation.
 
 ## GPT-5.6 model selection
 
-This version supports browser-only aliases:
+This version supports the same aliases in browser and API mode:
 
 - `gpt-5.6`: follow the GPT-5.6 family default
 - `gpt-5.6-sol`: pin ChatGPT's `GPT-5.6 Sol` entry
@@ -47,11 +47,13 @@ oracle --engine browser --model gpt-5.6-sol \
 ```
 
 Do not use `--model "GPT-5.6 Sol Pro"`. Pro is intentionally handled as a
-distinct picker target, and the explicit GPT-5.6 aliases reject unknown future
-variants such as `gpt-5.6-luna` instead of silently falling back to Sol.
+distinct picker target. Browser label validation rejects unknown future
+variants such as `gpt-5.6-luna` instead of silently falling back to Sol; API
+runs preserve such provider model IDs unchanged.
 
-Bare GPT-5.6 aliases are browser-only. API and multi-model runs must reject
-them; provider-qualified custom IDs remain pass-through values.
+Browser mode maps these aliases to ChatGPT's Sol picker. API and multi-model
+runs preserve the corresponding first-party OpenAI model IDs; provider-qualified
+and unrelated custom IDs remain pass-through values.
 
 The GPT-5.6 browser support depends on the unified Intelligence picker. It
 recognizes the current English and Chinese effort labels, avoids matching
@@ -71,8 +73,8 @@ npx -y @steipete/oracle@0.15.2 --engine browser --model gpt-5.5-pro \
 After upgrading to a release containing the GPT-5.6 model-selection and
 unified-picker changes, verify all of the following before removing the
 fallback guidance: `--help --verbose` exposes the new options, browser dry-run
-resolves both aliases to GPT-5.6 Sol, API dry-run rejects bare aliases, and a
-live browser run records strict GPT-5.6 selection evidence.
+resolves both aliases to GPT-5.6 Sol, API routing selects first-party OpenAI,
+and a live browser run records strict GPT-5.6 selection evidence.
 
 ## Golden path
 

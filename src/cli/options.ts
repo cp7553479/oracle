@@ -303,9 +303,18 @@ export function resolveApiModel(modelValue: string): ModelName {
   return normalized as ModelName;
 }
 
-export function isBrowserOnlyGpt56Model(modelValue: string): boolean {
+function parseBrowserGpt56Label(modelValue: string): { variant: string } | null {
   const normalized = normalizeModelOption(modelValue).toLowerCase();
-  return !normalized.includes("/") && /(?:^|[^0-9])5[._-]6(?:[^0-9]|$)/.test(normalized);
+  if (!normalized || normalized.includes("/")) return null;
+  const match = normalized.match(/^(?:(?:chatgpt|gpt)[\s._-]*)?5[._-]6(?:[\s._-]+(.+))?$/);
+  if (!match) return null;
+  return {
+    variant: (match[1] ?? "").replace(/[^a-z0-9]+/g, " ").trim(),
+  };
+}
+
+export function isGpt56BrowserLabel(modelValue: string): boolean {
+  return parseBrowserGpt56Label(modelValue) !== null;
 }
 
 export function inferModelFromLabel(modelValue: string): ModelName {
@@ -353,13 +362,10 @@ export function inferModelFromLabel(modelValue: string): ModelName {
   if (normalized.includes("classic")) {
     return "gpt-5-pro";
   }
-  // Browser-only model family currently exposed by ChatGPT as "GPT-5.6 Sol".
-  if (isBrowserOnlyGpt56Model(normalized)) {
-    const variant = normalized
-      .replace(/5[._-]6/g, " ")
-      .replace(/chatgpt|gpt/g, " ")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
+  // Browser label family currently exposed by ChatGPT as "GPT-5.6 Sol".
+  const gpt56Label = parseBrowserGpt56Label(normalized);
+  if (gpt56Label) {
+    const { variant } = gpt56Label;
     if (!variant) return "gpt-5.6" as ModelName;
     if (variant === "sol") return "gpt-5.6-sol" as ModelName;
     throw new InvalidArgumentError(
