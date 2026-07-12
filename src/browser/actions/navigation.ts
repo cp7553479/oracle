@@ -174,6 +174,201 @@ export async function navigateToPromptReadyWithFallback(
   }
 }
 
+type ChatModeProbeResult = {
+  status:
+    | "chat-selected"
+    | "chat-conversation"
+    | "work-selected"
+    | "work-conversation"
+    | "conversation-unresolved"
+    | "controls-absent"
+    | "mode-unresolved";
+  chatPoint?: { x: number; y: number };
+};
+
+function buildChatModeProbeExpression(): string {
+  return `(() => {
+    const normalize = (value) => String(value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+    const isVisible = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const style = window.getComputedStyle(node);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    const isSelected = (node) =>
+      node?.getAttribute?.('aria-checked') === 'true' ||
+      node?.getAttribute?.('data-state') === 'on';
+    const conversationIdFromPath = (value) => {
+      const match = String(value || '').match(/\\/c\\/([a-zA-Z0-9-]+)/);
+      return match?.[1] || null;
+    };
+    const isStructuredWorkBadge = (node) =>
+      node instanceof HTMLElement &&
+      node.tagName === 'SPAN' &&
+      normalize(node.textContent) === 'work' &&
+      node.childElementCount === 0 &&
+      !node.hasAttribute('dir') &&
+      node.classList.contains('shrink-0') &&
+      node.parentElement?.matches('span.flex.items-center');
+
+    const pathname = typeof location?.pathname === 'string' ? location.pathname : '';
+    const conversationId = conversationIdFromPath(pathname);
+    if (conversationId) {
+      // Conversation messages can contain same-origin links to the current thread. Only sidebar
+      // history items use ChatGPT's renderer-owned menu-item anchor class.
+      const activeHistoryLinks = Array.from(
+        document.querySelectorAll('a.__menu-item[href*="/c/"]'),
+      ).filter((node) => {
+        try {
+          const candidateUrl = new URL(node.getAttribute('href') || '', location.origin);
+          return candidateUrl.origin === location.origin && conversationIdFromPath(candidateUrl.pathname) === conversationId;
+        } catch {
+          return false;
+        }
+      });
+      if (activeHistoryLinks.length > 0) {
+        const hasWorkBadge = activeHistoryLinks.some((link) =>
+          Array.from(link.querySelectorAll('span')).some(isStructuredWorkBadge),
+        );
+        if (hasWorkBadge) return { status: 'work-conversation' };
+
+        const ariaLabels = activeHistoryLinks
+          .map((link) => normalize(link.getAttribute('aria-label')))
+          .filter(Boolean);
+        if (ariaLabels.length === 0 || ariaLabels.some((aria) => /,\\s*work\\s*$/.test(aria))) {
+          return { status: 'conversation-unresolved' };
+        }
+        return { status: 'chat-conversation' };
+      }
+      return { status: 'conversation-unresolved' };
+    }
+
+    const radios = Array.from(document.querySelectorAll('button[role="radio"]')).filter(isVisible);
+    const chat = radios.find((node) => normalize(node.textContent) === 'chat');
+    const work = radios.find((node) => normalize(node.textContent) === 'work');
+    if (!chat && !work) return { status: 'controls-absent' };
+    if (!chat || !work) return { status: 'mode-unresolved' };
+    if (isSelected(chat)) return { status: 'chat-selected' };
+    if (isSelected(work)) {
+      const rect = chat.getBoundingClientRect();
+      return {
+        status: 'work-selected',
+        chatPoint: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      };
+    }
+    return { status: 'mode-unresolved' };
+  })()`;
+}
+
+export async function ensureChatMode(
+  Runtime: ChromeClient["Runtime"],
+  Input: ChromeClient["Input"],
+  timeoutMs: number,
+  logger: BrowserLogger,
+  options: { pollMs?: number; resetWorkConversation?: () => Promise<void> } = {},
+): Promise<"chat" | "switched" | "unavailable"> {
+  const verificationWindowMs = Math.min(Math.max(0, timeoutMs), 10_000);
+  let deadline = Date.now() + verificationWindowMs;
+  const pollMs = Math.max(0, options.pollMs ?? 200);
+  let changedFromWork = false;
+  let clickedChat = false;
+
+  for (;;) {
+    const outcome = await Runtime.evaluate({
+      expression: buildChatModeProbeExpression(),
+      returnByValue: true,
+    });
+    const probe = outcome.result?.value as ChatModeProbeResult | undefined;
+    if (probe?.status === "chat-selected" || probe?.status === "chat-conversation") {
+      logger(changedFromWork ? "ChatGPT mode: Chat (switched from Work)" : "ChatGPT mode: Chat");
+      return changedFromWork ? "switched" : "chat";
+    }
+    if (probe?.status === "conversation-unresolved") {
+      if (Date.now() < deadline) {
+        await delay(pollMs);
+        continue;
+      }
+      if (changedFromWork) break;
+      if (options.resetWorkConversation) {
+        logger("ChatGPT conversation mode unresolved; opening a new Chat");
+        await options.resetWorkConversation();
+        changedFromWork = true;
+        deadline = Date.now() + verificationWindowMs;
+        await delay(pollMs);
+        continue;
+      }
+      throw new BrowserAutomationError(
+        "Oracle could not verify whether the selected ChatGPT conversation uses Chat or Work mode, so it cannot safely resume that conversation.",
+        { stage: "chat-mode-selection", details: { mode: "conversation-unresolved" } },
+      );
+    }
+    if (probe?.status === "controls-absent") {
+      if (changedFromWork) {
+        if (Date.now() < deadline) {
+          await delay(pollMs);
+          continue;
+        }
+        break;
+      }
+      return "unavailable";
+    }
+    if (probe?.status === "work-conversation") {
+      if (changedFromWork) break;
+      if (options.resetWorkConversation) {
+        logger("ChatGPT mode: Work conversation; opening a new Chat");
+        await options.resetWorkConversation();
+        changedFromWork = true;
+        deadline = Date.now() + verificationWindowMs;
+        await delay(pollMs);
+        continue;
+      }
+      throw new BrowserAutomationError(
+        "The selected ChatGPT tab is an existing Work conversation and cannot be resumed as an ordinary Chat conversation. Start a new Chat conversation instead.",
+        { stage: "chat-mode-selection", details: { mode: "work-conversation" } },
+      );
+    }
+    if (probe?.status === "work-selected" && !clickedChat && probe.chatPoint) {
+      logger("ChatGPT mode: Work; switching to Chat");
+      const { x, y } = probe.chatPoint;
+      await Input.dispatchMouseEvent({ type: "mouseMoved", x, y });
+      await Input.dispatchMouseEvent({
+        type: "mousePressed",
+        x,
+        y,
+        button: "left",
+        clickCount: 1,
+      });
+      await Input.dispatchMouseEvent({
+        type: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        clickCount: 1,
+      });
+      changedFromWork = true;
+      clickedChat = true;
+      deadline = Date.now() + verificationWindowMs;
+      await delay(pollMs);
+      continue;
+    }
+    if (Date.now() >= deadline) break;
+    await delay(pollMs);
+  }
+
+  await logDomFailure(Runtime, logger, "chat-mode-selection");
+  throw new BrowserAutomationError(
+    changedFromWork
+      ? "Oracle could not verify Chat mode after leaving Work."
+      : "ChatGPT exposed Chat/Work controls but Oracle could not verify the active mode.",
+    { stage: "chat-mode-selection", details: { changedFromWork, clickedChat } },
+  );
+}
+
+export function buildChatModeProbeExpressionForTest(): string {
+  return buildChatModeProbeExpression();
+}
+
 export async function ensureNotBlocked(
   Runtime: ChromeClient["Runtime"],
   headless: boolean,
