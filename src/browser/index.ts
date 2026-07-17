@@ -166,8 +166,11 @@ function shouldKeepLocalBrowserOpen(options: {
   effectiveKeepBrowser: boolean;
   preserveBrowserOnError: boolean;
   usingCopiedProfile: boolean;
+  manualLogin?: boolean;
 }): boolean {
   if (options.usingCopiedProfile) return false;
+  // manual-login 模式保留浏览器窗口（关 tab 的逻辑独立处理），便于复用持久化登录态。
+  if (options.manualLogin) return true;
   return options.effectiveKeepBrowser || options.preserveBrowserOnError;
 }
 
@@ -2305,15 +2308,15 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     }
     // Close the isolated tab once the response has been fully captured to prevent
     // tab accumulation across repeated runs. Keep the tab open on incomplete runs
-    // so reattach can recover the response.
+    // so reattach can recover the response. In manual-login mode the browser
+    // window is retained (see shouldKeepLocalBrowserOpen), but the owned tab is
+    // still closed so repeated runs don't accumulate tabs.
     if (
-      shouldCloseOwnedRunTargetAfterRun({
-        runStatus,
-        ownsTarget,
-        keepBrowser: effectiveKeepBrowser,
-      }) &&
+      runStatus === "complete" &&
+      ownsTarget &&
       isolatedTargetId &&
-      chrome?.port
+      chrome?.port &&
+      (manualLogin || !effectiveKeepBrowser)
     ) {
       await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
     }
@@ -2321,6 +2324,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       effectiveKeepBrowser,
       preserveBrowserOnError,
       usingCopiedProfile,
+      manualLogin,
     });
     let cleanupProfileLock: ProfileRunLock | null = null;
     let terminatedRecordedChrome = false;
