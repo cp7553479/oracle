@@ -144,6 +144,7 @@ interface CliOptions extends OptionValues {
   browserTab?: string;
   browserModelStrategy?: "select" | "current" | "ignore";
   browserManualLogin?: boolean;
+  manualLogin?: boolean;
   browserManualLoginProfileDir?: string;
   copyProfile?: string;
   browserThinkingTime?: "light" | "standard" | "extended" | "heavy";
@@ -755,6 +756,18 @@ program
       "--browser-manual-login-profile-dir <path>",
       "Persistent Chrome profile directory for manual-login browser runs.",
     ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--manual-login",
+      "Use a dedicated Chrome profile for manual login (always on by default).",
+    ).default(true),
+  )
+  .addOption(
+    new Option(
+      "--no-manual-login",
+      "Disable manual-login and fall back to cookie sync.",
+    ).default(undefined).hideHelp(),
   )
   .addOption(
     new Option(
@@ -2059,6 +2072,17 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     program.getOptionValueSource?.(key as string) ?? undefined;
   const { applyBrowserDefaultsFromConfig } = await import("../src/cli/browserDefaults.js");
   applyBrowserDefaultsFromConfig(options, userConfig, getSource);
+  // --manual-login defaults to true so browser runs always use the persistent
+  // signed-in profile. Apply it to browserManualLogin unless the user provided
+  // an explicit --browser-manual-login / --no-browser-manual-login value, or
+  // chose --copy-profile (which is incompatible with manual-login).
+  if (
+    options.manualLogin !== undefined &&
+    getSource("browserManualLogin") === undefined &&
+    !options.copyProfile
+  ) {
+    options.browserManualLogin = options.manualLogin;
+  }
   const attachmentTimeoutEnv = process.env.ORACLE_BROWSER_ATTACHMENT_TIMEOUT?.trim();
   if (
     attachmentTimeoutEnv &&

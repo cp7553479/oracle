@@ -189,6 +189,10 @@ export async function buildBrowserConfig(
   });
   const rawUrl = options.chatgptUrl ?? options.browserUrl;
   const url = rawUrl ? normalizeChatgptUrl(rawUrl, CHATGPT_URL) : undefined;
+  // Default to manual-login so browser runs always reuse the persistent signed-in
+  // profile unless explicitly disabled (cookie sync is skipped in that mode).
+  // --copy-profile is its own login-free path and is incompatible with manual-login.
+  const manualLogin = options.copyProfile ? false : (options.browserManualLogin ?? true);
 
   const desiredModel = isChatGptModel
     ? mapModelToBrowserLabel(options.model)
@@ -239,13 +243,13 @@ export async function buildBrowserConfig(
     cookieSyncWaitMs: options.browserCookieWait
       ? parseDuration(options.browserCookieWait, 0)
       : undefined,
-    cookieSync: options.browserNoCookieSync ? false : undefined,
+    cookieSync: options.browserNoCookieSync || manualLogin ? false : undefined,
     cookieNames,
     inlineCookies: inline?.cookies,
     inlineCookiesSource: inline?.source ?? null,
     headless: undefined, // disable headless; Cloudflare blocks it
     keepBrowser: options.browserKeepBrowser ? true : undefined,
-    manualLogin: options.browserManualLogin === undefined ? undefined : options.browserManualLogin,
+    manualLogin,
     manualLoginProfileDir: options.browserManualLoginProfileDir ?? undefined,
     copyProfileSource: options.copyProfile ?? undefined,
     hideWindow: options.browserHideWindow ? true : undefined,

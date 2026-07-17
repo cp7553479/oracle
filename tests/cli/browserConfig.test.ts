@@ -11,7 +11,9 @@ describe("buildBrowserConfig", () => {
       url: undefined,
       timeoutMs: undefined,
       inputTimeoutMs: undefined,
-      cookieSync: undefined,
+      // manual-login is on by default, so cookie sync is skipped.
+      cookieSync: false,
+      manualLogin: true,
       headless: undefined,
       keepBrowser: undefined,
       hideWindow: undefined,
