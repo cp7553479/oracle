@@ -436,7 +436,7 @@ program
   .option("-s, --slug <words>", "Custom session slug (3-5 words).")
   .option(
     "-m, --model <model>",
-    'Model to target (gpt-5.5 default). GPT-5.6 aliases: gpt-5.6 and gpt-5.6-sol (OpenAI API or ChatGPT browser). Also gpt-5.5-pro, gpt-5.4-pro, gpt-5.4, gpt-5.1-pro, gpt-5-pro, gpt-5.1, gpt-5.1-codex API-only, gpt-5.2, gpt-5.2-instant, gpt-5.2-pro, gemini-3.1-flash-lite, gemini-3.5-flash, gemini-3.1-pro, legacy gemini-3-pro, claude-4.6-sonnet, claude-4.1-opus, or ChatGPT labels like "5.5 Pro" / "5.2 Thinking" for browser runs).',
+    "Model to target (gpt-5.5 API / ChatGPT Medium default). GPT-5.6 aliases: gpt-5.6 and gpt-5.6-sol (OpenAI API or ChatGPT browser). Also gpt-5.5-pro, gpt-5.4-pro, gpt-5.4, gpt-5.1-pro, gpt-5-pro, gpt-5.1, gpt-5.1-codex API-only, gpt-5.2, gpt-5.2-instant, gpt-5.2-pro, gemini-3.1-flash-lite, gemini-3.5-flash, gemini-3.1-pro, legacy gemini-3-pro, claude-4.6-sonnet, or claude-4.1-opus).",
     normalizeModelOption,
   )
   .addOption(
@@ -646,7 +646,7 @@ program
   .addOption(
     new Option(
       "--browser-timeout <ms|s|m>",
-      "Maximum time to wait for an answer (default 1200s / 20m).",
+      "Maximum time to wait for an answer (default 2400s / 40m).",
     ).hideHelp(),
   )
   .addOption(
@@ -671,6 +671,19 @@ program
     new Option(
       "--browser-recheck-timeout <ms|s|m|h>",
       "Time budget for the delayed recheck attempt (default 120s).",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--browser-idle-reload <ms|s|m|h>",
+      "Reload the conversation when the assistant stalls for this long and keep waiting, " +
+        "instead of idling until the full timeout (default 5m; 0 disables).",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--browser-max-idle-reloads <n>",
+      "Max conversation reloads triggered by idle stalls within one run (default 7).",
     ).hideHelp(),
   )
   .addOption(
@@ -764,10 +777,9 @@ program
     ).default(true),
   )
   .addOption(
-    new Option(
-      "--no-manual-login",
-      "Disable manual-login and fall back to cookie sync.",
-    ).default(undefined).hideHelp(),
+    new Option("--no-manual-login", "Disable manual-login and fall back to cookie sync.")
+      .default(undefined)
+      .hideHelp(),
   )
   .addOption(
     new Option(
@@ -2751,6 +2763,14 @@ function printDebugHelp(cliName: string): void {
       "After timeout, wait then revisit the conversation to retry capture.",
     ],
     ["--browser-recheck-timeout <ms|s|m|h>", "Time budget for the delayed recheck attempt."],
+    [
+      "--browser-idle-reload <ms|s|m|h>",
+      "Reload the conversation when the assistant stalls for this long (default 5m; 0 disables).",
+    ],
+    [
+      "--browser-max-idle-reloads <n>",
+      "Max conversation reloads triggered by idle stalls within one run (default 7).",
+    ],
     [
       "--browser-reuse-wait <ms|s|m|h>",
       "Wait for a shared Chrome profile before launching (parallel runs).",

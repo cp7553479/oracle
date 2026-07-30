@@ -27,7 +27,11 @@ async function readSessionLogTail(sessionId: string, maxBytes: number): Promise<
 }
 import { performSessionRun } from "../../cli/sessionRunner.js";
 import { runDryRunSummary } from "../../cli/dryRun.js";
-import { CHATGPT_URL } from "../../browser/constants.js";
+import {
+  CHATGPT_URL,
+  DEFAULT_BROWSER_THINKING_TIME,
+  isMediumEffortTarget,
+} from "../../browser/constants.js";
 import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
@@ -347,6 +351,10 @@ export function buildConsultBrowserConfig({
     ? true
     : (configuredBrowser.manualLogin ?? process.platform === "win32");
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
+  const resolvedThinkingTime =
+    browserThinkingTime ??
+    configuredThinkingTime ??
+    (isMediumEffortTarget(desiredModelLabel) ? DEFAULT_BROWSER_THINKING_TIME : undefined);
 
   return {
     ...configuredBrowser,
@@ -360,7 +368,7 @@ export function buildConsultBrowserConfig({
     manualLoginProfileDir: manualLogin
       ? ((envProfileDir || configuredBrowser.manualLoginProfileDir) ?? null)
       : null,
-    thinkingTime: browserThinkingTime ?? configuredThinkingTime ?? undefined,
+    thinkingTime: resolvedThinkingTime,
     modelStrategy: browserModelStrategy ?? configuredBrowser.modelStrategy,
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,

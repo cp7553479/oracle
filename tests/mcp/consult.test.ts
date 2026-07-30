@@ -211,6 +211,18 @@ describe("summarizeModelRunsForConsult", () => {
     expect(config.cookieSync).toBe(process.platform !== "win32");
   });
 
+  test("defaults current ChatGPT browser models to Medium without selecting a version row", () => {
+    const config = buildConsultBrowserConfig({
+      userConfig: {},
+      env: {},
+      runModel: "gpt-5.6-sol",
+      inputModel: "gpt-5.6-sol",
+    });
+
+    expect(config.desiredModel).toBe("Medium");
+    expect(config.thinkingTime).toBe("standard");
+  });
+
   test("lets explicit consult inputs override config defaults", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {

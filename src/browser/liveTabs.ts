@@ -12,6 +12,7 @@ import {
 import { captureAssistantMarkdown, readAssistantSnapshot } from "./actions/assistantResponse.js";
 import { buildConversationTurnListExpression } from "./conversationTurns.js";
 import { delay } from "./utils.js";
+import { extractCanonicalConversationId } from "./conversationUrl.js";
 
 export const DEFAULT_REMOTE_CHROME_HOST = "127.0.0.1";
 export const DEFAULT_REMOTE_CHROME_PORT = 9222;
@@ -631,8 +632,7 @@ export async function harvestChatGptTab(
 }
 
 export function extractConversationIdFromUrl(url: string): string | undefined {
-  const match = normalizeUrl(url).match(/\/c\/([^/?#]+)/);
-  return match?.[1] ?? undefined;
+  return extractCanonicalConversationId(normalizeUrl(url));
 }
 
 export function formatBrowserTabState(

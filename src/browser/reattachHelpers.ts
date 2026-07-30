@@ -3,6 +3,7 @@ import { CONVERSATION_TURN_SELECTOR } from "./constants.js";
 import { buildConversationTurnCountExpression } from "./conversationTurns.js";
 import { delay } from "./utils.js";
 import { readAssistantSnapshot } from "./pageActions.js";
+import { extractCanonicalConversationId } from "./conversationUrl.js";
 
 export type TargetInfoLite = {
   id?: string;
@@ -52,9 +53,7 @@ export function pickTarget(
 }
 
 export function extractConversationIdFromUrl(url: string): string | undefined {
-  if (!url) return undefined;
-  const match = url.match(/\/c\/([a-zA-Z0-9-]+)/);
-  return match?.[1];
+  return extractCanonicalConversationId(url);
 }
 
 export function buildConversationUrl(

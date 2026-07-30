@@ -3,7 +3,13 @@ import path from "node:path";
 import type { BrowserSessionConfig } from "../sessionStore.js";
 import type { ModelName, ThinkingTimeLevel } from "../oracle/types.js";
 import { normalizeThinkingTimeLevel } from "../oracle/thinkingTime.js";
-import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY, DEFAULT_MODEL_TARGET } from "../browser/constants.js";
+import {
+  CHATGPT_URL,
+  DEFAULT_BROWSER_THINKING_TIME,
+  DEFAULT_MODEL_STRATEGY,
+  DEFAULT_MODEL_TARGET,
+  isMediumEffortTarget,
+} from "../browser/constants.js";
 import { normalizeChatgptUrl } from "../browser/utils.js";
 import { parseDuration } from "../duration.js";
 import { normalizeBrowserModelStrategy } from "../browser/modelStrategy.js";
@@ -15,22 +21,23 @@ import type {
 import type { CookieParam } from "../browser/types.js";
 import { getOracleHomeDir } from "../oracleHome.js";
 
-const DEFAULT_BROWSER_TIMEOUT_MS = 1_200_000;
+const DEFAULT_BROWSER_TIMEOUT_MS = 2_400_000;
 const DEFAULT_BROWSER_INPUT_TIMEOUT_MS = 60_000;
 const DEFAULT_BROWSER_ATTACHMENT_TIMEOUT_MS = 45_000;
 const DEFAULT_BROWSER_RECHECK_TIMEOUT_MS = 120_000;
 const DEFAULT_BROWSER_AUTO_REATTACH_TIMEOUT_MS = 120_000;
+const DEFAULT_BROWSER_IDLE_RELOAD_MS = 5 * 60_000;
 const DEFAULT_CHROME_PROFILE = "Default";
 
 // Ordered array: most specific models first to ensure correct selection.
 // The browser label is passed to the model picker which fuzzy-matches against ChatGPT's UI.
 const BROWSER_MODEL_LABELS: [ModelName, string][] = [
   // Most specific first (e.g., "gpt-5.2-thinking" before "gpt-5.2")
-  ["gpt-5.6-sol", "GPT-5.6 Sol"],
-  ["gpt-5.6", "GPT-5.6 Sol"],
+  ["gpt-5.6-sol", "Medium"],
+  ["gpt-5.6", "Medium"],
   ["gpt-5.5-pro", "Pro"],
   ["gpt-5.5-instant", "GPT-5.5 Instant"],
-  ["gpt-5.5", "Thinking 5.5"],
+  ["gpt-5.5", "Medium"],
   ["gpt-5.4-pro", "Pro"],
   ["gpt-5.2-thinking", "GPT-5.2 Thinking"],
   ["gpt-5.2-instant", "GPT-5.2 Instant"],
@@ -61,6 +68,8 @@ export interface BrowserFlagOptions {
   browserAttachmentTimeout?: string;
   browserRecheckDelay?: string;
   browserRecheckTimeout?: string;
+  browserIdleReload?: string;
+  browserMaxIdleReloads?: string;
   browserReuseWait?: string;
   browserProfileLockTimeout?: string;
   browserMaxConcurrentTabs?: string;
@@ -200,6 +209,8 @@ export async function buildBrowserConfig(
       ? desiredModelOverride
       : mapModelToBrowserLabel(options.model);
 
+  const requestedThinkingTime = normalizeThinkingTimeLevel(options.browserThinkingTime);
+
   return {
     chromeProfile: options.copyProfile
       ? (options.browserChromeProfile ?? null)
@@ -224,6 +235,10 @@ export async function buildBrowserConfig(
     assistantRecheckTimeoutMs: options.browserRecheckTimeout
       ? parseDuration(options.browserRecheckTimeout, DEFAULT_BROWSER_RECHECK_TIMEOUT_MS)
       : undefined,
+    idleReloadMs: options.browserIdleReload
+      ? parseDuration(options.browserIdleReload, DEFAULT_BROWSER_IDLE_RELOAD_MS)
+      : undefined,
+    maxIdleReloads: parseMaxIdleReloads(options.browserMaxIdleReloads),
     reuseChromeWaitMs: options.browserReuseWait
       ? parseDuration(options.browserReuseWait, 0)
       : undefined,
@@ -260,7 +275,9 @@ export async function buildBrowserConfig(
     allowCookieErrors: options.browserAllowCookieErrors ?? true,
     remoteChrome,
     browserTabRef: options.browserTab ?? undefined,
-    thinkingTime: normalizeThinkingTimeLevel(options.browserThinkingTime) ?? undefined,
+    thinkingTime:
+      requestedThinkingTime ??
+      (isMediumEffortTarget(desiredModel) ? DEFAULT_BROWSER_THINKING_TIME : undefined),
     researchMode: options.browserResearch === "deep" ? "deep" : "off",
     archiveConversations: options.browserArchive,
   };
@@ -315,6 +332,15 @@ function parseMaxConcurrentTabs(raw?: string): number | undefined {
   const value = Number.parseInt(raw, 10);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`Invalid browser max concurrent tabs: ${raw}. Expected a positive integer.`);
+  }
+  return Math.trunc(value);
+}
+
+function parseMaxIdleReloads(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid browser max idle reloads: ${raw}. Expected a non-negative integer.`);
   }
   return Math.trunc(value);
 }

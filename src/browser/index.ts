@@ -45,8 +45,8 @@ import {
 } from "./pageActions.js";
 import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
-import { ensureThinkingTime } from "./actions/thinkingTime.js";
-import { startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
+import { ensureThinkingTime, ensureThinkingTimeIfAvailable } from "./actions/thinkingTime.js";
+import { readThinkingActivity, startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
 import {
   activateDeepResearch,
   captureDeepResearchTargetKeys,
@@ -56,7 +56,7 @@ import {
 import { estimateTokenCount, withRetries, delay } from "./utils.js";
 import { formatElapsed } from "../oracle/format.js";
 import type { BrowserModelSelectionEvidence } from "../sessionStore.js";
-import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY } from "./constants.js";
+import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY, isMediumEffortTarget } from "./constants.js";
 import type { LaunchedChrome } from "chrome-launcher";
 import { BrowserAutomationError } from "../oracle/errors.js";
 import { alignPromptEchoPair, buildPromptEchoMatcher } from "./reattachHelpers.js";
@@ -86,6 +86,7 @@ import {
 } from "./artifacts.js";
 import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import { collectChatGptFileArtifacts } from "./chatgptFiles.js";
+import { extractCanonicalConversationId, isCanonicalConversationUrl } from "./conversationUrl.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
 import { chatgptDomProvider } from "./providers/index.js";
 import { resolveAttachRunningConnection } from "./attachRunning.js";
@@ -146,7 +147,7 @@ function isReattachableCaptureError(error: unknown): error is BrowserAutomationE
   return stage === "assistant-timeout" || stage === "assistant-recheck";
 }
 
-type PreservedBrowserErrorKind = "cloudflare-challenge" | "reattachable-capture";
+type PreservedBrowserErrorKind = "cloudflare-challenge";
 
 function classifyPreservedBrowserError(
   error: unknown,
@@ -154,7 +155,6 @@ function classifyPreservedBrowserError(
 ): PreservedBrowserErrorKind | null {
   if (headless) return null;
   if (isCloudflareChallengeError(error)) return "cloudflare-challenge";
-  if (isReattachableCaptureError(error)) return "reattachable-capture";
   return null;
 }
 
@@ -510,11 +510,11 @@ async function saveOptionalArtifact<T>(
   }
 }
 
-type AssistantAnswer = {
+export interface AssistantAnswer {
   text: string;
   html?: string;
   meta: { turnId?: string | null; messageId?: string | null };
-};
+}
 
 async function waitForAssistantOrGeneratedImageResponse(params: {
   Runtime: ChromeClient["Runtime"];
@@ -857,8 +857,11 @@ function shouldCloseOwnedRunTargetAfterRun(options: {
   runStatus: "attempted" | "complete";
   ownsTarget: boolean;
   keepBrowser: boolean;
+  closeOnError?: boolean;
 }): boolean {
-  return options.runStatus === "complete" && options.ownsTarget && !options.keepBrowser;
+  if (!options.ownsTarget) return false;
+  if (options.runStatus === "complete") return !options.keepBrowser;
+  return Boolean(options.closeOnError);
 }
 
 function buildSkippedModelSelectionEvidence(
@@ -1112,6 +1115,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let appliedCookies = 0;
+  let closeOwnedTargetOnError = false;
   let preserveBrowserOnError = false;
 
   try {
@@ -1397,7 +1401,13 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     const updateConversationHint = conversationUrlMonitor.update;
     await captureRuntimeSnapshot();
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
-    if (config.desiredModel && modelStrategy !== "ignore" && !isResumingConversation) {
+    const useEffortPickerOnly = isMediumEffortTarget(config.desiredModel);
+    if (
+      config.desiredModel &&
+      !useEffortPickerOnly &&
+      modelStrategy !== "ignore" &&
+      !isResumingConversation
+    ) {
       modelSelectionEvidence = await raceWithDisconnect(
         withRetries(
           () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
@@ -1425,6 +1435,12 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       logger(
         `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
       );
+    } else if (useEffortPickerOnly && modelStrategy !== "ignore" && !isResumingConversation) {
+      modelSelectionEvidence = buildSkippedModelSelectionEvidence(
+        config.desiredModel,
+        modelStrategy,
+      );
+      logger("Model picker: skipped (Medium uses the Intelligence effort picker)");
     } else if (modelStrategy === "ignore" || isResumingConversation) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -1440,20 +1456,35 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     // Handle thinking time selection if specified. Deep Research owns its own effort flow.
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
-      await raceWithDisconnect(
-        withRetries(() => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel), {
-          retries: 2,
-          delayMs: 300,
-          onRetry: (attempt, error) => {
-            if (options.verbose) {
-              logger(
-                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-              );
-            }
-          },
-        }),
-      );
+      const thinkingTargetModel =
+        modelStrategy === "select" && !useEffortPickerOnly ? config.desiredModel : null;
+      if (useEffortPickerOnly) {
+        const selected = await raceWithDisconnect(
+          ensureThinkingTimeIfAvailable(Runtime, thinkingTime, logger, null),
+        );
+        if (!selected) {
+          logger(
+            "[browser] Medium selection could not be confirmed; continuing with ChatGPT's current/default model.",
+          );
+        }
+      } else {
+        await raceWithDisconnect(
+          withRetries(
+            () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
+            {
+              retries: 2,
+              delayMs: 300,
+              onRetry: (attempt, error) => {
+                if (options.verbose) {
+                  logger(
+                    `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                  );
+                }
+              },
+            },
+          ),
+        );
+      }
     }
     const profileLockTimeoutMs = manualLogin ? (config.profileLockTimeoutMs ?? 0) : 0;
     let profileLock: ProfileRunLock | null = null;
@@ -1810,6 +1841,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
+                config.idleReloadMs,
+                config.maxIdleReloads,
               ),
             timeoutMs,
             logger,
@@ -1846,6 +1879,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                   logger,
                   baselineTurns ?? undefined,
                   expectedConversationId(),
+                  config.idleReloadMs,
+                  config.maxIdleReloads,
                 ),
               timeoutMs: config.timeoutMs,
               logger,
@@ -2252,7 +2287,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         normalizedError,
       );
     }
-    if (preservedErrorKind === "reattachable-capture") {
+    if (isReattachableCaptureError(normalizedError)) {
+      closeOwnedTargetOnError = true;
       if (usingCopiedProfile) {
         logger(
           "Assistant capture incomplete; closing Chrome and removing the copied profile because copy-profile runs cannot be reattached.",
@@ -2263,9 +2299,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             : { stage: "assistant-recheck", reattachable: false };
         throw new BrowserAutomationError(normalizedError.message, details, normalizedError);
       }
-      preserveBrowserOnError = true;
-      await emitRuntimeHint();
-      logger("Assistant capture incomplete; leaving browser open for reattach.");
+      logger("Assistant capture incomplete; closing the Oracle-owned browser tab automatically.");
       throw normalizedError;
     }
     if (!socketClosed) {
@@ -2306,17 +2340,18 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     } catch {
       // ignore
     }
-    // Close the isolated tab once the response has been fully captured to prevent
-    // tab accumulation across repeated runs. Keep the tab open on incomplete runs
-    // so reattach can recover the response. In manual-login mode the browser
-    // window is retained (see shouldKeepLocalBrowserOpen), but the owned tab is
-    // still closed so repeated runs don't accumulate tabs.
+    // Close Oracle-owned tabs after successful capture and after answer-capture
+    // errors so repeated runs do not accumulate failed tabs. Explicitly attached
+    // tabs and Cloudflare challenge tabs remain untouched.
     if (
-      runStatus === "complete" &&
-      ownsTarget &&
       isolatedTargetId &&
       chrome?.port &&
-      (manualLogin || !effectiveKeepBrowser)
+      shouldCloseOwnedRunTargetAfterRun({
+        runStatus,
+        ownsTarget,
+        keepBrowser: manualLogin ? false : effectiveKeepBrowser,
+        closeOnError: closeOwnedTargetOnError,
+      })
     ) {
       await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(() => undefined);
     }
@@ -2812,6 +2847,7 @@ async function runRemoteBrowserMode(
   let answerHtml = "";
   let connectionClosedUnexpectedly = false;
   let runStatus: "attempted" | "complete" = "attempted";
+  let closeOwnedTargetOnError = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let connection: Awaited<ReturnType<typeof connectToRemoteChrome>> | null = null;
@@ -2953,7 +2989,13 @@ async function runRemoteBrowserMode(
     }
 
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
-    if (config.desiredModel && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
+    const useEffortPickerOnly = isMediumEffortTarget(config.desiredModel);
+    if (
+      config.desiredModel &&
+      !useEffortPickerOnly &&
+      modelStrategy !== "ignore" &&
+      !config.resumeConversationUrl
+    ) {
       modelSelectionEvidence = await withRetries(
         () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
         {
@@ -2972,6 +3014,12 @@ async function runRemoteBrowserMode(
       logger(
         `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
       );
+    } else if (useEffortPickerOnly && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
+      modelSelectionEvidence = buildSkippedModelSelectionEvidence(
+        config.desiredModel,
+        modelStrategy,
+      );
+      logger("Model picker: skipped (Medium uses the Intelligence effort picker)");
     } else if (modelStrategy === "ignore" || config.resumeConversationUrl) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -2987,21 +3035,31 @@ async function runRemoteBrowserMode(
     // Handle thinking time selection if specified. Deep Research owns its own effort flow.
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
-      await withRetries(
-        () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
-        {
-          retries: 2,
-          delayMs: 300,
-          onRetry: (attempt, error) => {
-            if (options.verbose) {
-              logger(
-                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-              );
-            }
+      const thinkingTargetModel =
+        modelStrategy === "select" && !useEffortPickerOnly ? config.desiredModel : null;
+      if (useEffortPickerOnly) {
+        const selected = await ensureThinkingTimeIfAvailable(Runtime, thinkingTime, logger, null);
+        if (!selected) {
+          logger(
+            "[browser] Medium selection could not be confirmed; continuing with ChatGPT's current/default model.",
+          );
+        }
+      } else {
+        await withRetries(
+          () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
+          {
+            retries: 2,
+            delayMs: 300,
+            onRetry: (attempt, error) => {
+              if (options.verbose) {
+                logger(
+                  `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                );
+              }
+            },
           },
-        },
-      );
+        );
+      }
     }
     const submitOnce = async (prompt: string, submissionAttachments: BrowserAttachment[]) => {
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
@@ -3290,6 +3348,8 @@ async function runRemoteBrowserMode(
               logger,
               baselineTurns ?? undefined,
               expectedConversationId(),
+              config.idleReloadMs,
+              config.maxIdleReloads,
             ),
           timeoutMs,
           logger,
@@ -3324,6 +3384,8 @@ async function runRemoteBrowserMode(
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
+                config.idleReloadMs,
+                config.maxIdleReloads,
               ),
             timeoutMs: config.timeoutMs,
             logger,
@@ -3652,6 +3714,13 @@ async function runRemoteBrowserMode(
     const socketClosed = connectionClosedUnexpectedly || isWebSocketClosureError(normalizedError);
     connectionClosedUnexpectedly = connectionClosedUnexpectedly || socketClosed;
 
+    if (isReattachableCaptureError(normalizedError)) {
+      closeOwnedTargetOnError = true;
+      logger(
+        "Assistant capture incomplete; closing the Oracle-owned remote browser tab automatically.",
+      );
+    }
+
     if (!socketClosed) {
       logger(`Failed to complete ChatGPT run: ${normalizedError.message}`);
       if ((config.debug || process.env.CHATGPT_DEVTOOLS_TRACE === "1") && normalizedError.stack) {
@@ -3696,6 +3765,7 @@ async function runRemoteBrowserMode(
         runStatus,
         ownsTarget,
         keepBrowser: Boolean(config.keepBrowser),
+        closeOnError: closeOwnedTargetOnError,
       })
     ) {
       await closeRemoteChromeTarget(host, port, remoteTargetId ?? undefined, logger);
@@ -3723,8 +3793,10 @@ export const __test__ = {
   isImageOnlyUiChromeText,
   listIgnoredRemoteChromeFlags,
   resolveManualLoginWaitMs,
+  runIdleReloadLoop,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
+  waitForAssistantResponseWithReload,
 };
 export { syncCookies } from "./cookies.js";
 export {
@@ -3778,34 +3850,139 @@ async function waitForAssistantResponseWithReload(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
+  idleReloadMs = 0,
+  maxIdleReloads = 7,
 ) {
-  try {
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
-  } catch (error) {
-    if (!shouldReloadAfterAssistantError(error)) {
-      throw error;
+  // When idle-reload is disabled, fall back to the original "reload once" behavior so the
+  // happy-path / legacy callers and tests are unchanged.
+  if (!idleReloadMs || idleReloadMs <= 0) {
+    try {
+      return await waitForAssistantResponse(
+        Runtime,
+        timeoutMs,
+        logger,
+        minTurnIndex,
+        expectedConversationId,
+      );
+    } catch (error) {
+      if (!shouldReloadAfterAssistantError(error)) {
+        throw error;
+      }
+      const conversationUrl = await readConversationUrl(Runtime);
+      if (!conversationUrl || !isConversationUrl(conversationUrl)) {
+        throw error;
+      }
+      logger("Assistant response stalled; reloading conversation and retrying once");
+      await Page.navigate({ url: conversationUrl });
+      await delay(1000);
+      return await waitForAssistantResponse(
+        Runtime,
+        timeoutMs,
+        logger,
+        minTurnIndex,
+        expectedConversationId,
+      );
     }
-    const conversationUrl = await readConversationUrl(Runtime);
-    if (!conversationUrl || !isConversationUrl(conversationUrl)) {
-      throw error;
-    }
-    logger("Assistant response stalled; reloading conversation and retrying once");
-    await Page.navigate({ url: conversationUrl });
-    await delay(1000);
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
   }
+
+  // Idle-reload loop: slice the overall budget into idleReloadMs windows. Each window that
+  // ends without a confirmed answer triggers a conversation reload (up to maxIdleReloads).
+  // Thinking-active periods extend the current window without consuming a reload slot, so
+  // long Pro reasoning runs are not interrupted.
+  return runIdleReloadLoop({
+    waitOnce: (sliceMs) =>
+      waitForAssistantResponse(Runtime, sliceMs, logger, minTurnIndex, expectedConversationId),
+    readConversationUrl: () => readConversationUrl(Runtime),
+    navigate: (url) => Page.navigate({ url }),
+    sleep: (ms) => delay(ms),
+    readThinking: () =>
+      readThinkingActivity(Runtime).catch(() => ({ active: false, strong: false })),
+    isConversationUrl,
+    shouldReload: shouldReloadAfterAssistantError,
+    formatElapsed,
+    timeoutMs,
+    idleReloadMs,
+    maxIdleReloads,
+    logger,
+  });
+}
+
+interface IdleReloadDeps {
+  waitOnce: (sliceMs: number) => Promise<AssistantAnswer>;
+  readConversationUrl: () => Promise<string | null>;
+  navigate: (url: string) => Promise<unknown>;
+  sleep: (ms: number) => Promise<unknown>;
+  readThinking: () => Promise<{ active: boolean; strong: boolean }>;
+  isConversationUrl: (url: string) => boolean;
+  shouldReload: (error: unknown) => boolean;
+  formatElapsed: (ms: number) => string;
+  timeoutMs: number;
+  idleReloadMs: number;
+  maxIdleReloads: number;
+  logger: BrowserLogger;
+}
+
+async function runIdleReloadLoop(deps: IdleReloadDeps) {
+  const overallDeadline = Date.now() + deps.timeoutMs;
+  let reloadsUsed = 0;
+  while (Date.now() < overallDeadline) {
+    const remaining = overallDeadline - Date.now();
+    const sliceMs = Math.min(deps.idleReloadMs, remaining);
+    try {
+      return await deps.waitOnce(sliceMs);
+    } catch (error) {
+      const stillLeft = overallDeadline - Date.now();
+      const budgetLeft = stillLeft > 10_000;
+      const reloadableError = deps.shouldReload(error);
+
+      // Reloads exhausted: throw a hard BrowserAutomationError so the outer
+      // attemptAssistantRecheckOrRethrow path transparently rethrows (skips recheck),
+      // capping total wait time at the configured budget.
+      if (reloadableError && reloadsUsed >= deps.maxIdleReloads) {
+        throw new BrowserAutomationError(
+          `Assistant response stalled; exhausted ${deps.maxIdleReloads} idle reloads over ${deps.formatElapsed(
+            deps.timeoutMs,
+          )}. Reattach later to capture the answer.`,
+          { stage: "assistant-timeout", idleReloadsExhausted: true },
+          error,
+        );
+      }
+
+      // Either the budget ran out, the error is not reload-recoverable, or no URL is
+      // available — rethrow the original so callers see the underlying watchdog/timeout.
+      if (!budgetLeft || !reloadableError) {
+        throw error;
+      }
+
+      // Protect long Pro reasoning: if the page still shows active thinking, extend the
+      // current window instead of reloading. Do not consume a reload slot.
+      const thinking = await deps.readThinking();
+      if (thinking.active || thinking.strong) {
+        deps.logger(
+          `[browser] Assistant still thinking after ${deps.formatElapsed(
+            sliceMs,
+          )}; extending wait (reload deferred).`,
+        );
+        continue;
+      }
+
+      const conversationUrl = await deps.readConversationUrl();
+      if (!conversationUrl || !deps.isConversationUrl(conversationUrl)) {
+        throw error;
+      }
+      reloadsUsed += 1;
+      deps.logger(
+        `[browser] No assistant progress for ${deps.formatElapsed(
+          deps.idleReloadMs,
+        )}; reloading conversation (${reloadsUsed}/${deps.maxIdleReloads}).`,
+      );
+      await deps.navigate(conversationUrl);
+      await deps.sleep(1000);
+    }
+  }
+  throw new Error(
+    "assistant-response watchdog timeout; overall deadline exceeded before completion",
+  );
 }
 
 function shouldReloadAfterAssistantError(error: unknown): boolean {
@@ -4002,7 +4179,7 @@ async function readConversationTurnCount(
 }
 
 function isConversationUrl(url: string): boolean {
-  return /\/c\/[a-z0-9-]+/i.test(url);
+  return isCanonicalConversationUrl(url);
 }
 
 function describeDevtoolsFirewallHint(host: string, port: number): string | null {
@@ -4025,8 +4202,7 @@ function isWsl(): boolean {
 }
 
 function extractConversationIdFromUrl(url: string): string | undefined {
-  const match = url.match(/\/c\/([a-zA-Z0-9-]+)/);
-  return match?.[1];
+  return extractCanonicalConversationId(url);
 }
 
 async function resolveUserDataBaseDir(): Promise<string> {

@@ -1,8 +1,14 @@
+import type { ThinkingTimeLevel } from "../oracle/types.js";
 import type { BrowserModelStrategy } from "./types.js";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
-export const DEFAULT_MODEL_TARGET = "Pro";
+export const DEFAULT_MODEL_TARGET = "Medium";
+export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "standard";
 export const DEFAULT_MODEL_STRATEGY: BrowserModelStrategy = "select";
+
+export function isMediumEffortTarget(value: string | null | undefined): boolean {
+  return value?.trim().toLowerCase() === "medium";
+}
 export const COOKIE_URLS = [
   "https://chatgpt.com",
   "https://chat.openai.com",

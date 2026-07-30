@@ -236,7 +236,6 @@ export async function submitPrompt(
     logger("Clicked send button");
   }
   await deps.onPromptSubmitted?.();
-
   const commitTimeoutMs = Math.max(60_000, deps.inputTimeoutMs ?? 0);
   // Learned: the send button can succeed but the turn doesn't appear immediately; verify commit via turns/stop button.
   return await verifyPromptCommitted(
@@ -814,6 +813,7 @@ async function verifyPromptCommitted(
     }
   }
   const baselineLiteral = baseline ?? -1;
+  const domFallbackStabilityMs = 2_000;
   // Learned: ChatGPT can echo/format text; normalize markdown and use prefix matches to detect the sent prompt.
   const script = `(() => {
 		    const editor = document.querySelector(${primarySelectorLiteral});
@@ -870,7 +870,11 @@ async function verifyPromptCommitted(
         activeInputs.length === 0 ? null : activeInputs.every((node) => !String(readValue(node)).trim());
       const composerCleared = activeEmpty ?? !(String(editorValue).trim() || String(fallbackValue).trim());
       const href = typeof location === 'object' && location.href ? location.href : '';
-      const inConversation = /\\/c\\//.test(href);
+      const rawConversationId = href.match(/\\/c\\/([^/?#]+)/)?.[1] ?? '';
+      // ChatGPT can optimistically render the user turn before the backend has
+      // accepted it. Require a stable conversation URL; transient /c/WEB:...
+      // paths and the root page do not prove that the request was submitted.
+      const inConversation = /^[a-zA-Z0-9-]+$/.test(rawConversationId);
 		    return {
         baseline,
 	      userMatched,
@@ -890,6 +894,7 @@ async function verifyPromptCommitted(
   })()`;
 
   let lastProbe: CommitProbeState | undefined;
+  let domFallbackCandidateSince: number | null = null;
   while (Date.now() < deadline) {
     const { result } = await Runtime.evaluate({ expression: script, returnByValue: true });
     const info = result.value as CommitProbeState | undefined;
@@ -900,15 +905,33 @@ async function verifyPromptCommitted(
     const matchesPrompt = Boolean(info?.lastMatched || info?.userMatched || info?.prefixMatched);
     const baselineUnknown =
       typeof info?.baseline === "number" ? info.baseline < 0 : baselineLiteral < 0;
-    if (matchesPrompt && (baselineUnknown || info?.hasNewTurn)) {
+    if (info?.inConversation && matchesPrompt && (baselineUnknown || info?.hasNewTurn)) {
       return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
     }
-    const fallbackCommit =
+    const canonicalFallbackCommit =
+      info?.inConversation &&
       info?.composerCleared &&
       Boolean(info?.hasNewTurn) &&
       ((info?.stopVisible ?? false) || info?.assistantVisible || info?.inConversation);
-    if (fallbackCommit) {
+    if (canonicalFallbackCommit) {
       return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
+    }
+    const domFallbackCandidate =
+      !info?.inConversation &&
+      matchesPrompt &&
+      info?.composerCleared &&
+      Boolean(info?.hasNewTurn) &&
+      Boolean(info?.stopVisible || info?.assistantVisible);
+    if (domFallbackCandidate) {
+      domFallbackCandidateSince ??= Date.now();
+      if (Date.now() - domFallbackCandidateSince >= domFallbackStabilityMs) {
+        logger?.(
+          "[browser] Prompt submission: stable DOM evidence detected without a canonical conversation URL; continuing via fallback.",
+        );
+        return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
+      }
+    } else {
+      domFallbackCandidateSince = null;
     }
     await delay(100);
   }

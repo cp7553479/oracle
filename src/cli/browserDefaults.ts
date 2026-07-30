@@ -21,6 +21,8 @@ export interface BrowserDefaultsOptions {
   browserAttachmentTimeout?: string | number;
   browserRecheckDelay?: string | number;
   browserRecheckTimeout?: string | number;
+  browserIdleReload?: string | number;
+  browserMaxIdleReloads?: string | number;
   browserReuseWait?: string | number;
   browserProfileLockTimeout?: string | number;
   browserMaxConcurrentTabs?: string | number;
@@ -106,6 +108,12 @@ export function applyBrowserDefaultsFromConfig(
   }
   if (isUnset("browserRecheckTimeout") && typeof browser.assistantRecheckTimeoutMs === "number") {
     options.browserRecheckTimeout = String(browser.assistantRecheckTimeoutMs);
+  }
+  if (isUnset("browserIdleReload") && typeof browser.idleReloadMs === "number") {
+    options.browserIdleReload = String(browser.idleReloadMs);
+  }
+  if (isUnset("browserMaxIdleReloads") && typeof browser.maxIdleReloads === "number") {
+    options.browserMaxIdleReloads = String(browser.maxIdleReloads);
   }
   if (isUnset("browserReuseWait") && typeof browser.reuseChromeWaitMs === "number") {
     options.browserReuseWait = String(browser.reuseChromeWaitMs);

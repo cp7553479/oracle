@@ -2,8 +2,19 @@
 
 ## 0.16.1 — Unreleased
 
+### Added
+
+- Browser: auto-reload the ChatGPT conversation every 5 minutes (up to 7 reloads, 40 min total) when the assistant response stalls, so transient freezes recover without losing the in-flight turn. Thinking-active periods are excluded to avoid interrupting long Pro reasoning. Configure with `--browser-idle-reload` / `--browser-max-idle-reloads`.
+
+### Changed
+
+- Browser: raise default response timeout from 20m to 40m to accommodate the new idle-reload budget.
+
 ### Fixed
 
+- Browser: default current ChatGPT browser runs to the redesigned `Medium` Intelligence option, bypassing obsolete GPT-5.5/GPT-5.6 version-row selection that could stall before prompt submission; Pro remains explicit-only. If the Medium control cannot be identified, continue with ChatGPT's current/default model instead of aborting. Ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
+- Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.
+- Browser: automatically close Oracle-owned ChatGPT tabs when answer capture times out or recheck fails, while preserving Cloudflare challenge tabs and explicitly attached tabs.
 - CLI: avoid inheriting `browser.thinkingTime` from config when `--browser-model-strategy current` is explicit, while preserving an explicit `--browser-thinking-time` override. Thanks @jung0han!
 
 ## 0.16.0 — 2026-07-12

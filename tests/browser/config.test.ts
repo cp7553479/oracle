@@ -39,6 +39,8 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(3);
+    expect(resolved.desiredModel).toBe("Medium");
+    expect(resolved.thinkingTime).toBe("standard");
     expect(resolved.researchMode).toBe("off");
     expect(resolved.archiveConversations).toBe("auto");
   });
@@ -84,6 +86,7 @@ describe("resolveBrowserConfig", () => {
 
     expect(resolved.url).toBe("https://chatgpt.com/?temporary-chat=true");
     expect(resolved.desiredModel).toBe("GPT-5.2 Pro");
+    expect(resolved.thinkingTime).toBeUndefined();
     expect(resolved.modelStrategy).toBe("select");
   });
 

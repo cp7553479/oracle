@@ -33,7 +33,7 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
     expect(shouldPreserveBrowserOnErrorForTest(error, true)).toBe(false);
   });
 
-  test("preserves the browser for headful assistant capture errors", () => {
+  test("does not preserve the browser for headful assistant capture errors", () => {
     const timeout = new BrowserAutomationError("assistant timed out", {
       stage: "assistant-timeout",
     });
@@ -41,10 +41,10 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
       stage: "assistant-recheck",
     });
 
-    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(true);
-    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(true);
-    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBe("reattachable-capture");
-    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBe("reattachable-capture");
+    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(false);
+    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(false);
+    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBeNull();
+    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBeNull();
   });
 
   test("does not preserve assistant capture errors in headless mode", () => {
@@ -114,7 +114,7 @@ describe("browser run target cleanup", () => {
     ).toBe(true);
   });
 
-  test("does not close attached or incomplete targets", () => {
+  test("does not close attached or ordinary incomplete targets", () => {
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "complete",
@@ -127,6 +127,28 @@ describe("browser run target cleanup", () => {
         runStatus: "attempted",
         ownsTarget: true,
         keepBrowser: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("closes owned targets after answer capture errors even when keepBrowser is enabled", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: true,
+        keepBrowser: true,
+        closeOnError: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("never closes an attached target after an answer capture error", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: false,
+        keepBrowser: false,
+        closeOnError: true,
       }),
     ).toBe(false);
   });
