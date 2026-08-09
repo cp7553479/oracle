@@ -8,7 +8,7 @@ import {
   DEFAULT_BROWSER_THINKING_TIME,
   DEFAULT_MODEL_STRATEGY,
   DEFAULT_MODEL_TARGET,
-  isMediumEffortTarget,
+  usesDefaultLowestEffort,
 } from "../browser/constants.js";
 import { normalizeChatgptUrl } from "../browser/utils.js";
 import { parseDuration } from "../duration.js";
@@ -33,11 +33,11 @@ const DEFAULT_CHROME_PROFILE = "Default";
 // The browser label is passed to the model picker which fuzzy-matches against ChatGPT's UI.
 const BROWSER_MODEL_LABELS: [ModelName, string][] = [
   // Most specific first (e.g., "gpt-5.2-thinking" before "gpt-5.2")
-  ["gpt-5.6-sol", "Medium"],
-  ["gpt-5.6", "Medium"],
+  ["gpt-5.6-sol", "GPT-5.6 Sol"],
+  ["gpt-5.6", "GPT-5.6 Sol"],
   ["gpt-5.5-pro", "Pro"],
   ["gpt-5.5-instant", "GPT-5.5 Instant"],
-  ["gpt-5.5", "Medium"],
+  ["gpt-5.5", "GPT-5.6 Sol"],
   ["gpt-5.4-pro", "Pro"],
   ["gpt-5.2-thinking", "GPT-5.2 Thinking"],
   ["gpt-5.2-instant", "GPT-5.2 Instant"],
@@ -88,7 +88,7 @@ export interface BrowserFlagOptions {
   browserManualLoginProfileDir?: string | null;
   copyProfile?: string;
   remoteHost?: string;
-  /** Thinking time intensity: 'light', 'standard', 'extended', 'heavy' */
+  /** Thinking time intensity: 'light', 'standard', 'extended', 'extra-high', 'pro', or 'heavy' */
   browserThinkingTime?: ThinkingTimeLevel;
   browserResearch?: BrowserResearchMode;
   browserArchive?: BrowserArchiveMode;
@@ -173,6 +173,7 @@ export async function buildBrowserConfig(
     !isChatGptModel && normalizedOverride.length > 0 && normalizedOverride !== baseModel;
   const modelStrategy =
     normalizeBrowserModelStrategy(options.browserModelStrategy) ?? DEFAULT_MODEL_STRATEGY;
+  assertBrowserModelAvailable(options.model, modelStrategy);
   const cookieNames = parseCookieNames(
     options.browserCookieNames ?? process.env.ORACLE_BROWSER_COOKIE_NAMES,
   );
@@ -277,10 +278,25 @@ export async function buildBrowserConfig(
     browserTabRef: options.browserTab ?? undefined,
     thinkingTime:
       requestedThinkingTime ??
-      (isMediumEffortTarget(desiredModel) ? DEFAULT_BROWSER_THINKING_TIME : undefined),
+      (usesDefaultLowestEffort(desiredModel) ? DEFAULT_BROWSER_THINKING_TIME : undefined),
     researchMode: options.browserResearch === "deep" ? "deep" : "off",
     archiveConversations: options.browserArchive,
   };
+}
+
+function assertBrowserModelAvailable(model: ModelName, modelStrategy: BrowserModelStrategy): void {
+  if (modelStrategy !== "select") return;
+  const normalized = normalizeChatGptModelForBrowser(model);
+  if (
+    normalized !== "gpt-5.2" &&
+    normalized !== "gpt-5.2-instant" &&
+    normalized !== "gpt-5.2-thinking"
+  ) {
+    return;
+  }
+  throw new Error(
+    `Browser model "${model}" is retired because ChatGPT no longer offers GPT-5.2 base, Instant, or Thinking. Choose the current Medium browser target, use --browser-model-strategy current to keep ChatGPT's active model, or use --engine api to retain the GPT-5.2 API alias.`,
+  );
 }
 
 function validateAttachRunningOptions(

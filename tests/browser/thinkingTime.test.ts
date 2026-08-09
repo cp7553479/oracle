@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { ThinkingTimeLevel } from "../../src/oracle/types.js";
 import {
   buildThinkingTimeExpressionForTest,
   ensureThinkingTime,
+  ensureThinkingTimeIfAvailable,
   inferThinkingTargetModelKindForTest,
 } from "../../src/browser/actions/thinkingTime.js";
 
@@ -20,7 +22,7 @@ describe("browser thinking-time selection expression", () => {
   });
 
   it("targets the requested thinking time level", () => {
-    const levels = ["light", "standard", "extended", "heavy"] as const;
+    const levels = ["light", "standard", "extended", "extra-high", "heavy"] as const;
     for (const level of levels) {
       const expression = buildThinkingTimeExpressionForTest(level);
       expect(expression).toContain("const TARGET_LEVEL");
@@ -46,7 +48,13 @@ describe("browser thinking-time selection expression", () => {
     expect(buildThinkingTimeExpressionForTest("extended")).toContain(
       "extended: ['extended', 'high'",
     );
-    expect(buildThinkingTimeExpressionForTest("heavy")).toContain("heavy: ['heavy', 'extra high'");
+    expect(buildThinkingTimeExpressionForTest("extra-high")).toContain(
+      "'extra-high': ['extra high'",
+    );
+    expect(buildThinkingTimeExpressionForTest("heavy")).toContain("heavy: ['heavy'");
+    expect(buildThinkingTimeExpressionForTest("heavy")).not.toContain(
+      "heavy: ['heavy', 'extra high'",
+    );
   });
 
   it("accepts standard selected-state markers when verifying effort", () => {
@@ -66,9 +74,9 @@ describe("browser thinking-time selection expression", () => {
   });
 
   it("preserves Chinese thinking-effort labels while normalizing", () => {
-    const expression = buildThinkingTimeExpressionForTest("heavy");
+    const expression = buildThinkingTimeExpressionForTest("extra-high");
     expect(expression).toContain("\\u4e00-\\u9fa5");
-    expect(expression).toContain("'重度'");
+    expect(expression).toContain("'极高'");
   });
 
   it("infers target model kind with token matching", () => {
@@ -325,7 +333,23 @@ describe("browser thinking-time selection expression", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(logs.at(-1)).toContain("continuing with ChatGPT default");
+    expect(logs.at(-1)).toContain("keeping the effort already selected in ChatGPT");
+  });
+
+  it("keeps the current ChatGPT selection when best-effort Medium selection fails", async () => {
+    const runtime = {
+      evaluate: async () => ({
+        result: { value: { status: "option-not-found", modelKind: null } },
+      }),
+    };
+    const logs: string[] = [];
+    const logger = ((message: string) => logs.push(message)) as never;
+    (logger as { verbose?: boolean }).verbose = true;
+
+    await expect(
+      ensureThinkingTimeIfAvailable(runtime as never, "standard", logger, null),
+    ).resolves.toBe(false);
+    expect(logs.join(" ")).toContain("keeping ChatGPT's current selection");
   });
 
   it("drives ChatGPT's new Intelligence effort picker for Pro Extended", () => {
@@ -350,6 +374,7 @@ describe("browser thinking-time selection expression", () => {
         private readonly attributes: Readonly<Record<string, string>> = {},
         private readonly children: FakeElement[] = [],
         private readonly nestedIntelligence: FakeElement | null = null,
+        private readonly onDispatch?: () => void,
       ) {
         super();
       }
@@ -375,6 +400,10 @@ describe("browser thinking-time selection expression", () => {
         );
       }
       focus(): void {}
+      override dispatchEvent(event: unknown): boolean {
+        this.onDispatch?.();
+        return super.dispatchEvent(event);
+      }
       getBoundingClientRect(): { width: number; height: number } {
         return { width: 144, height: 36 };
       }
@@ -473,6 +502,346 @@ describe("browser thinking-time selection expression", () => {
         FakeElement,
       ),
     ).resolves.toEqual({ status: "already-selected", label: "Pro" });
+
+    const solHeavyExpression = buildThinkingTimeExpressionForTest("heavy", "gpt-5.6-sol");
+    const currentMenuItems = [
+      new FakeElement("ModelGPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
+      new FakeElement("EffortPro", { role: "menuitem", "aria-haspopup": "menu" }),
+    ];
+    const currentIntelligenceGroup = new FakeElement(
+      "ModelGPT-5.6 SolEffortPro",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      currentMenuItems,
+    );
+    const currentOuterMenu = new FakeElement(
+      currentIntelligenceGroup.textContent,
+      { role: "menu" },
+      currentMenuItems,
+      currentIntelligenceGroup,
+    );
+    const proOnlyDocumentStub = {
+      ...documentStub,
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) {
+          return currentIntelligenceGroup;
+        }
+        if (
+          selector.includes("model-switcher-dropdown-button") ||
+          selector.includes("__composer-pill")
+        ) {
+          return modelButton;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [modelButton];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return [currentOuterMenu];
+        }
+        return [];
+      },
+    };
+    const evaluateSolHeavy = new Function(
+      "document",
+      "performance",
+      "setTimeout",
+      "window",
+      "EventTarget",
+      "PointerEvent",
+      "MouseEvent",
+      "HTMLElement",
+      `return ${solHeavyExpression};`,
+    ) as typeof evaluate;
+
+    await expect(
+      evaluateSolHeavy(
+        proOnlyDocumentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+    ).resolves.toEqual({ status: "already-selected", label: "Pro" });
+
+    const proAttributes: Record<string, string> = {
+      role: "menuitemradio",
+      "aria-checked": "false",
+      "data-state": "unchecked",
+    };
+    const selectablePro = new FakeElement("Pro", proAttributes, [], null, () => {
+      proAttributes["aria-checked"] = "true";
+      proAttributes["data-state"] = "checked";
+    });
+    const selectableItems = [
+      selectablePro,
+      new FakeElement("GPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
+    ];
+    const selectableGroup = new FakeElement(
+      "Pro GPT-5.6 Sol",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      selectableItems,
+    );
+    const selectableMenu = new FakeElement(
+      selectableGroup.textContent,
+      { role: "menu" },
+      selectableItems,
+      selectableGroup,
+    );
+    const solModelButton = new FakeElement("Extra High", {
+      class: "__composer-pill",
+      "aria-expanded": "true",
+      "aria-haspopup": "menu",
+    });
+    const selectableDocumentStub = {
+      ...documentStub,
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) return selectableGroup;
+        if (
+          selector.includes("model-switcher-dropdown-button") ||
+          selector.includes("__composer-pill")
+        ) {
+          return solModelButton;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [solModelButton];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return [selectableMenu];
+        }
+        return [];
+      },
+    };
+
+    await expect(
+      evaluateSolHeavy(
+        selectableDocumentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+      // No heavy label in the menu: keep whatever is selected instead of switching to Pro.
+    ).resolves.toMatchObject({ status: "option-not-found" });
+
+    const competingProAttributes: Record<string, string> = {
+      role: "menuitemradio",
+      "aria-checked": "false",
+      "data-state": "unchecked",
+    };
+    const competingPro = new FakeElement("Pro", competingProAttributes, [], null, () => {
+      competingProAttributes["aria-checked"] = "true";
+      competingProAttributes["data-state"] = "checked";
+    });
+    const competingItems = [
+      new FakeElement("Extra High", {
+        role: "menuitemradio",
+        "aria-checked": "false",
+        "data-state": "unchecked",
+      }),
+      competingPro,
+      new FakeElement("GPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
+    ];
+    const competingGroup = new FakeElement(
+      "Extra High Pro GPT-5.6 Sol",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      competingItems,
+    );
+    const competingMenu = new FakeElement(
+      competingGroup.textContent,
+      { role: "menu" },
+      competingItems,
+      competingGroup,
+    );
+    const competingDocumentStub = {
+      ...selectableDocumentStub,
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) return competingGroup;
+        if (
+          selector.includes("model-switcher-dropdown-button") ||
+          selector.includes("__composer-pill")
+        ) {
+          return solModelButton;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [solModelButton];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return [competingMenu];
+        }
+        return [];
+      },
+    };
+
+    await expect(
+      evaluateSolHeavy(
+        competingDocumentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+      // Extra High is not a heavy label either, so Pro must not be hijacked.
+    ).resolves.toMatchObject({ status: "option-not-found" });
+
+    const extraHighAttributes: Record<string, string> = {
+      role: "menuitemradio",
+      "aria-checked": "false",
+      "data-state": "unchecked",
+    };
+    const selectableExtraHigh = new FakeElement("Extra High", extraHighAttributes, [], null, () => {
+      extraHighAttributes["aria-checked"] = "true";
+      extraHighAttributes["data-state"] = "checked";
+    });
+    const extraHighItems = [
+      selectableExtraHigh,
+      new FakeElement("Pro", {
+        role: "menuitemradio",
+        "aria-checked": "false",
+        "data-state": "unchecked",
+      }),
+      new FakeElement("GPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
+    ];
+    const extraHighGroup = new FakeElement(
+      "Extra High Pro GPT-5.6 Sol",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      extraHighItems,
+    );
+    const extraHighMenu = new FakeElement(
+      extraHighGroup.textContent,
+      { role: "menu" },
+      extraHighItems,
+      extraHighGroup,
+    );
+    const mediumPill = new FakeElement("High", {
+      class: "__composer-pill",
+      "aria-expanded": "true",
+      "aria-haspopup": "menu",
+    });
+    const extraHighDocumentStub = {
+      ...documentStub,
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) return extraHighGroup;
+        if (
+          selector.includes("model-switcher-dropdown-button") ||
+          selector.includes("__composer-pill")
+        ) {
+          return mediumPill;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [mediumPill];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return [extraHighMenu];
+        }
+        return [];
+      },
+    };
+    const evaluateSolExtraHigh = new Function(
+      "document",
+      "performance",
+      "setTimeout",
+      "window",
+      "EventTarget",
+      "PointerEvent",
+      "MouseEvent",
+      "HTMLElement",
+      `return ${buildThinkingTimeExpressionForTest("extra-high", "gpt-5.6-sol")};`,
+    ) as typeof evaluate;
+
+    await expect(
+      evaluateSolExtraHigh(
+        extraHighDocumentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+    ).resolves.toEqual({ status: "switched", label: "Extra High" });
+
+    const alreadyExtraHighPill = new FakeElement("Extra High", {
+      class: "__composer-pill",
+      "aria-expanded": "false",
+      "aria-haspopup": "menu",
+    });
+    const alreadyExtraHighItems = [
+      new FakeElement("Extra High", {
+        role: "menuitemradio",
+        "aria-checked": "true",
+        "data-state": "checked",
+      }),
+      new FakeElement("Pro", {
+        role: "menuitemradio",
+        "aria-checked": "false",
+        "data-state": "unchecked",
+      }),
+      new FakeElement("GPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
+    ];
+    const alreadyExtraHighGroup = new FakeElement(
+      "Extra High Pro GPT-5.6 Sol",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      alreadyExtraHighItems,
+    );
+    const alreadyExtraHighMenu = new FakeElement(
+      alreadyExtraHighGroup.textContent,
+      { role: "menu" },
+      alreadyExtraHighItems,
+      alreadyExtraHighGroup,
+    );
+    const alreadyExtraHighDocumentStub = {
+      ...documentStub,
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) {
+          return alreadyExtraHighGroup;
+        }
+        if (
+          selector.includes("model-switcher-dropdown-button") ||
+          selector.includes("__composer-pill")
+        ) {
+          return alreadyExtraHighPill;
+        }
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [alreadyExtraHighPill];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return [alreadyExtraHighMenu];
+        }
+        return [];
+      },
+    };
+
+    await expect(
+      evaluateSolExtraHigh(
+        alreadyExtraHighDocumentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      ),
+    ).resolves.toEqual({ status: "already-selected", label: "Extra High" });
   });
 
   it("selects exact Chinese Intelligence tiers without prefix collisions", async () => {
@@ -532,7 +901,7 @@ describe("browser thinking-time selection expression", () => {
     }
 
     const cases: Array<{
-      level: "light" | "standard" | "extended" | "heavy";
+      level: "light" | "standard" | "extended" | "extra-high" | "heavy";
       label: string;
       reverseAmbiguousPair?: boolean;
       omitExtraHigh?: boolean;
@@ -540,9 +909,9 @@ describe("browser thinking-time selection expression", () => {
       { level: "light", label: "极速5.5" },
       { level: "standard", label: "中" },
       { level: "extended", label: "高", reverseAmbiguousPair: true },
-      { level: "heavy", label: "极高" },
-      { level: "heavy", label: "极高", reverseAmbiguousPair: true },
-      { level: "heavy", label: "高", omitExtraHigh: true },
+      { level: "extra-high", label: "极高" },
+      { level: "extra-high", label: "极高", reverseAmbiguousPair: true },
+      { level: "extra-high", label: "高", omitExtraHigh: true },
     ];
 
     for (const testCase of cases) {
@@ -579,13 +948,14 @@ describe("browser thinking-time selection expression", () => {
           ? [extraHigh, high]
           : [high, extraHigh];
       const orderedEfforts = [instant, medium, ...ambiguousPair];
+      const proEfforts = testCase.level === "heavy" ? [] : [proRadio];
       const effortItems = [
         ...orderedEfforts,
-        proRadio,
+        ...proEfforts,
         new FakeElement("GPT-5.6 Sol", { role: "menuitem", "aria-haspopup": "menu" }),
       ];
       const intelligenceGroup = new FakeElement(
-        `智能 ${orderedEfforts.map((item) => item.textContent).join(" ")} Pro 深度模式 GPT-5.6 Sol`,
+        `智能 ${orderedEfforts.map((item) => item.textContent).join(" ")} ${proEfforts.map((item) => item.textContent).join(" ")} GPT-5.6 Sol`,
         { "data-testid": "composer-intelligence-picker-content", role: "group" },
         effortItems,
       );
@@ -669,6 +1039,185 @@ describe("browser thinking-time selection expression", () => {
       ).resolves.toEqual({ status: "switched", label: testCase.label });
       expect(clickedLabel).toBe(testCase.label);
       expect(unrelatedPillClicks).toBe(0);
+    }
+  });
+
+  it("selects German Intelligence tiers and keeps Hoch distinct from Sehr hoch", async () => {
+    class FakeEventTarget {
+      dispatchEvent(_event: unknown): boolean {
+        return true;
+      }
+    }
+    class FakeElement extends FakeEventTarget {
+      constructor(
+        public textContent: string,
+        private readonly attributes: Record<string, string> = {},
+        private readonly children: FakeElement[] = [],
+        private readonly nestedIntelligence: FakeElement | null = null,
+        private readonly onDispatch?: () => void,
+      ) {
+        super();
+      }
+      getAttribute(name: string): string | null {
+        return this.attributes[name] ?? null;
+      }
+      setAttribute(name: string, value: string): void {
+        this.attributes[name] = value;
+      }
+      querySelector(selector: string): FakeElement | null {
+        return selector.includes("composer-intelligence-picker-content")
+          ? this.nestedIntelligence
+          : null;
+      }
+      querySelectorAll(_selector: string): FakeElement[] {
+        return this.children;
+      }
+      closest(_selector: string): FakeElement | null {
+        return null;
+      }
+      matches(selector: string): boolean {
+        return (
+          selector.includes("__composer-pill") &&
+          this.attributes.class?.includes("__composer-pill") === true
+        );
+      }
+      focus(): void {}
+      getBoundingClientRect(): { width: number; height: number } {
+        return { width: 144, height: 36 };
+      }
+      override dispatchEvent(event: unknown): boolean {
+        this.onDispatch?.();
+        return super.dispatchEvent(event);
+      }
+    }
+    class FakeMouseEvent {
+      constructor(
+        public readonly type: string,
+        public readonly init?: unknown,
+      ) {}
+    }
+
+    const GERMAN_TIERS = ["Sofort", "Mittel", "Hoch", "Sehr hoch"];
+    const cases: Array<{ level: ThinkingTimeLevel; label: string | null; tiers: string[] }> = [
+      { level: "light", label: "Sofort", tiers: GERMAN_TIERS },
+      { level: "standard", label: "Mittel", tiers: GERMAN_TIERS },
+      { level: "extended", label: "Hoch", tiers: GERMAN_TIERS },
+      { level: "extra-high", label: "Sehr hoch", tiers: GERMAN_TIERS },
+      // Sehr hoch must never satisfy `extended`, even when it is the only high tier.
+      { level: "extended", label: null, tiers: ["Sofort", "Mittel", "Sehr hoch"] },
+      // ...nor may Hoch satisfy `extra-high` when Sehr hoch is absent.
+      { level: "extra-high", label: null, tiers: ["Sofort", "Mittel", "Hoch"] },
+      // Row descriptions must not decide the tier: "sehr" inside Hoch's description
+      // may not disqualify it, and "Hochladen" may not stand in for Hoch.
+      {
+        level: "extended",
+        label: "Hoch – für sehr komplexe Aufgaben",
+        tiers: ["Sofort", "Mittel", "Hoch – für sehr komplexe Aufgaben", "Sehr hoch"],
+      },
+      { level: "extended", label: null, tiers: ["Sofort", "Mittel", "Hochladen"] },
+      {
+        level: "standard",
+        label: "Mittel – ausgewogene Denkdauer",
+        tiers: ["Sofort", "Mittel – ausgewogene Denkdauer", "Hoch", "Sehr hoch"],
+      },
+      { level: "standard", label: null, tiers: ["Sofort", "Ermitteln", "Hoch"] },
+    ];
+
+    for (const testCase of cases) {
+      let clickedLabel: string | null = null;
+      const makeRadio = (label: string) => {
+        const radio = new FakeElement(
+          label,
+          { role: "menuitemradio", "aria-checked": "false", "data-state": "unchecked" },
+          [],
+          null,
+          () => {
+            clickedLabel = label;
+            radio.setAttribute("aria-checked", "true");
+            radio.setAttribute("data-state", "checked");
+          },
+        );
+        return radio;
+      };
+      const effortItems = [
+        ...testCase.tiers.map(makeRadio),
+        new FakeElement("Pro", {
+          role: "menuitemradio",
+          "aria-checked": "false",
+          "data-state": "unchecked",
+        }),
+        new FakeElement("GPT-5.6", { role: "menuitem", "aria-haspopup": "menu" }),
+      ];
+      const intelligenceGroup = new FakeElement(
+        `Intelligenz ${effortItems.map((item) => item.textContent).join(" ")}`,
+        { "data-testid": "composer-intelligence-picker-content", role: "group" },
+        effortItems,
+      );
+      const outerMenu = new FakeElement(
+        intelligenceGroup.textContent,
+        { role: "menu" },
+        effortItems,
+        intelligenceGroup,
+      );
+      const modelButton = new FakeElement("Hoch", {
+        class: "__composer-pill",
+        "aria-expanded": "true",
+        "aria-haspopup": "menu",
+      });
+      const documentStub = {
+        body: new FakeElement(""),
+        querySelector: (selector: string) => {
+          if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+          if (selector.includes("composer-intelligence-picker-content")) return intelligenceGroup;
+          if (
+            selector.includes("model-switcher-dropdown-button") ||
+            selector.includes("__composer-pill")
+          ) {
+            return modelButton;
+          }
+          return null;
+        },
+        querySelectorAll: (selector: string) => {
+          if (selector.includes("__composer-pill")) return [modelButton];
+          if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+            return [outerMenu];
+          }
+          return [];
+        },
+        dispatchEvent: () => true,
+      };
+      let now = 0;
+      const performanceStub = { now: () => (now += 100) };
+      const evaluate = new Function(
+        "document",
+        "performance",
+        "setTimeout",
+        "window",
+        "EventTarget",
+        "PointerEvent",
+        "MouseEvent",
+        "HTMLElement",
+        `return ${buildThinkingTimeExpressionForTest(testCase.level, "GPT-5.6")};`,
+      ) as (...args: unknown[]) => Promise<unknown>;
+
+      const result = (await evaluate(
+        documentStub,
+        performanceStub,
+        (callback: () => void) => callback(),
+        { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+        FakeEventTarget,
+        FakeMouseEvent,
+        FakeMouseEvent,
+        FakeElement,
+      )) as { status: string; label?: string | null };
+      if (testCase.label === null) {
+        expect(result.status).toBe("option-not-found");
+        expect(clickedLabel).toBeNull();
+      } else {
+        expect(result.status).toBe("switched");
+        expect(result.label).toBe(testCase.label);
+        expect(clickedLabel).toBe(testCase.label);
+      }
     }
   });
 
@@ -1105,7 +1654,7 @@ describe("browser thinking-time selection expression", () => {
       extraHigh.setAttribute("data-state", "unchecked");
       let now = 0;
       let timers = 0;
-      const expression = buildThinkingTimeExpressionForTest("heavy", targetModel);
+      const expression = buildThinkingTimeExpressionForTest("extra-high", targetModel);
       const evaluate = new Function(
         "document",
         "performance",
@@ -1863,7 +2412,7 @@ describe("browser thinking-time selection expression", () => {
     };
     let now = 0;
     const performanceStub = { now: () => (now += 100) };
-    const expression = buildThinkingTimeExpressionForTest("heavy", "Thinking 5.5");
+    const expression = buildThinkingTimeExpressionForTest("extra-high", "Thinking 5.5");
     const evaluate = new Function(
       "document",
       "performance",
@@ -2181,5 +2730,399 @@ describe("browser thinking-time selection expression", () => {
         FakeElement,
       ),
     ).resolves.toEqual({ status: "switched", label: "Instant" });
+  });
+});
+
+describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
+  // Mirrors the ChatGPT layout observed 2026-08-07: a "power" slider in the simple
+  // view, with the effort tiers reachable only through Advanced -> Effort.
+  class FakeEventTarget {
+    dispatchEvent(_event: unknown): boolean {
+      return true;
+    }
+  }
+
+  class Node extends FakeEventTarget {
+    public readonly children: Node[];
+    private readonly attrs: Record<string, string>;
+    public clicks = 0;
+
+    constructor(
+      public textContent: string,
+      attrs: Record<string, string> = {},
+      children: Node[] = [],
+      private readonly onClick?: (self: Node) => void,
+    ) {
+      super();
+      this.attrs = { ...attrs };
+      this.children = children;
+    }
+
+    get parentElement(): Node | null {
+      return null;
+    }
+
+    getAttribute(name: string): string | null {
+      return this.attrs[name] ?? null;
+    }
+
+    setAttribute(name: string, value: string): void {
+      this.attrs[name] = value;
+    }
+
+    private matchesSelector(selector: string): boolean {
+      const role = this.attrs.role ?? "";
+      const testid = this.attrs["data-testid"] ?? "";
+      if (selector.includes('[role="menuitem"][aria-haspopup="menu"]')) {
+        return role === "menuitem" && this.attrs["aria-haspopup"] === "menu";
+      }
+      if (selector.includes("composer-model-picker-slider-advanced-view")) {
+        return testid === "composer-model-picker-slider-advanced-view";
+      }
+      if (selector.includes("composer-intelligence-picker-content")) {
+        return testid === "composer-intelligence-picker-content";
+      }
+      if (selector.includes('role="menuitemradio"') && role === "menuitemradio") return true;
+      if (selector.includes('role="menuitem"'))
+        return role === "menuitem" || role === "menuitemradio";
+      if (selector.includes('role="menu"')) return role === "menu";
+      return false;
+    }
+
+    private descendants(): Node[] {
+      return this.children.flatMap((child) => [child, ...child.descendants()]);
+    }
+
+    querySelector(selector: string): Node | null {
+      return this.descendants().find((node) => node.matchesSelector(selector)) ?? null;
+    }
+
+    querySelectorAll(selector: string): Node[] {
+      return this.descendants().filter((node) => node.matchesSelector(selector));
+    }
+
+    closest(_selector: string): Node | null {
+      return null;
+    }
+
+    matches(selector: string): boolean {
+      if (selector.includes("__composer-pill")) {
+        return (this.attrs.class ?? "").includes("__composer-pill");
+      }
+      return this.matchesSelector(selector);
+    }
+
+    contains(node: unknown): boolean {
+      return this.descendants().includes(node as Node);
+    }
+
+    getBoundingClientRect(): { width: number; height: number } {
+      return { width: 40, height: 20 };
+    }
+
+    override dispatchEvent(event: unknown): boolean {
+      if (String((event as { type?: string }).type) === "click") {
+        this.clicks += 1;
+        this.onClick?.(this);
+      }
+      return super.dispatchEvent(event);
+    }
+  }
+
+  class FakeMouseEvent {
+    constructor(
+      public readonly type: string,
+      public readonly init?: unknown,
+    ) {}
+  }
+
+  function buildDom(currentTier: string) {
+    const tierNames = ["Instant", "Medium", "High", "Extra High", "Pro"];
+    let selectedTier = currentTier;
+    const tierRows = tierNames.map(
+      (name) =>
+        new Node(
+          name,
+          { role: "menuitemradio", "aria-checked": name === selectedTier ? "true" : "false" },
+          [],
+          (self) => {
+            selectedTier = name;
+            for (const row of tierRows) {
+              row.setAttribute("aria-checked", row === self ? "true" : "false");
+            }
+          },
+        ),
+    );
+    const submenu = new Node(
+      "InstantMediumHighExtra HighPro",
+      { role: "menu", id: "effort-submenu" },
+      tierRows,
+    );
+
+    // The submenu is portalled in only once its opener is activated, so a descent
+    // that never really opens it cannot quietly pass by reading it up front.
+    let submenuOpen = false;
+    const effortOpener = new Node(
+      `Effort${selectedTier}`,
+      {
+        role: "menuitem",
+        "aria-haspopup": "menu",
+        "aria-controls": "effort-submenu",
+        "data-state": "closed",
+      },
+      [],
+      (self) => {
+        submenuOpen = true;
+        self.setAttribute("aria-expanded", "true");
+      },
+    );
+    const modelOpener = new Node("ModelGPT-5.6 Sol", {
+      role: "menuitem",
+      "aria-haspopup": "menu",
+      "data-state": "closed",
+    });
+    const advancedView = new Node(
+      "ModelGPT-5.6 SolEffortHigh",
+      { "data-testid": "composer-model-picker-slider-advanced-view" },
+      [modelOpener, effortOpener],
+    );
+    const advancedToggle = new Node("Advanced", {
+      role: "menuitem",
+      "aria-label": "Show advanced options",
+      "aria-expanded": "false",
+    });
+    const slider = new Node("", { role: "menuitem", "aria-label": "Power" });
+    const pickerContent = new Node(
+      "High, 3 of 5.AdvancedFasterSmarter",
+      { "data-testid": "composer-intelligence-picker-content", role: "group" },
+      [slider, advancedToggle, advancedView],
+    );
+    const topMenu = new Node("High, 3 of 5.Advanced", { role: "menu" }, [pickerContent]);
+    const pill = new Node(currentTier, {
+      class: "__composer-pill",
+      "aria-expanded": "true",
+      "aria-haspopup": "menu",
+    });
+
+    const documentStub = {
+      body: new Node(""),
+      getElementById: (id: string) => (id === "effort-submenu" && submenuOpen ? submenu : null),
+      querySelector: (selector: string) => {
+        if (selector.includes("composer-intelligence-pro-thinking-effort-trigger")) return null;
+        if (selector.includes("composer-intelligence-picker-content")) return pickerContent;
+        if (selector.includes("__composer-pill")) return pill;
+        return null;
+      },
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("__composer-pill")) return [pill];
+        if (selector.includes('role="menu"') || selector.includes("data-radix")) {
+          return submenuOpen ? [topMenu, submenu] : [topMenu];
+        }
+        if (selector.includes('role="menuitem"'))
+          return [advancedToggle, modelOpener, effortOpener];
+        return [];
+      },
+      dispatchEvent: () => true,
+    };
+    return {
+      documentStub,
+      advancedToggle,
+      effortOpener,
+      modelOpener,
+      tierRows,
+      getSelectedTier: () => selectedTier,
+    };
+  }
+
+  function run(documentStub: unknown, level: string, model: string | null = "gpt-5.6-sol") {
+    let now = 0;
+    const performanceStub = {
+      now: () => {
+        now += 50;
+        return now;
+      },
+    };
+    const evaluate = new Function(
+      "document",
+      "performance",
+      "setTimeout",
+      "window",
+      "EventTarget",
+      "PointerEvent",
+      "MouseEvent",
+      "HTMLElement",
+      `return ${buildThinkingTimeExpressionForTest(level as ThinkingTimeLevel, model)};`,
+    ) as (...args: unknown[]) => Promise<{ status: string; label: string | null }>;
+    return evaluate(
+      documentStub,
+      performanceStub,
+      (callback: () => void) => callback(),
+      { PointerEvent: FakeMouseEvent, MouseEvent: FakeMouseEvent, Event: FakeMouseEvent },
+      FakeEventTarget,
+      FakeMouseEvent,
+      FakeMouseEvent,
+      Node,
+    );
+  }
+
+  it("selects Pro through the Effort submenu", async () => {
+    const dom = buildDom("High");
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.getSelectedTier()).toBe("Pro");
+  });
+
+  it("expands the collapsed Advanced view before reading the tiers", async () => {
+    const dom = buildDom("High");
+    await run(dom.documentStub, "pro");
+    expect(dom.advancedToggle.clicks).toBeGreaterThan(0);
+  });
+
+  it("reports Pro as already selected without clicking again", async () => {
+    const dom = buildDom("Pro");
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "already-selected",
+      label: "Pro",
+    });
+    const proRow = dom.tierRows[4];
+    expect(proRow?.clicks).toBe(0);
+  });
+
+  it("still reaches non-Pro tiers through the same submenu", async () => {
+    const dom = buildDom("High");
+    await expect(run(dom.documentStub, "extra-high")).resolves.toEqual({
+      status: "switched",
+      label: "Extra High",
+    });
+    expect(dom.getSelectedTier()).toBe("Extra High");
+  });
+
+  it("never lands on Pro when a lower tier was requested", async () => {
+    const dom = buildDom("Pro");
+    await run(dom.documentStub, "extended");
+    expect(dom.getSelectedTier()).toBe("High");
+  });
+
+  it("descends past a Model opener whose label contains Pro", async () => {
+    // The Model row names the active model and can read "ModelGPT-5.6 Pro". It has
+    // the same shape as the Effort opener, so a Pro request must not click it.
+    const dom = buildDom("High");
+    dom.modelOpener.textContent = "ModelGPT-5.6 Pro";
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.modelOpener.clicks).toBe(0);
+    expect(dom.effortOpener.clicks).toBeGreaterThan(0);
+    expect(dom.getSelectedTier()).toBe("Pro");
+  });
+
+  it("refuses to guess the Effort opener in an unrecognized language", async () => {
+    const dom = buildDom("High");
+    dom.effortOpener.textContent = "Nivå Hög";
+    dom.modelOpener.textContent = "Modell GPT-5.6 Pro";
+    const result = await run(dom.documentStub, "pro");
+    expect(result.status).not.toBe("switched");
+    expect(dom.modelOpener.clicks).toBe(0);
+    expect(dom.getSelectedTier()).toBe("High");
+  });
+
+  it("does not mistake a localized Advanced toggle for an effort tier", async () => {
+    // German "Erweitert" is both the Advanced disclosure label and one of the
+    // `extended` tier tokens. Matching it as a tier would satisfy the flat scan,
+    // skip the descent, and click the toggle instead of an effort row.
+    const dom = buildDom("Instant");
+    dom.advancedToggle.textContent = "Erweitert";
+    await expect(run(dom.documentStub, "extended")).resolves.toEqual({
+      status: "switched",
+      label: "High",
+    });
+    expect(dom.getSelectedTier()).toBe("High");
+    expect(dom.effortOpener.clicks).toBeGreaterThan(0);
+  });
+
+  it("never settles on Pro for a lower tier when no model is supplied", async () => {
+    // With no desiredModel the model kind is inferred from the composer pill. A pill
+    // showing the Pro *effort* must not read as a Pro *model*, or the Pro-row
+    // exclusion lifts and an `extended` request can match a Pro row carrying an
+    // extended token — Chinese "Pro 深度模式" contains 深度, an extended token.
+    const dom = buildDom("Pro");
+    dom.tierRows[4]!.textContent = "Pro 深度模式";
+    const result = await run(dom.documentStub, "extended", null);
+    // Declining to act is fine (the tab stays where it was, and the caller warns).
+    // Reporting Pro as satisfying `extended` is not.
+    expect(dom.tierRows[4]?.clicks).toBe(0);
+    if (result.status === "switched" || result.status === "already-selected") {
+      expect(result.label ?? "").not.toContain("Pro");
+    }
+  });
+
+  it("keeps Pro out of effort-owner classification", () => {
+    // LEVEL_TOKENS classifies controls and menus as effort owners; TARGET_LEVEL_TOKENS
+    // adds Pro for target matching only. Merging them would make a model pill reading
+    // "Pro" look like the effort pill, and a model menu listing Instant/Pro look like
+    // a tier list.
+    const expression = buildThinkingTimeExpressionForTest("pro", "gpt-5.6-sol");
+    const classifier = expression.slice(
+      expression.indexOf("const LEVEL_TOKENS"),
+      expression.indexOf("const TARGET_LEVEL_TOKENS"),
+    );
+    expect(classifier).not.toContain("pro: ['pro']");
+    expect(expression).toContain("const TARGET_LEVEL_TOKENS = { ...LEVEL_TOKENS, pro: ['pro'] }");
+    expect(expression).toContain("Object.values(LEVEL_TOKENS).some((tokens) => matchesTokens");
+  });
+
+  it("fails closed for every unconfirmed explicit Pro status", async () => {
+    // Pro is expensive and rate-limited: an unconfirmed selection must abort rather
+    // than silently submit at whatever cheaper tier the tab happened to be on.
+    const statuses = [
+      "chip-not-found",
+      "menu-not-found",
+      "option-not-found",
+      "selection-unverified",
+      "model-kind-not-found",
+      "unknown-status",
+      undefined,
+    ] as const;
+
+    for (const status of statuses) {
+      const runtime = {
+        evaluate: async () => ({
+          result: { value: status === undefined ? undefined : { status } },
+        }),
+      };
+      await expect(
+        ensureThinkingTime(runtime as never, "pro", (() => {}) as never, "gpt-5.6-sol"),
+      ).rejects.toThrow(/refusing to submit without confirmed Pro\.$/);
+    }
+  });
+
+  it("does not claim the previous effort survived an unverified click", async () => {
+    const lines: string[] = [];
+    const runtime = {
+      evaluate: async () => ({ result: { value: { status: "selection-unverified" } } }),
+    };
+    await ensureThinkingTime(
+      runtime as never,
+      "extended",
+      ((line: string) => lines.push(line)) as never,
+      "gpt-5.6-sol",
+    );
+    const logged = lines.join(" ");
+    expect(logged).toContain("unconfirmed");
+    expect(logged).not.toContain("keeping the effort already selected");
+  });
+
+  it("never touches a tier row while hunting for the opener", async () => {
+    // Regression guard: an opener matcher that accepted a tier row would change the
+    // effort on hover alone, before any click.
+    const dom = buildDom("High");
+    const decoy = dom.tierRows[4];
+    dom.effortOpener.textContent = "Nivå Hög";
+    await run(dom.documentStub, "pro");
+    expect(decoy?.clicks).toBe(0);
+    expect(dom.getSelectedTier()).toBe("High");
   });
 });

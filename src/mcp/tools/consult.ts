@@ -30,7 +30,7 @@ import { runDryRunSummary } from "../../cli/dryRun.js";
 import {
   CHATGPT_URL,
   DEFAULT_BROWSER_THINKING_TIME,
-  isMediumEffortTarget,
+  usesDefaultLowestEffort,
 } from "../../browser/constants.js";
 import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
@@ -39,6 +39,7 @@ import { resolveNotificationSettings } from "../../cli/notifier.js";
 import { mapModelToBrowserLabel, resolveBrowserModelLabel } from "../../cli/browserConfig.js";
 import type { BrowserModelStrategy } from "../../browser/types.js";
 import { normalizeThinkingTimeLevel } from "../../oracle/thinkingTime.js";
+import type { ThinkingTimeLevel } from "../../oracle/types.js";
 
 // Use raw shapes so the MCP SDK (with its bundled Zod) wraps them and emits valid JSON Schema.
 const consultInputShape = {
@@ -332,7 +333,7 @@ export function buildConsultBrowserConfig({
   runModel: string;
   inputModel?: string;
   browserModelLabel?: string;
-  browserThinkingTime?: "light" | "standard" | "extended" | "heavy";
+  browserThinkingTime?: ThinkingTimeLevel;
   browserModelStrategy?: BrowserModelStrategy;
   browserResearchMode?: "deep";
   browserArchive?: "auto" | "always" | "never";
@@ -354,7 +355,7 @@ export function buildConsultBrowserConfig({
   const resolvedThinkingTime =
     browserThinkingTime ??
     configuredThinkingTime ??
-    (isMediumEffortTarget(desiredModelLabel) ? DEFAULT_BROWSER_THINKING_TIME : undefined);
+    (usesDefaultLowestEffort(desiredModelLabel) ? DEFAULT_BROWSER_THINKING_TIME : undefined);
 
   return {
     ...configuredBrowser,

@@ -65,8 +65,12 @@ export async function ensureThinkingTime(
   const capitalizedLevel = level.charAt(0).toUpperCase() + level.slice(1);
   const targetModelKind = inferThinkingTargetModelKind(desiredModel);
   const observedModelKind = result && "modelKind" in result ? result.modelKind : null;
+  // Pro is expensive and rate-limited, so a Pro request must never degrade quietly
+  // into a cheaper tier. Requesting it explicitly (level "pro") fails closed on its
+  // own, independently of the legacy Pro-model + "extended" combination.
   const strictProEffort =
-    (targetModelKind === "pro" || observedModelKind === "pro") && level === "extended";
+    level === "pro" ||
+    ((targetModelKind === "pro" || observedModelKind === "pro") && level === "extended");
 
   switch (result?.status) {
     case "already-selected":
@@ -90,22 +94,31 @@ export async function ensureThinkingTime(
             : "";
       const message = `Thinking time: ${result.status.replaceAll("-", " ")}${kindHint} (requested ${capitalizedLevel})`;
       if (strictProEffort) {
-        throw new Error(`${message}; refusing to submit without confirmed Pro Extended.`);
+        const target = level === "pro" ? "Pro" : "Pro Extended";
+        throw new Error(`${message}; refusing to submit without confirmed ${target}.`);
       }
-      logger(formatBrowserThinkingLog(`${message}; continuing with ChatGPT default.`));
+      // "selection-unverified" is the one status here that already dispatched a
+      // click, so the effort may or may not have moved. Every other status left
+      // the tab on whatever effort it had — which is not necessarily the default.
+      const outcome =
+        result.status === "selection-unverified"
+          ? "the effort in ChatGPT is unconfirmed"
+          : "keeping the effort already selected in ChatGPT";
+      logger(formatBrowserThinkingLog(`${message}; ${outcome}.`));
       return;
     }
     default: {
       await logDomFailure(Runtime, logger, "thinking-time-unknown");
       logPickerDiagnostic(result, logger);
       if (strictProEffort) {
+        const target = level === "pro" ? "Pro" : "Pro Extended";
         throw new Error(
-          `Thinking time: unknown outcome selecting ${capitalizedLevel}; refusing to submit without confirmed Pro Extended.`,
+          `Thinking time: unknown outcome selecting ${capitalizedLevel}; refusing to submit without confirmed ${target}.`,
         );
       }
       logger(
         formatBrowserThinkingLog(
-          `unknown outcome selecting ${capitalizedLevel}; continuing with ChatGPT default.`,
+          `unknown outcome selecting ${capitalizedLevel}; keeping the effort already selected in ChatGPT.`,
         ),
       );
       return;
@@ -116,7 +129,7 @@ export async function ensureThinkingTime(
 /**
  * Best-effort selection of a thinking time level in ChatGPT's composer pill menu.
  * Safe by default: if the pill/menu/option isn't present, we continue without throwing.
- * @param level - The thinking time intensity: 'light', 'standard', 'extended', or 'heavy'
+ * @param level - The thinking time intensity: 'light', 'standard', 'extended', 'extra-high', 'pro', or 'heavy'
  */
 export async function ensureThinkingTimeIfAvailable(
   Runtime: ChromeClient["Runtime"],
@@ -143,21 +156,25 @@ export async function ensureThinkingTimeIfAvailable(
         if (logger.verbose) {
           logger(
             formatBrowserThinkingLog(
-              `${result.status.replaceAll("-", " ")}; continuing with default.`,
+              `${result.status.replaceAll("-", " ")}; keeping ChatGPT's current selection.`,
             ),
           );
         }
         return false;
       default:
         if (logger.verbose) {
-          logger(formatBrowserThinkingLog("unknown outcome; continuing with default."));
+          logger(formatBrowserThinkingLog("unknown outcome; keeping ChatGPT's current selection."));
         }
         return false;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (logger.verbose) {
-      logger(formatBrowserThinkingLog(`selection failed (${message}); continuing with default.`));
+      logger(
+        formatBrowserThinkingLog(
+          `selection failed (${message}); keeping ChatGPT's current selection.`,
+        ),
+      );
       await logDomFailure(Runtime, logger, "thinking-time");
     }
     return false;
@@ -201,14 +218,20 @@ function buildThinkingTimeExpression(
     const TARGET_MODEL_KIND = ${targetModelKindLiteral};
     const TARGET_IS_GPT56_MODEL = ${targetIsGpt56ModelLiteral};
 
-    // Bilingual matchers: English level token + observed Chinese variants.
+    // Multilingual matchers: English level token + observed German/Chinese variants.
     const LEVEL_TOKENS = {
-      light: ['light', 'instant', '轻', '极速'],
-      standard: ['standard', 'medium', '标准', '中'],
-      extended: ['extended', 'high', '扩展', '深度', '加强', '高'],
-      heavy: ['heavy', 'extra high', '重度', '加重', '极高'],
+      light: ['light', 'instant', 'sofort', 'leicht', '轻', '极速'],
+      standard: ['standard', 'medium', 'mittel', '标准', '中'],
+      extended: ['extended', 'high', 'hoch', 'erweitert', '扩展', '深度', '加强', '高'],
+      'extra-high': ['extra high', 'sehr hoch', '极高'],
+      heavy: ['heavy', 'schwer', '重度', '加重'],
     };
-    const targetTokens = LEVEL_TOKENS[TARGET_LEVEL] || [TARGET_LEVEL];
+    // Pro is a tier you can request, but it is also a MODEL name, so it must never
+    // be used to decide whether a control or a menu is an effort owner: a model pill
+    // reading "Pro" would be claimed as the effort pill, and a model menu listing
+    // "Instant"/"Pro" would look like a tier list. Keep it to target matching only.
+    const TARGET_LEVEL_TOKENS = { ...LEVEL_TOKENS, pro: ['pro'] };
+    const targetTokens = TARGET_LEVEL_TOKENS[TARGET_LEVEL] || [TARGET_LEVEL];
 
     const INITIAL_WAIT_MS = 150;
     const STEP_WAIT_MS = 200;
@@ -221,19 +244,43 @@ function buildThinkingTimeExpression(
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // Keep CJK characters so we can match Chinese labels against LEVEL_TOKENS.
     const normalize = (value) => (value || '')
+      // Compose first so NFD umlauts fold too, then map them onto ASCII before
+      // the strip below would drop them (and split the token in half).
+      .normalize('NFC')
       .toLowerCase()
+      .replace(/ä/g, 'a')
+      .replace(/ö/g, 'o')
+      .replace(/ü/g, 'u')
+      .replace(/ß/g, 'ss')
       .replace(/[^a-z0-9\\u4e00-\\u9fa5]+/g, ' ')
       .replace(/\\s+/g, ' ')
       .trim();
     const hasToken = (text, token) => normalize(text).split(' ').includes(token);
-    const matchesLevel = (text) => {
+    // Whole-word/phrase containment. Latin effort labels are short words that also
+    // occur inside unrelated UI text ("Hochladen", "Ermitteln") and inside their own
+    // row descriptions ("Hoch – für sehr komplexe Aufgaben"), so plain substring
+    // matching misclassifies rows. CJK labels have no word separators, so they keep
+    // substring semantics.
+    const hasPhrase = (text, phrase) => {
+      const haystack = ' ' + normalize(text) + ' ';
+      const needle = normalize(phrase);
+      if (!needle) return false;
+      return /^[a-z0-9 ]+$/.test(needle)
+        ? haystack.includes(' ' + needle + ' ')
+        : haystack.includes(needle);
+    };
+    // ChatGPT's Pro effort tiers are "Pro Extended"/"Pro Erweitert" per UI language.
+    const hasExtendedWord = (text) => hasPhrase(text, 'extended') || hasPhrase(text, 'erweitert');
+    const matchesTokens = (text, tokens) => {
       const t = normalize(text);
       if (!t) return false;
-      return targetTokens.some((tok) => {
+      return tokens.some((tok) => {
         const token = normalize(tok);
         if (!token) return false;
-        if (token === 'high') return hasToken(t, 'high') && !hasToken(t, 'extra');
-        if (token === 'extra high') return hasToken(t, 'extra') && hasToken(t, 'high');
+        if (token === 'high') return hasPhrase(t, 'high') && !hasPhrase(t, 'extra high');
+        if (token === 'extra high') return hasPhrase(t, 'extra high');
+        if (token === 'hoch') return hasPhrase(t, 'hoch') && !hasPhrase(t, 'sehr hoch');
+        if (token === 'sehr hoch') return hasPhrase(t, 'sehr hoch');
         if (token === '极速') {
           const suffix = t.slice(token.length);
           return t === token || hasToken(t, token) || /^[0-9]/.test(suffix);
@@ -241,27 +288,15 @@ function buildThinkingTimeExpression(
         if (['中', '高', '极高'].includes(token)) {
           return t === token || hasToken(t, token);
         }
+        if (/^[a-z0-9 ]+$/.test(token)) {
+          return hasPhrase(t, token);
+        }
         return t === token || hasToken(t, token) || t.includes(token);
       });
     };
-    const matchesAnyEffortLevel = (text) => {
-      const normalizedText = normalize(text);
-      if (!normalizedText) return false;
-      for (const tokens of Object.values(LEVEL_TOKENS)) {
-        for (const rawToken of tokens) {
-          const token = normalize(rawToken);
-          if (!token) continue;
-          if (token.includes(' ')) {
-            if (token.split(' ').every((part) => hasToken(normalizedText, part))) return true;
-          } else if (/^[a-z0-9]+$/.test(token)) {
-            if (hasToken(normalizedText, token)) return true;
-          } else if (normalizedText.includes(token)) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
+    const matchesLevel = (text) => matchesTokens(text, targetTokens);
+    const matchesAnyEffortLevel = (text) =>
+      Object.values(LEVEL_TOKENS).some((tokens) => matchesTokens(text, tokens));
     const optionIsSelected = (node) => {
       if (!(node instanceof HTMLElement)) return false;
       const ariaChecked = node.getAttribute('aria-checked');
@@ -413,7 +448,8 @@ function buildThinkingTimeExpression(
         return true;
       }
       const label = menu?.querySelector?.('.__menu-label, [class*="menu-label"]');
-      return normalize(label?.textContent ?? '').includes('intelligence');
+      // 'intelligen' matches both "Intelligence" and German "Intelligenz".
+      return normalize(label?.textContent ?? '').includes('intelligen');
     };
     const failure = (status, extra = {}) => ({
       status,
@@ -422,7 +458,20 @@ function buildThinkingTimeExpression(
       diagnostic: collectPickerDiagnostic(),
     });
     const findOptionInMenu = (menu, modelKindOverride = null) => {
-      const items = Array.from(menu.querySelectorAll(MENU_ITEM_SELECTOR));
+      // Container controls reveal other controls; they are not tiers you can pick.
+      // Two shapes exist and both can collide with a tier label: a submenu opener
+      // ("ModelGPT-5.6 Pro" would satisfy a Pro request) and a disclosure toggle
+      // (German "Erweitert" is literally one of the extended tokens, so the
+      // Advanced toggle would satisfy an extended request and be clicked in place
+      // of the tier). Detect them structurally rather than by label: a real tier row
+      // carries a checked state, while a container carries expansion state.
+      const isContainerControl = (node) =>
+        node?.getAttribute?.('aria-haspopup') === 'menu' ||
+        (node?.getAttribute?.('aria-expanded') !== null &&
+          node?.getAttribute?.('aria-checked') === null);
+      const items = Array.from(menu.querySelectorAll(MENU_ITEM_SELECTOR)).filter(
+        (item) => !isContainerControl(item),
+      );
       const modelKind = modelKindOverride || effectiveTargetModelKind();
       if (modelKind === 'pro') {
         // GPT-5.6's unified Intelligence picker exposes Pro as the highest
@@ -456,11 +505,19 @@ function buildThinkingTimeExpression(
           return null;
         }
       }
+      // Generic effort-label match for every model/level. GPT-5.6 heavy used to
+      // short-circuit to the Pro row before reaching here; it no longer does, so
+      // a UI without a matching tier (e.g. German, which has no "heavy") falls
+      // through to null and the caller keeps the current selection.
       for (const item of items) {
         const itemText = normalize(
           (item.textContent ?? '') + ' ' + (item.getAttribute?.('aria-label') ?? ''),
         );
-        if (modelKind !== 'pro' && hasToken(itemText, 'pro')) {
+        // Pro rows are skipped for non-Pro targets so "High" never resolves to
+        // "Pro". Two things lift this: an explicit TARGET_LEVEL of 'pro', and a
+        // legacy Pro-model menu (modelKind === 'pro'), whose rows are all Pro
+        // variants so excluding them would leave nothing to match.
+        if (TARGET_LEVEL !== 'pro' && modelKind !== 'pro' && hasToken(itemText, 'pro')) {
           continue;
         }
         if (
@@ -470,10 +527,10 @@ function buildThinkingTimeExpression(
           return item;
         }
       }
-      if (TARGET_LEVEL === 'heavy') {
-        // Older Chinese layouts used bare 高 for the highest effort. Keep it
-        // only as a second-pass exact fallback so a current 高 row can never
-        // win before the primary 极高 row.
+      if (TARGET_LEVEL === 'extra-high') {
+        // Older Chinese layouts used bare 高 for the highest non-Pro effort.
+        // Keep it only as a second-pass exact fallback so a current 高 row can
+        // never win before the primary 极高 row.
         for (const item of items) {
           const itemText = normalize(item.textContent ?? '');
           const ariaLabel = normalize(item.getAttribute?.('aria-label') ?? '');
@@ -482,11 +539,15 @@ function buildThinkingTimeExpression(
       }
       return null;
     };
+    // Menu-shape heuristic only. This reads the whole menu's textContent, where
+    // adjacent row labels concatenate without a separator ("Pro StandardPro
+    // Extended"), so word-boundary matching does not apply here — substring is
+    // deliberate. Row-level classification uses matchesLevel/matchesTokens.
     const countEffortLevels = (menu) => {
       const text = normalize(menu?.textContent ?? '');
       let hits = 0;
       for (const tokens of Object.values(LEVEL_TOKENS)) {
-        if (tokens.some((token) => text.includes(String(token).toLowerCase()))) hits += 1;
+        if (tokens.some((token) => text.includes(normalize(token)))) hits += 1;
       }
       return hits;
     };
@@ -497,16 +558,22 @@ function buildThinkingTimeExpression(
       const label = menu.querySelector?.('.__menu-label, [class*="menu-label"]');
       const labelText = normalize(label?.textContent ?? '');
       return (
-        labelText.includes('intelligence') ||
+        labelText.includes('intelligen') ||
         labelText.includes('thinking time') ||
         labelText.includes('thinking effort') ||
+        labelText.includes('denkdauer') ||
+        labelText.includes('denkzeit') ||
         countEffortLevels(menu) >= 2
       );
     };
     const isProEffortMenu = (menu) => {
       if (!isVisible(menu)) return false;
       const text = normalize(menu?.textContent ?? '');
-      return text.includes('pro standard') && text.includes('pro extended');
+      // Aggregate menu text, so plain substring only (see countEffortLevels).
+      return (
+        text.includes('pro standard') &&
+        (text.includes('pro extended') || text.includes('pro erweitert'))
+      );
     };
     const controlledMenu = (trigger) => {
       const id = trigger?.getAttribute?.('aria-controls');
@@ -541,10 +608,10 @@ function buildThinkingTimeExpression(
         (node?.textContent ?? '') + ' ' + (node?.getAttribute?.('aria-label') ?? ''),
       );
       if (TARGET_LEVEL === 'standard') {
-        return text.includes('pro') && text.includes('standard');
+        return hasPhrase(text, 'pro') && hasPhrase(text, 'standard');
       }
       if (TARGET_LEVEL === 'extended') {
-        return text.includes('pro') && text.includes('extended');
+        return hasPhrase(text, 'pro') && hasExtendedWord(text);
       }
       return false;
     };
@@ -569,29 +636,50 @@ function buildThinkingTimeExpression(
       }
       const label = normalize(button?.textContent ?? '');
       if (TARGET_LEVEL === 'standard') {
-        return hasToken(label, 'pro') && !hasToken(label, 'extended');
+        return hasToken(label, 'pro') && !hasExtendedWord(label);
       }
       if (TARGET_LEVEL === 'extended') {
-        return hasToken(label, 'pro') && hasToken(label, 'extended');
+        return hasToken(label, 'pro') && hasExtendedWord(label);
       }
       return false;
     };
     const currentEffortPillMatchesTarget = (trigger, modelKindOverride = null) => {
       if (currentProEffortPillMatchesTarget(trigger, modelKindOverride)) return true;
       const button = freshComposerTrigger(trigger) || findModelButton();
+      const normalizedLabel = normalize(
+        (button?.textContent ?? '') + ' ' + (button?.getAttribute?.('aria-label') ?? ''),
+      );
+      // No 5.6-heavy "a Pro pill counts as heavy" shortcut here: that would also
+      // make post-click verification pass on an unchanged Pro pill. selectAndVerify
+      // handles the already-on-Pro case explicitly before any click.
       if ((modelKindOverride || TARGET_MODEL_KIND || modelKindFromNode(button)) === 'pro') {
         return false;
       }
-      const label = (button?.textContent ?? '') + ' ' + (button?.getAttribute?.('aria-label') ?? '');
-      return matchesLevel(label);
+      return matchesLevel(normalizedLabel);
     };
     const selectAndVerify = async (trigger, findOption, modelKindOverride = null) => {
-      const option = findOption();
       const triggerModelKind =
         modelKindOverride ||
         TARGET_MODEL_KIND ||
         modelKindFromNode(trigger) ||
         effectiveTargetModelKind();
+      const option = findOption();
+      if (!option && TARGET_IS_GPT56_MODEL && TARGET_LEVEL === 'heavy') {
+        // GPT-5.6 has no "heavy" tier: Pro is the closest thing. Accept a pill that
+        // is already on Pro as satisfying the request, but never click Pro to get
+        // there, and never let this stand in for post-click verification.
+        const pill = freshComposerTrigger(trigger) || findModelButton();
+        const pillLabel = normalize(
+          (pill?.textContent ?? '') + ' ' + (pill?.getAttribute?.('aria-label') ?? ''),
+        );
+        if (
+          hasToken(pillLabel, 'pro') ||
+          currentEffortPillMatchesTarget(trigger, triggerModelKind)
+        ) {
+          closeOpenMenus();
+          return { status: 'already-selected', label: trigger.textContent?.trim?.() || null };
+        }
+      }
       if (!option) return failure('option-not-found', { modelKind: triggerModelKind });
       const label = option.textContent?.trim?.() || null;
       if (optionIsSelected(option)) {
@@ -653,6 +741,119 @@ function buildThinkingTimeExpression(
             const currentMenu = findVisibleProEffortMenu(trigger);
             return currentMenu ? findProEffortOptionInMenu(currentMenu) : null;
           });
+        }
+        await sleep(100);
+      }
+      return null;
+    };
+
+    // ---------- Unified Intelligence picker: Advanced -> Effort submenu ----------
+    // A newer ChatGPT layout replaces the flat effort rows with a "power" slider
+    // (simple view) plus an "Advanced" view holding two submenu openers: Model and
+    // Effort. The tier rows only exist inside the Effort submenu, so the flat scan
+    // of the top-level menu finds nothing and we must expand and descend.
+    const ADVANCED_VIEW_SELECTOR = '[data-testid="composer-model-picker-slider-advanced-view"]';
+    const SUBMENU_OPENER_SELECTOR = '[role="menuitem"][aria-haspopup="menu"]';
+    const nodeLabel = (node) =>
+      normalize((node?.getAttribute?.('aria-label') ?? '') + ' ' + (node?.textContent ?? ''));
+    // Row labels in this menu concatenate without separators ("EffortHigh"), so
+    // token matching cannot be used here — substring is deliberate, as in
+    // countEffortLevels above.
+    const ADVANCED_WORDS = ['advanced', 'erweitert', '高级', 'avanzado', 'avancado', 'avance'];
+    const EFFORT_WORDS = [
+      'effort', 'aufwand', '强度', '努力',
+      'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
+    ];
+    const containsAny = (label, words) => words.some((word) => label.includes(word));
+    const findAdvancedToggle = (menu) => {
+      for (const item of (menu || document).querySelectorAll('[role="menuitem"]')) {
+        if (!isVisible(item)) continue;
+        if (containsAny(nodeLabel(item), ADVANCED_WORDS)) return item;
+      }
+      return null;
+    };
+    // Verify the shape rather than trusting the selector: a tier row must never be
+    // mistaken for the opener, or hovering it would silently change the effort.
+    const isSubmenuOpener = (node) =>
+      node?.getAttribute?.('aria-haspopup') === 'menu' &&
+      (node?.getAttribute?.('role') ?? '') === 'menuitem';
+    // The Effort opener's label is the word "Effort" plus the tier it currently sits
+    // on ("EffortHigh"). Positive identification only: the sibling Model opener has
+    // the identical shape and can read "ModelGPT-5.6 Pro", so guessing from tier
+    // words would pick it and then click model rows as if they were efforts. An
+    // unrecognised language yields no opener, and the caller fails instead of
+    // gambling on the wrong control.
+    const findEffortSubmenuOpener = (menu) => {
+      const scope = menu?.querySelector?.(ADVANCED_VIEW_SELECTOR) || menu || document;
+      for (const item of scope.querySelectorAll(SUBMENU_OPENER_SELECTOR)) {
+        if (!isVisible(item) || !isSubmenuOpener(item)) continue;
+        if (containsAny(nodeLabel(item), EFFORT_WORDS)) return item;
+      }
+      return null;
+    };
+    // countEffortLevels reads aggregate menu text, where one "Extra High" row scores
+    // twice (once as "high", once as "extra high"). Count distinct levels across
+    // distinct rows instead, so ">= 2" really means two selectable tiers.
+    const countDistinctTierRows = (menu) => {
+      if (!menu) return 0;
+      const matched = new Set();
+      for (const row of menu.querySelectorAll(MENU_ITEM_SELECTOR)) {
+        if (isSubmenuOpener(row)) continue;
+        const text = nodeLabel(row);
+        for (const [level, tokens] of Object.entries(LEVEL_TOKENS)) {
+          if (matchesTokens(text, tokens)) matched.add(level);
+        }
+      }
+      return matched.size;
+    };
+    const resolveSubmenuFor = (opener, parentMenu) => {
+      const id = opener?.getAttribute?.('aria-controls');
+      if (id) {
+        const node = document.getElementById?.(id);
+        if (isVisible(node) && countDistinctTierRows(node) >= 2) return node;
+      }
+      let best = null;
+      for (const menu of document.querySelectorAll(MENU_CONTAINER_SELECTOR)) {
+        if (menu === parentMenu || menu.contains?.(opener) || !isVisible(menu)) continue;
+        const hits = countDistinctTierRows(menu);
+        if (hits >= 2 && (!best || hits > best.hits)) best = { menu, hits };
+      }
+      return best?.menu ?? null;
+    };
+    const selectEffortFromAdvancedSubmenu = async (parentMenu, modelKindOverride = null) => {
+      if (!parentMenu) return null;
+      // React can mount the advanced view well after the click under load, so poll
+      // for the opener to the same deadline the submenu gets instead of assuming it
+      // rendered within one STEP_WAIT_MS. Re-expand if the toggle collapses again.
+      let opener = null;
+      const openerDeadline = performance.now() + MAX_WAIT_MS;
+      while (!opener && performance.now() < openerDeadline) {
+        const toggle = findAdvancedToggle(parentMenu);
+        if (toggle && toggle.getAttribute?.('aria-expanded') === 'false') {
+          dispatchClickSequence(toggle);
+          await sleep(STEP_WAIT_MS);
+        }
+        opener = findEffortSubmenuOpener(parentMenu);
+        if (opener) break;
+        await sleep(100);
+      }
+      if (!opener) return null;
+      dispatchHoverSequence(opener);
+      if (opener.getAttribute?.('aria-expanded') !== 'true') {
+        dispatchClickSequence(opener);
+      }
+      const deadline = performance.now() + MAX_WAIT_MS;
+      while (performance.now() < deadline) {
+        const submenu = resolveSubmenuFor(opener, parentMenu);
+        if (submenu) {
+          return selectAndVerify(
+            opener,
+            () => {
+              const current = resolveSubmenuFor(opener, parentMenu);
+              return current ? findOptionInMenu(current, modelKindOverride) : null;
+            },
+            modelKindOverride,
+          );
         }
         await sleep(100);
       }
@@ -755,9 +956,26 @@ function buildThinkingTimeExpression(
     }
     if (composerEffortPill) {
       if (attemptedModelButton && attemptedModelButton !== composerEffortPill) closeOpenMenus();
+      // In the unified Intelligence picker the composer pill shows the current
+      // EFFORT ("Pro", "High"), not the model. Reading a Pro *model* out of it would
+      // lift the Pro-row exclusion in findOptionInMenu and let a lower-tier request
+      // settle on Pro. Only a pill naming a tier and nothing else qualifies: legacy
+      // pills read "Pro Extended" (model + effort) and must keep naming their model,
+      // or a Pro Extended user asking for extended would be moved down to High.
+      const pillLabel = normalize(
+        (composerEffortPill.getAttribute?.('aria-label') ?? '') +
+          ' ' +
+          (composerEffortPill.textContent ?? ''),
+      );
+      const pillIsBareEffortTier = Object.values(TARGET_LEVEL_TOKENS).some((tokens) =>
+        tokens.some((token) => normalize(token) === pillLabel),
+      );
+      const pillNamesEffortNotModel =
+        TARGET_IS_GPT56_MODEL ||
+        (pillIsBareEffortTier && Boolean(document.querySelector(INTELLIGENCE_MENU_SELECTOR)));
       const composerModelKind =
         TARGET_MODEL_KIND ||
-        (TARGET_IS_GPT56_MODEL ? 'versioned' : modelKindFromNode(composerEffortPill));
+        (pillNamesEffortNotModel ? 'versioned' : modelKindFromNode(composerEffortPill));
       if (composerEffortPill.getAttribute?.('aria-expanded') !== 'true') {
         dispatchClickSequence(composerEffortPill);
         await sleep(INITIAL_WAIT_MS);
@@ -769,6 +987,14 @@ function buildThinkingTimeExpression(
           const proEffortResult = await selectProEffortFromSubmenu();
           if (proEffortResult) {
             return proEffortResult;
+          }
+          // Flat rows win when present; only descend into Advanced -> Effort when
+          // this menu has no matching tier of its own (the slider layout).
+          if (!findOptionInMenu(menu, composerModelKind)) {
+            const advancedResult = await selectEffortFromAdvancedSubmenu(menu, composerModelKind);
+            if (advancedResult) {
+              return advancedResult;
+            }
           }
           return selectAndVerify(
             composerEffortPill,
@@ -887,7 +1113,7 @@ function buildThinkingTimeExpression(
         const text = normalize(
           (node?.textContent ?? '') + ' ' + (node?.getAttribute?.('aria-label') ?? ''),
         );
-        return text.includes('pro') && text.includes('extended');
+        return hasPhrase(text, 'pro') && hasExtendedWord(text);
       };
       const findProExtendedOption = () => {
         const menu = document.querySelector(INTELLIGENCE_MENU_SELECTOR);

@@ -39,8 +39,8 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(3);
-    expect(resolved.desiredModel).toBe("Medium");
-    expect(resolved.thinkingTime).toBe("standard");
+    expect(resolved.desiredModel).toBe("GPT-5.6 Sol");
+    expect(resolved.thinkingTime).toBe("light");
     expect(resolved.researchMode).toBe("off");
     expect(resolved.archiveConversations).toBe("auto");
   });

@@ -45,7 +45,7 @@ import {
 } from "./pageActions.js";
 import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
-import { ensureThinkingTime, ensureThinkingTimeIfAvailable } from "./actions/thinkingTime.js";
+import { ensureThinkingTime } from "./actions/thinkingTime.js";
 import { readThinkingActivity, startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
 import {
   activateDeepResearch,
@@ -56,7 +56,7 @@ import {
 import { estimateTokenCount, withRetries, delay } from "./utils.js";
 import { formatElapsed } from "../oracle/format.js";
 import type { BrowserModelSelectionEvidence } from "../sessionStore.js";
-import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY, isMediumEffortTarget } from "./constants.js";
+import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY } from "./constants.js";
 import type { LaunchedChrome } from "chrome-launcher";
 import { BrowserAutomationError } from "../oracle/errors.js";
 import { alignPromptEchoPair, buildPromptEchoMatcher } from "./reattachHelpers.js";
@@ -166,11 +166,8 @@ function shouldKeepLocalBrowserOpen(options: {
   effectiveKeepBrowser: boolean;
   preserveBrowserOnError: boolean;
   usingCopiedProfile: boolean;
-  manualLogin?: boolean;
 }): boolean {
   if (options.usingCopiedProfile) return false;
-  // manual-login 模式保留浏览器窗口（关 tab 的逻辑独立处理），便于复用持久化登录态。
-  if (options.manualLogin) return true;
   return options.effectiveKeepBrowser || options.preserveBrowserOnError;
 }
 
@@ -879,6 +876,38 @@ function buildSkippedModelSelectionEvidence(
   };
 }
 
+function buildUnavailableModelSelectionEvidence(
+  desiredModel: string | null | undefined,
+  strategy: BrowserModelSelectionEvidence["strategy"],
+): BrowserModelSelectionEvidence {
+  return {
+    requestedModel: desiredModel ?? null,
+    resolvedLabel: null,
+    strategy,
+    status: "unavailable",
+    verified: false,
+    source: "config",
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function handleModelSelectionFailure(options: {
+  error: unknown;
+  desiredModel: string;
+  strategy: BrowserModelSelectionEvidence["strategy"];
+  logger: BrowserLogger;
+  strictFailureHint?: string;
+}): BrowserModelSelectionEvidence {
+  const message = options.error instanceof Error ? options.error.message : String(options.error);
+  if (options.strategy === "select" && /\bpro\b/i.test(options.desiredModel)) {
+    throw new Error(`${message}${options.strictFailureHint ?? ""}`);
+  }
+  options.logger(
+    `[browser] Model selection failed for "${options.desiredModel}"; keeping ChatGPT's current model and continuing. ${message}`,
+  );
+  return buildUnavailableModelSelectionEvidence(options.desiredModel, options.strategy);
+}
+
 export async function runBrowserMode(options: BrowserRunOptions): Promise<BrowserRunResult> {
   const promptText = options.prompt?.trim();
   if (!promptText) {
@@ -1084,6 +1113,10 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       chromePort: chrome.port,
     });
   }
+  let client: ChromeClient | null = null;
+  let isolatedTargetId: string | null = null;
+  let ownsTarget = true;
+  let runStatus: "attempted" | "complete" = "attempted";
   let removeTerminationHooks: (() => void) | null = null;
   try {
     removeTerminationHooks = registerTerminationHooks(
@@ -1097,20 +1130,82 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         preserveUserDataDir: manualLogin,
         // copy-profile is a throwaway copy of a signed-in profile; never leave it on disk.
         forceProfileCleanup: usingCopiedProfile,
+        cleanupOnSigterm: manualLogin
+          ? async () => {
+              await conversationUrlMonitor?.update("sigterm", 2_500).catch(() => false);
+              try {
+                const response = await client?.Runtime.evaluate({
+                  expression: "location.href",
+                  returnByValue: true,
+                });
+                const currentUrl =
+                  typeof response?.result?.value === "string" ? response.result.value.trim() : "";
+                if (
+                  currentUrl &&
+                  (isCanonicalConversationUrl(currentUrl) ||
+                    !lastUrl ||
+                    !isCanonicalConversationUrl(lastUrl))
+                ) {
+                  lastUrl = currentUrl;
+                }
+              } catch {
+                // Persist the most recent URL already captured by the monitor.
+              }
+              await emitRuntimeHint();
+              if (lastUrl) {
+                logger(`[browser] Saved browser URL before SIGTERM: ${lastUrl}`);
+              }
+              try {
+                await client?.close();
+              } catch {
+                // Continue with target-level cleanup.
+              }
+              if (!ownsTarget) {
+                detachKeptChromeProcess(chrome);
+                logger("[browser] SIGTERM cleanup skipped the explicitly attached browser target.");
+                return;
+              }
+              if (isolatedTargetId) {
+                await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(
+                  () => false,
+                );
+              }
+              let hasOtherLeases = false;
+              if (tabLease) {
+                const handle = tabLease;
+                hasOtherLeases = await hasOtherActiveBrowserTabLeases(userDataDir, handle.id).catch(
+                  () => true,
+                );
+                tabLease = null;
+                await handle.release().catch(() => undefined);
+              }
+              if (hasOtherLeases) {
+                detachKeptChromeProcess(chrome);
+                logger(
+                  "[browser] Other ChatGPT browser slots remain active; shared Chrome stays running.",
+                );
+                return;
+              }
+              try {
+                await chrome.kill();
+              } catch {
+                // Best effort; the owned target was already closed above.
+              }
+              await cleanupStaleProfileState(userDataDir, logger, {
+                lockRemovalMode: "never",
+              }).catch(() => undefined);
+            }
+          : undefined,
       },
     );
   } catch {
     // ignore failure; cleanup still happens below
   }
 
-  let client: ChromeClient | null = null;
-  let isolatedTargetId: string | null = null;
-  let ownsTarget = true;
   const startedAt = Date.now();
   let answerText = "";
   let answerMarkdown = "";
   let answerHtml = "";
-  let runStatus: "attempted" | "complete" = "attempted";
   let connectionClosedUnexpectedly = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
@@ -1141,6 +1236,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           fallbackToDefault: !strictTabIsolation,
           retries: devtoolsRetries,
           retryDelayMs: 500,
+          newWindow: true,
         });
         client = connection.client;
         isolatedTargetId = connection.targetId ?? null;
@@ -1401,46 +1497,42 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     const updateConversationHint = conversationUrlMonitor.update;
     await captureRuntimeSnapshot();
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
-    const useEffortPickerOnly = isMediumEffortTarget(config.desiredModel);
-    if (
-      config.desiredModel &&
-      !useEffortPickerOnly &&
-      modelStrategy !== "ignore" &&
-      !isResumingConversation
-    ) {
-      modelSelectionEvidence = await raceWithDisconnect(
-        withRetries(
-          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-          {
-            retries: 2,
-            delayMs: 300,
-            onRetry: (attempt, error) => {
-              if (options.verbose) {
-                logger(
-                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                );
-              }
+    if (config.desiredModel && modelStrategy !== "ignore" && !isResumingConversation) {
+      try {
+        modelSelectionEvidence = await raceWithDisconnect(
+          withRetries(
+            () =>
+              ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+            {
+              retries: 2,
+              delayMs: 300,
+              onRetry: (attempt, error) => {
+                if (options.verbose) {
+                  logger(
+                    `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                  );
+                }
+              },
             },
-          },
-        ),
-      ).catch((error) => {
-        const base = error instanceof Error ? error.message : String(error);
+          ),
+        );
+      } catch (error) {
         const hint =
           appliedCookies === 0
             ? " No cookies were applied; log in to ChatGPT in Chrome or provide inline cookies (--browser-inline-cookies[(-file)] or ORACLE_BROWSER_COOKIES_JSON)."
             : "";
-        throw new Error(`${base}${hint}`);
-      });
+        modelSelectionEvidence = handleModelSelectionFailure({
+          error,
+          desiredModel: config.desiredModel,
+          strategy: modelStrategy,
+          logger,
+          strictFailureHint: hint,
+        });
+      }
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
       logger(
         `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
       );
-    } else if (useEffortPickerOnly && modelStrategy !== "ignore" && !isResumingConversation) {
-      modelSelectionEvidence = buildSkippedModelSelectionEvidence(
-        config.desiredModel,
-        modelStrategy,
-      );
-      logger("Model picker: skipped (Medium uses the Intelligence effort picker)");
     } else if (modelStrategy === "ignore" || isResumingConversation) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -1457,34 +1549,20 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
       const thinkingTargetModel =
-        modelStrategy === "select" && !useEffortPickerOnly ? config.desiredModel : null;
-      if (useEffortPickerOnly) {
-        const selected = await raceWithDisconnect(
-          ensureThinkingTimeIfAvailable(Runtime, thinkingTime, logger, null),
-        );
-        if (!selected) {
-          logger(
-            "[browser] Medium selection could not be confirmed; continuing with ChatGPT's current/default model.",
-          );
-        }
-      } else {
-        await raceWithDisconnect(
-          withRetries(
-            () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
-            {
-              retries: 2,
-              delayMs: 300,
-              onRetry: (attempt, error) => {
-                if (options.verbose) {
-                  logger(
-                    `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                  );
-                }
-              },
-            },
-          ),
-        );
-      }
+        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
+      await raceWithDisconnect(
+        withRetries(() => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel), {
+          retries: 2,
+          delayMs: 300,
+          onRetry: (attempt, error) => {
+            if (options.verbose) {
+              logger(
+                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+              );
+            }
+          },
+        }),
+      );
     }
     const profileLockTimeoutMs = manualLogin ? (config.profileLockTimeoutMs ?? 0) : 0;
     let profileLock: ProfileRunLock | null = null;
@@ -2349,7 +2427,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       shouldCloseOwnedRunTargetAfterRun({
         runStatus,
         ownsTarget,
-        keepBrowser: manualLogin ? false : effectiveKeepBrowser,
+        keepBrowser: effectiveKeepBrowser,
         closeOnError: closeOwnedTargetOnError,
       })
     ) {
@@ -2359,7 +2437,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       effectiveKeepBrowser,
       preserveBrowserOnError,
       usingCopiedProfile,
-      manualLogin,
     });
     let cleanupProfileLock: ProfileRunLock | null = null;
     let terminatedRecordedChrome = false;
@@ -2989,37 +3066,34 @@ async function runRemoteBrowserMode(
     }
 
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
-    const useEffortPickerOnly = isMediumEffortTarget(config.desiredModel);
-    if (
-      config.desiredModel &&
-      !useEffortPickerOnly &&
-      modelStrategy !== "ignore" &&
-      !config.resumeConversationUrl
-    ) {
-      modelSelectionEvidence = await withRetries(
-        () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-        {
-          retries: 2,
-          delayMs: 300,
-          onRetry: (attempt, error) => {
-            if (options.verbose) {
-              logger(
-                `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-              );
-            }
+    if (config.desiredModel && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
+      try {
+        modelSelectionEvidence = await withRetries(
+          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+          {
+            retries: 2,
+            delayMs: 300,
+            onRetry: (attempt, error) => {
+              if (options.verbose) {
+                logger(
+                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                );
+              }
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        modelSelectionEvidence = handleModelSelectionFailure({
+          error,
+          desiredModel: config.desiredModel,
+          strategy: modelStrategy,
+          logger,
+        });
+      }
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
       logger(
         `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
       );
-    } else if (useEffortPickerOnly && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
-      modelSelectionEvidence = buildSkippedModelSelectionEvidence(
-        config.desiredModel,
-        modelStrategy,
-      );
-      logger("Model picker: skipped (Medium uses the Intelligence effort picker)");
     } else if (modelStrategy === "ignore" || config.resumeConversationUrl) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -3036,30 +3110,21 @@ async function runRemoteBrowserMode(
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
       const thinkingTargetModel =
-        modelStrategy === "select" && !useEffortPickerOnly ? config.desiredModel : null;
-      if (useEffortPickerOnly) {
-        const selected = await ensureThinkingTimeIfAvailable(Runtime, thinkingTime, logger, null);
-        if (!selected) {
-          logger(
-            "[browser] Medium selection could not be confirmed; continuing with ChatGPT's current/default model.",
-          );
-        }
-      } else {
-        await withRetries(
-          () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
-          {
-            retries: 2,
-            delayMs: 300,
-            onRetry: (attempt, error) => {
-              if (options.verbose) {
-                logger(
-                  `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                );
-              }
-            },
+        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
+      await withRetries(
+        () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
+        {
+          retries: 2,
+          delayMs: 300,
+          onRetry: (attempt, error) => {
+            if (options.verbose) {
+              logger(
+                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+              );
+            }
           },
-        );
-      }
+        },
+      );
     }
     const submitOnce = async (prompt: string, submissionAttachments: BrowserAttachment[]) => {
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
@@ -3788,6 +3853,7 @@ export const __test__ = {
   createAssistantTimeoutError,
   detachKeptChromeProcess,
   formatManualLoginSetupCommand,
+  handleModelSelectionFailure,
   isAssistantResponseTimeoutError,
   isManualLoginProfileInitialized,
   isImageOnlyUiChromeText,

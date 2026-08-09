@@ -2,12 +2,13 @@ import type { ThinkingTimeLevel } from "../oracle/types.js";
 import type { BrowserModelStrategy } from "./types.js";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
-export const DEFAULT_MODEL_TARGET = "Medium";
-export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "standard";
+export const DEFAULT_MODEL_TARGET = "GPT-5.6 Sol";
+export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "light";
 export const DEFAULT_MODEL_STRATEGY: BrowserModelStrategy = "select";
 
-export function isMediumEffortTarget(value: string | null | undefined): boolean {
-  return value?.trim().toLowerCase() === "medium";
+export function usesDefaultLowestEffort(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "gpt-5.5 instant" || normalized === "gpt-5.6 sol";
 }
 export const COOKIE_URLS = [
   "https://chatgpt.com",

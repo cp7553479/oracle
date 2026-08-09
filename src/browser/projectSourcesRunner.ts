@@ -159,6 +159,7 @@ export async function runBrowserProjectSources(
       fallbackToDefault: !strictTabIsolation,
       retries: devtoolsRetries,
       retryDelayMs: 500,
+      newWindow: true,
     });
     client = connection.client;
     isolatedTargetId = connection.targetId ?? null;

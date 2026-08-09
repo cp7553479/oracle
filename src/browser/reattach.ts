@@ -40,23 +40,28 @@ import {
   type TargetInfoLite,
 } from "./reattachHelpers.js";
 import { waitForDeepResearchCompletion } from "./actions/deepResearch.js";
+import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 
 export interface ReattachDeps {
   listTargets?: () => Promise<TargetInfoLite[]>;
   connect?: (options?: unknown) => Promise<ChromeClient>;
   waitForAssistantResponse?: typeof waitForAssistantResponse;
   captureAssistantMarkdown?: typeof captureAssistantMarkdown;
+  collectGeneratedImageArtifacts?: typeof collectGeneratedImageArtifacts;
   waitForDeepResearchCompletion?: typeof waitForDeepResearchCompletion;
   recoverSession?: (
     runtime: BrowserRuntimeMetadata,
     config: BrowserSessionConfig | undefined,
   ) => Promise<ReattachResult>;
   promptPreview?: string;
+  generateImagePath?: string;
+  sessionId?: string;
 }
 
 export interface ReattachResult {
   answerText: string;
   answerMarkdown: string;
+  savedImages?: import("./types.js").SavedBrowserImage[];
 }
 
 export async function resumeBrowserSession(
@@ -102,7 +107,7 @@ export async function resumeBrowserSession(
         ? await connectToRemoteChromeTarget(host, port ?? 9222, logger, {
             browserWSEndpoint,
             targetId: target?.targetId ?? target?.id,
-            closeTargetOnDispose: false,
+            closeTargetOnDispose: true,
           })
         : await (async () => {
             const client = (await (
@@ -125,7 +130,7 @@ export async function resumeBrowserSession(
     closeAttachedConnection = () => connection.close();
 
     const client: ChromeClient = connection.client;
-    const { Runtime, DOM, Page } = client;
+    const { Runtime, DOM, Network, Page } = client;
     if (Runtime?.enable) {
       await Runtime.enable();
     }
@@ -134,6 +139,9 @@ export async function resumeBrowserSession(
     }
     if (Page && typeof Page.enable === "function") {
       await Page.enable();
+    }
+    if (Network && typeof Network.enable === "function") {
+      await Network.enable();
     }
 
     const ensureConversationOpen = async () => {
@@ -214,9 +222,31 @@ export async function resumeBrowserSession(
         "Reattach markdown capture timed out",
       )) ?? recovered.text;
     const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
+    const collectImages = deps.collectGeneratedImageArtifacts ?? collectGeneratedImageArtifacts;
+    const imageArtifacts = deps.generateImagePath
+      ? await collectImages({
+          Browser: client.Browser,
+          Client: client,
+          Page,
+          Runtime,
+          Network,
+          logger,
+          minTurnIndex,
+          sessionId: deps.sessionId,
+          generateImagePath: deps.generateImagePath,
+          answerText: aligned.answerText,
+          waitTimeoutMs: timeoutMs,
+        })
+      : null;
 
     await closeAttached();
-    return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
+    return {
+      answerText: imageArtifacts?.answerText || aligned.answerText,
+      answerMarkdown:
+        aligned.answerMarkdown +
+        (imageArtifacts?.markdownSuffix ? imageArtifacts.markdownSuffix : ""),
+      savedImages: imageArtifacts?.savedImages,
+    };
   } catch (error) {
     await closeAttached();
     const message = error instanceof Error ? error.message : String(error);
@@ -288,6 +318,9 @@ async function resumeBrowserSessionViaNewChrome(
   }
   if (DOM && typeof DOM.enable === "function") {
     await DOM.enable();
+  }
+  if (Network && typeof Network.enable === "function") {
+    await Network.enable();
   }
   if (!resolved.headless && resolved.hideWindow) {
     await positionChromeWindowOffscreen(client, logger);
@@ -373,44 +406,68 @@ async function resumeBrowserSessionViaNewChrome(
       }
     }
   };
-  const minTurnIndex =
-    (await readPromptPreviewTurnIndex(Runtime, deps.promptPreview)) ??
-    (deps.promptPreview ? null : await readConversationTurnIndex(Runtime, logger));
-  if (resolved.researchMode === "deep") {
-    const waitForDeepResearch = deps.waitForDeepResearchCompletion ?? waitForDeepResearchCompletion;
-    const researchResult = await waitForDeepResearch(
+  try {
+    const minTurnIndex =
+      (await readPromptPreviewTurnIndex(Runtime, deps.promptPreview)) ??
+      (deps.promptPreview ? null : await readConversationTurnIndex(Runtime, logger));
+    if (resolved.researchMode === "deep") {
+      const waitForDeepResearch =
+        deps.waitForDeepResearchCompletion ?? waitForDeepResearchCompletion;
+      const researchResult = await waitForDeepResearch(
+        Runtime,
+        logger,
+        timeoutMs,
+        minTurnIndex ?? undefined,
+        Page,
+        client,
+        {
+          requireScopedTargetOwner: true,
+        },
+      );
+      return {
+        answerText: researchResult.text,
+        answerMarkdown: researchResult.text,
+      };
+    }
+    const promptEcho = buildPromptEchoMatcher(deps.promptPreview);
+    const answer = await waitForResponse(Runtime, timeoutMs, logger, minTurnIndex ?? undefined);
+    const recovered = await recoverPromptEcho(
       Runtime,
+      answer,
+      promptEcho,
       logger,
+      minTurnIndex,
       timeoutMs,
-      minTurnIndex ?? undefined,
-      Page,
-      client,
-      {
-        requireScopedTargetOwner: true,
-      },
     );
-    await cleanup();
+    const markdown = (await captureMarkdown(Runtime, recovered.meta, logger)) ?? recovered.text;
+    const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
+    const collectImages = deps.collectGeneratedImageArtifacts ?? collectGeneratedImageArtifacts;
+    const imageArtifacts = deps.generateImagePath
+      ? await collectImages({
+          Browser: client.Browser,
+          Client: client,
+          Page,
+          Runtime,
+          Network,
+          logger,
+          minTurnIndex,
+          sessionId: deps.sessionId,
+          generateImagePath: deps.generateImagePath,
+          answerText: aligned.answerText,
+          waitTimeoutMs: timeoutMs,
+        })
+      : null;
+
     return {
-      answerText: researchResult.text,
-      answerMarkdown: researchResult.text,
+      answerText: imageArtifacts?.answerText || aligned.answerText,
+      answerMarkdown:
+        aligned.answerMarkdown +
+        (imageArtifacts?.markdownSuffix ? imageArtifacts.markdownSuffix : ""),
+      savedImages: imageArtifacts?.savedImages,
     };
+  } finally {
+    await cleanup();
   }
-  const promptEcho = buildPromptEchoMatcher(deps.promptPreview);
-  const answer = await waitForResponse(Runtime, timeoutMs, logger, minTurnIndex ?? undefined);
-  const recovered = await recoverPromptEcho(
-    Runtime,
-    answer,
-    promptEcho,
-    logger,
-    minTurnIndex,
-    timeoutMs,
-  );
-  const markdown = (await captureMarkdown(Runtime, recovered.meta, logger)) ?? recovered.text;
-  const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
-
-  await cleanup();
-
-  return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
 }
 
 async function readPromptPreviewTurnIndex(

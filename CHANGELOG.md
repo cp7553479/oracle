@@ -9,12 +9,17 @@
 ### Changed
 
 - Browser: raise default response timeout from 20m to 40m to accommodate the new idle-reload budget.
+- Browser: open each local ChatGPT run in its own Chrome window, including concurrent runs that share the same manual-login profile. Completed runs close only their Oracle-owned window target, while active sibling runs remain untouched.
+- Browser: temporarily close the current Oracle-owned window on SIGTERM instead of retaining it for reattach; shared Chrome remains alive when sibling Oracle runs still hold active browser slots.
+- Browser: persist the canonical conversation URL before SIGTERM, reopen that exact URL on reattach, and keep image-generation reattach alive until the requested image artifact is saved.
 
 ### Fixed
 
-- Browser: default current ChatGPT browser runs to the redesigned `Medium` Intelligence option, bypassing obsolete GPT-5.5/GPT-5.6 version-row selection that could stall before prompt submission; Pro remains explicit-only. If the Medium control cannot be identified, continue with ChatGPT's current/default model instead of aborting. Ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
+- Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with Instant/light effort. Explicit `gpt-5.5-instant` runs can still select `GPT-5.5 Instant`, and `--browser-thinking-time` overrides the default effort. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
+- Browser: ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
 - Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.
 - Browser: automatically close Oracle-owned ChatGPT tabs when answer capture times out or recheck fails, while preserving Cloudflare challenge tabs and explicitly attached tabs.
+- Browser: close the recovered ChatGPT target after reattaching through an existing browser WebSocket, instead of only detaching the DevTools session and leaving the tab open.
 - CLI: avoid inheriting `browser.thinkingTime` from config when `--browser-model-strategy current` is explicit, while preserving an explicit `--browser-thinking-time` override. Thanks @jung0han!
 
 ## 0.16.0 — 2026-07-12

@@ -6,6 +6,7 @@ import path from "node:path";
 const cdpNewMock = vi.fn();
 const cdpCloseMock = vi.fn();
 const cdpListMock = vi.fn();
+const cdpVersionMock = vi.fn();
 const cdpMock = Object.assign(vi.fn(), {
   // biome-ignore lint/style/useNamingConvention: CDP API uses capitalized members.
   New: cdpNewMock,
@@ -13,6 +14,8 @@ const cdpMock = Object.assign(vi.fn(), {
   Close: cdpCloseMock,
   // biome-ignore lint/style/useNamingConvention: CDP API uses capitalized members.
   List: cdpListMock,
+  // biome-ignore lint/style/useNamingConvention: CDP API uses capitalized members.
+  Version: cdpVersionMock,
 });
 
 vi.mock("chrome-remote-interface", () => ({ default: cdpMock }));
@@ -28,6 +31,84 @@ vi.doMock("../../src/browser/profileState.js", async () => {
 });
 
 describe("registerTerminationHooks", () => {
+  test("uses the caller SIGTERM cleanup instead of preserving an in-flight browser", async () => {
+    const { registerTerminationHooks } = await import("../../src/browser/chromeLifecycle.js");
+    const chrome = {
+      kill: vi.fn().mockResolvedValue(undefined),
+      pid: 1234,
+      port: 9222,
+    };
+    const cleanupOnSigterm = vi.fn().mockResolvedValue(undefined);
+    const emitRuntimeHint = vi.fn().mockResolvedValue(undefined);
+    const logger = vi.fn();
+    const previousExitCode = process.exitCode;
+    const removeHooks = registerTerminationHooks(
+      chrome as unknown as import("chrome-launcher").LaunchedChrome,
+      "/tmp/oracle-manual-login-profile",
+      false,
+      logger,
+      {
+        isInFlight: () => true,
+        emitRuntimeHint,
+        preserveUserDataDir: true,
+        cleanupOnSigterm,
+      },
+    );
+
+    try {
+      process.emit("SIGTERM");
+      await vi.waitFor(() => expect(cleanupOnSigterm).toHaveBeenCalledTimes(1));
+
+      expect(chrome.kill).not.toHaveBeenCalled();
+      expect(emitRuntimeHint).not.toHaveBeenCalled();
+      expect(logger).toHaveBeenCalledWith(
+        "Received SIGTERM; closing the Oracle-owned browser window.",
+      );
+    } finally {
+      removeHooks();
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  test("still preserves an in-flight browser on SIGINT", async () => {
+    const { registerTerminationHooks } = await import("../../src/browser/chromeLifecycle.js");
+    const chrome = {
+      kill: vi.fn().mockResolvedValue(undefined),
+      pid: 1234,
+      port: 9222,
+    };
+    const cleanupOnSigterm = vi.fn().mockResolvedValue(undefined);
+    const emitRuntimeHint = vi.fn().mockResolvedValue(undefined);
+    const logger = vi.fn();
+    const previousExitCode = process.exitCode;
+    const removeHooks = registerTerminationHooks(
+      chrome as unknown as import("chrome-launcher").LaunchedChrome,
+      "/tmp/oracle-manual-login-profile",
+      false,
+      logger,
+      {
+        isInFlight: () => true,
+        emitRuntimeHint,
+        preserveUserDataDir: true,
+        cleanupOnSigterm,
+      },
+    );
+
+    try {
+      process.emit("SIGINT");
+      await vi.waitFor(() => expect(emitRuntimeHint).toHaveBeenCalledTimes(1));
+
+      expect(cleanupOnSigterm).not.toHaveBeenCalled();
+      expect(chrome.kill).not.toHaveBeenCalled();
+      expect(logger).toHaveBeenCalledWith(
+        "Received SIGINT; leaving Chrome running (assistant response pending)",
+      );
+    } finally {
+      removeHooks();
+      process.exitCode = previousExitCode;
+    }
+  });
+
   test("kills Chrome and removes a copied profile on an in-flight signal", async () => {
     const { registerTerminationHooks } = await import("../../src/browser/chromeLifecycle.js");
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), "oracle-copy-profile-signal-"));
@@ -170,6 +251,7 @@ describe("connectWithNewTab", () => {
     cdpNewMock.mockReset();
     cdpCloseMock.mockReset();
     cdpListMock.mockReset();
+    cdpVersionMock.mockReset();
   });
 
   afterEach(() => {
@@ -236,6 +318,43 @@ describe("connectWithNewTab", () => {
     expect(result.targetId).toBe("target-2");
     expect(cdpNewMock).toHaveBeenCalledTimes(1);
     expect(cdpMock).toHaveBeenCalledWith({ host: "127.0.0.1", port: 9222, target: "target-2" });
+  });
+
+  test("creates a top-level window and attaches only to its target", async () => {
+    const createTarget = vi.fn().mockResolvedValue({ targetId: "window-target" });
+    const close = vi.fn().mockResolvedValue(undefined);
+    cdpVersionMock.mockResolvedValue({
+      webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/browser-id",
+    });
+    cdpMock
+      .mockResolvedValueOnce({
+        Target: { createTarget },
+        close,
+      })
+      .mockResolvedValueOnce({});
+
+    const { connectWithNewTab } = await import("../../src/browser/chromeLifecycle.js");
+    const logger = vi.fn();
+
+    const result = await connectWithNewTab(9222, logger, "about:blank", undefined, {
+      fallbackToDefault: false,
+      newWindow: true,
+    });
+
+    expect(result.targetId).toBe("window-target");
+    expect(cdpVersionMock).toHaveBeenCalledWith({ host: "127.0.0.1", port: 9222 });
+    expect(cdpNewMock).not.toHaveBeenCalled();
+    expect(createTarget).toHaveBeenCalledWith({
+      url: "about:blank",
+      newWindow: true,
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(cdpMock).toHaveBeenLastCalledWith({
+      host: "127.0.0.1",
+      port: 9222,
+      target: "window-target",
+    });
+    expect(logger).toHaveBeenCalledWith("Opened isolated browser window (target=window-target)");
   });
 
   test("retries transient DevTools connection failures before falling back", async () => {
@@ -305,7 +424,7 @@ describe("closeBlankChromeTabs", () => {
     expect(logger).toHaveBeenCalledWith("Closed 2 blank Chrome tabs.");
   });
 
-  test("opens a dedicated tab through a browser websocket endpoint", async () => {
+  test("opens a dedicated window through a browser websocket endpoint", async () => {
     const send = vi.fn(async () => ({}));
     const browserClient = {
       Target: {
@@ -343,7 +462,10 @@ describe("closeBlankChromeTabs", () => {
       target: "ws://127.0.0.1:9222/devtools/browser/abc",
       local: true,
     });
-    expect(browserClient.Target.createTarget).toHaveBeenCalledWith({ url: "https://chatgpt.com/" });
+    expect(browserClient.Target.createTarget).toHaveBeenCalledWith({
+      url: "https://chatgpt.com/",
+      newWindow: true,
+    });
     expect(browserClient.Target.attachToTarget).toHaveBeenCalledWith({
       targetId: "target-9",
       flatten: true,
@@ -472,5 +594,53 @@ describe("closeBlankChromeTabs", () => {
 
     expect(cdpMock).toHaveBeenCalledTimes(3);
     expect(connection.targetId).toBe("target-20");
+  });
+});
+
+describe("closeTab", () => {
+  beforeEach(() => {
+    cdpCloseMock.mockReset();
+    cdpListMock.mockReset();
+  });
+
+  test("waits for the closed target to disappear", async () => {
+    cdpCloseMock.mockResolvedValue(undefined);
+    cdpListMock
+      .mockResolvedValueOnce([{ id: "closing-target", type: "page" }])
+      .mockResolvedValueOnce([{ id: "retained-target", type: "page" }]);
+    const { closeTab } = await import("../../src/browser/chromeLifecycle.js");
+
+    await expect(
+      closeTab(9222, "closing-target", vi.fn<(message: string) => void>(), "127.0.0.1"),
+    ).resolves.toBe(true);
+
+    expect(cdpCloseMock).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 9222,
+      id: "closing-target",
+    });
+    expect(cdpListMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("reports an unconfirmed close when the target never disappears", async () => {
+    vi.useFakeTimers();
+    try {
+      cdpCloseMock.mockResolvedValue(undefined);
+      cdpListMock.mockResolvedValue([{ id: "closing-target", type: "page" }]);
+      const { closeTab } = await import("../../src/browser/chromeLifecycle.js");
+
+      const closePromise = closeTab(
+        9222,
+        "closing-target",
+        vi.fn<(message: string) => void>(),
+        "127.0.0.1",
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(closePromise).resolves.toBe(false);
+      expect(cdpListMock).toHaveBeenCalledTimes(40);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

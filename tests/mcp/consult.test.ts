@@ -65,7 +65,7 @@ describe("summarizeModelRunsForConsult", () => {
         browserThinkingTime: "xhigh",
       }),
     ).toMatchObject({
-      browserThinkingTime: "heavy",
+      browserThinkingTime: "extra-high",
     });
   });
 
@@ -211,7 +211,7 @@ describe("summarizeModelRunsForConsult", () => {
     expect(config.cookieSync).toBe(process.platform !== "win32");
   });
 
-  test("defaults current ChatGPT browser models to Medium without selecting a version row", () => {
+  test("selects GPT-5.6 Sol with the lowest default effort", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {},
       env: {},
@@ -219,8 +219,20 @@ describe("summarizeModelRunsForConsult", () => {
       inputModel: "gpt-5.6-sol",
     });
 
-    expect(config.desiredModel).toBe("Medium");
-    expect(config.thinkingTime).toBe("standard");
+    expect(config.desiredModel).toBe("GPT-5.6 Sol");
+    expect(config.thinkingTime).toBe("light");
+  });
+
+  test("selects GPT-5.6 Sol with Instant effort for the default GPT browser model", () => {
+    const config = buildConsultBrowserConfig({
+      userConfig: {},
+      env: {},
+      runModel: "gpt-5.5",
+      inputModel: "gpt-5.5",
+    });
+
+    expect(config.desiredModel).toBe("GPT-5.6 Sol");
+    expect(config.thinkingTime).toBe("light");
   });
 
   test("lets explicit consult inputs override config defaults", () => {

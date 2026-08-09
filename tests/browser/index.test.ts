@@ -154,6 +154,48 @@ describe("browser run target cleanup", () => {
   });
 });
 
+describe("model-selection fallback", () => {
+  test("keeps the current model when a non-Pro selection fails", () => {
+    const logger = vi.fn();
+    const evidence = __test__.handleModelSelectionFailure({
+      error: new Error("picker option missing"),
+      desiredModel: "GPT-5.6 Sol",
+      strategy: "select",
+      logger: logger as never,
+    });
+
+    expect(evidence).toMatchObject({
+      requestedModel: "GPT-5.6 Sol",
+      resolvedLabel: null,
+      status: "unavailable",
+      verified: false,
+    });
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining("keeping ChatGPT's current model"));
+  });
+
+  test("keeps explicit Pro selection fail-closed", () => {
+    expect(() =>
+      __test__.handleModelSelectionFailure({
+        error: new Error("picker option missing"),
+        desiredModel: "Pro",
+        strategy: "select",
+        logger: vi.fn() as never,
+      }),
+    ).toThrow("picker option missing");
+  });
+
+  test("allows current strategy to keep an already active Pro model", () => {
+    expect(
+      __test__.handleModelSelectionFailure({
+        error: new Error("picker unavailable"),
+        desiredModel: "Pro",
+        strategy: "current",
+        logger: vi.fn() as never,
+      }),
+    ).toMatchObject({ status: "unavailable", verified: false });
+  });
+});
+
 describe("manual-login profile setup gate", () => {
   test("fails fast for an uninitialized manual-login profile unless setup keeps Chrome open", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-empty-profile-"));
