@@ -5,10 +5,9 @@ import type { ModelName, ThinkingTimeLevel } from "../oracle/types.js";
 import { normalizeThinkingTimeLevel } from "../oracle/thinkingTime.js";
 import {
   CHATGPT_URL,
-  DEFAULT_BROWSER_THINKING_TIME,
   DEFAULT_MODEL_STRATEGY,
   DEFAULT_MODEL_TARGET,
-  usesDefaultLowestEffort,
+  defaultBrowserThinkingTimeForModel,
 } from "../browser/constants.js";
 import { normalizeChatgptUrl } from "../browser/utils.js";
 import { parseDuration } from "../duration.js";
@@ -276,9 +275,7 @@ export async function buildBrowserConfig(
     allowCookieErrors: options.browserAllowCookieErrors ?? true,
     remoteChrome,
     browserTabRef: options.browserTab ?? undefined,
-    thinkingTime:
-      requestedThinkingTime ??
-      (usesDefaultLowestEffort(desiredModel) ? DEFAULT_BROWSER_THINKING_TIME : undefined),
+    thinkingTime: requestedThinkingTime ?? defaultBrowserThinkingTimeForModel(desiredModel),
     researchMode: options.browserResearch === "deep" ? "deep" : "off",
     archiveConversations: options.browserArchive,
   };

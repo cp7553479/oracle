@@ -4,7 +4,7 @@ import {
   DEFAULT_BROWSER_THINKING_TIME,
   DEFAULT_MODEL_STRATEGY,
   DEFAULT_MODEL_TARGET,
-  usesDefaultLowestEffort,
+  defaultBrowserThinkingTimeForModel,
 } from "./constants.js";
 import { normalizeBrowserModelStrategy } from "./modelStrategy.js";
 import {
@@ -157,9 +157,7 @@ export function resolveBrowserConfig(
       config?.remoteChromeBrowserWSEndpoint ?? DEFAULT_BROWSER_CONFIG.remoteChromeBrowserWSEndpoint,
     remoteChromeProfileRoot:
       config?.remoteChromeProfileRoot ?? DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
-    thinkingTime:
-      config?.thinkingTime ??
-      (usesDefaultLowestEffort(desiredModel) ? DEFAULT_BROWSER_THINKING_TIME : undefined),
+    thinkingTime: config?.thinkingTime ?? defaultBrowserThinkingTimeForModel(desiredModel),
     researchMode,
     archiveConversations,
     resumeConversationUrl:

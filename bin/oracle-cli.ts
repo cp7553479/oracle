@@ -437,7 +437,7 @@ program
   .option("-s, --slug <words>", "Custom session slug (3-5 words).")
   .option(
     "-m, --model <model>",
-    "Model to target (gpt-5.5 API default; ChatGPT browser defaults to GPT-5.6 Sol with Instant/light effort). GPT-5.6 aliases gpt-5.6 and gpt-5.6-sol work with the OpenAI API or ChatGPT browser. Browser mode rejects retired GPT-5.2 base/Instant/Thinking aliases; they remain API targets. Also supports explicit Pro aliases, Gemini, Claude, and custom API model IDs.",
+    "Model to target (gpt-5.5 API default; ChatGPT browser defaults to GPT-5.6 Sol with Medium/standard effort). GPT-5.6 aliases gpt-5.6 and gpt-5.6-sol work with the OpenAI API or ChatGPT browser. Browser mode rejects retired GPT-5.2 base/Instant/Thinking aliases; they remain API targets. Also supports explicit Pro aliases, Gemini, Claude, and custom API model IDs.",
     normalizeModelOption,
   )
   .addOption(

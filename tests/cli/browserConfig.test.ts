@@ -31,24 +31,25 @@ describe("buildBrowserConfig", () => {
     expect(config.desiredModel).toBe("Thinking 5.4");
   });
 
-  test("selects GPT-5.6 Sol with the lowest default effort", async () => {
+  test("selects GPT-5.6 Sol with Medium effort by default", async () => {
     const config = await buildBrowserConfig({ model: "gpt-5.6" });
     expect(config.desiredModel).toBe("GPT-5.6 Sol");
-    expect(config.thinkingTime).toBe("light");
+    expect(config.thinkingTime).toBe("standard");
     const sol = await buildBrowserConfig({ model: "gpt-5.6-sol" });
     expect(sol.desiredModel).toBe("GPT-5.6 Sol");
-    expect(sol.thinkingTime).toBe("light");
+    expect(sol.thinkingTime).toBe("standard");
   });
 
-  test("selects GPT-5.6 Sol with Instant effort by default", async () => {
+  test("selects GPT-5.6 Sol with Medium effort for the default browser model", async () => {
     const config = await buildBrowserConfig({ model: "gpt-5.5" });
     expect(config.desiredModel).toBe("GPT-5.6 Sol");
-    expect(config.thinkingTime).toBe("light");
+    expect(config.thinkingTime).toBe("standard");
   });
 
   test("keeps version signal for gpt-5.5 Instant browser runs", async () => {
     const config = await buildBrowserConfig({ model: "gpt-5.5-instant" });
     expect(config.desiredModel).toBe("GPT-5.5 Instant");
+    expect(config.thinkingTime).toBe("light");
   });
 
   test.each(["gpt-5.2", "gpt-5.2-instant", "gpt-5.2-thinking", "gpt-5.1"])(

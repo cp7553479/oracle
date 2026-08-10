@@ -3,12 +3,16 @@ import type { BrowserModelStrategy } from "./types.js";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
 export const DEFAULT_MODEL_TARGET = "GPT-5.6 Sol";
-export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "light";
+export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "standard";
 export const DEFAULT_MODEL_STRATEGY: BrowserModelStrategy = "select";
 
-export function usesDefaultLowestEffort(value: string | null | undefined): boolean {
+export function defaultBrowserThinkingTimeForModel(
+  value: string | null | undefined,
+): ThinkingTimeLevel | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "gpt-5.5 instant" || normalized === "gpt-5.6 sol";
+  if (normalized === "gpt-5.6 sol") return DEFAULT_BROWSER_THINKING_TIME;
+  if (normalized === "gpt-5.5 instant") return "light";
+  return undefined;
 }
 export const COOKIE_URLS = [
   "https://chatgpt.com",

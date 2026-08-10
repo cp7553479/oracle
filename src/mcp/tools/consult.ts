@@ -27,11 +27,7 @@ async function readSessionLogTail(sessionId: string, maxBytes: number): Promise<
 }
 import { performSessionRun } from "../../cli/sessionRunner.js";
 import { runDryRunSummary } from "../../cli/dryRun.js";
-import {
-  CHATGPT_URL,
-  DEFAULT_BROWSER_THINKING_TIME,
-  usesDefaultLowestEffort,
-} from "../../browser/constants.js";
+import { CHATGPT_URL, defaultBrowserThinkingTimeForModel } from "../../browser/constants.js";
 import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
@@ -355,7 +351,7 @@ export function buildConsultBrowserConfig({
   const resolvedThinkingTime =
     browserThinkingTime ??
     configuredThinkingTime ??
-    (usesDefaultLowestEffort(desiredModelLabel) ? DEFAULT_BROWSER_THINKING_TIME : undefined);
+    defaultBrowserThinkingTimeForModel(desiredModelLabel);
 
   return {
     ...configuredBrowser,
