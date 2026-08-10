@@ -757,6 +757,7 @@ describe("runSubmissionWithRecoveryForTest", () => {
       .mockResolvedValueOnce({ baselineTurns: 1, baselineAssistantText: "ok" });
     const reloadPromptComposer = vi.fn().mockResolvedValue(undefined);
     const onRateLimit = vi.fn().mockResolvedValue(undefined);
+    const onRateLimitCooldown = vi.fn().mockResolvedValue(undefined);
     const logger = vi.fn<(message: string) => void>();
 
     // Use fake timers so the cooldown delays don't slow the test.
@@ -768,6 +769,7 @@ describe("runSubmissionWithRecoveryForTest", () => {
       reloadPromptComposer,
       prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
       onRateLimit,
+      onRateLimitCooldown,
       logger,
     });
     // Advance past the two cooldowns (60s + 120s = 180s).
@@ -776,8 +778,8 @@ describe("runSubmissionWithRecoveryForTest", () => {
 
     expect(result).toEqual({ baselineTurns: 1, baselineAssistantText: "ok" });
     expect(submit).toHaveBeenCalledTimes(3);
-    // onRateLimit is called twice per retry cycle (dismiss before cooldown + dismiss after).
-    expect(onRateLimit).toHaveBeenCalledTimes(4);
+    expect(onRateLimit).toHaveBeenCalledTimes(2);
+    expect(onRateLimitCooldown).toHaveBeenCalledTimes(2);
     expect(reloadPromptComposer).not.toHaveBeenCalled();
     vi.useRealTimers();
   });

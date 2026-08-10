@@ -752,6 +752,7 @@ async function runSubmissionWithRecovery({
   reloadPromptComposer,
   prepareFallbackSubmission,
   onRateLimit,
+  onRateLimitCooldown,
   logger,
 }: {
   prompt: string;
@@ -761,6 +762,7 @@ async function runSubmissionWithRecovery({
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
   onRateLimit?: () => Promise<void>;
+  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   let currentPrompt = prompt;
@@ -799,12 +801,11 @@ async function runSubmissionWithRecovery({
         );
         await onRateLimit?.().catch(() => undefined);
         await delay(cooldownMs);
-        // After cooldown, re-dismiss any lingering dialog and reset the composer.
-        // Using prepareFallbackSubmission (clear + ensurePromptReady) instead of
-        // reloadPromptComposer avoids a full Page.reload that can race with
-        // ChatGPT's SPA re-initialization and leave the composer uncleared.
-        await onRateLimit?.().catch(() => undefined);
-        await prepareFallbackSubmission();
+        // After cooldown, dismiss any lingering dialog and ensure the composer is
+        // ready. Do NOT clear the composer here — submitOnce clears it itself
+        // before typing the prompt, and a premature clear on an unsettled page
+        // (SPA re-init / dialog overlay) causes "Failed to clear prompt composer".
+        await onRateLimitCooldown?.().catch(() => undefined);
         continue;
       }
 
@@ -821,6 +822,7 @@ export async function runSubmissionWithRecoveryForTest(args: {
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
   onRateLimit?: () => Promise<void>;
+  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   return runSubmissionWithRecovery(args);
@@ -1772,6 +1774,12 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             dismissBlockingUi(Runtime, logger).catch(() => undefined),
           ).catch(() => undefined);
         },
+        onRateLimitCooldown: async () => {
+          await raceWithDisconnect(
+            dismissBlockingUi(Runtime, logger).catch(() => undefined),
+          ).catch(() => undefined);
+          await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
+        },
         logger,
       });
       baselineTurns = submission.baselineTurns;
@@ -2246,6 +2254,12 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             await raceWithDisconnect(
               dismissBlockingUi(Runtime, logger).catch(() => undefined),
             ).catch(() => undefined);
+          },
+          onRateLimitCooldown: async () => {
+            await raceWithDisconnect(
+              dismissBlockingUi(Runtime, logger).catch(() => undefined),
+            ).catch(() => undefined);
+            await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
           },
           logger,
         });
@@ -3292,6 +3306,10 @@ async function runRemoteBrowserMode(
       onRateLimit: async () => {
         await dismissBlockingUi(Runtime, logger).catch(() => undefined);
       },
+      onRateLimitCooldown: async () => {
+        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+        await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
+      },
       logger,
     });
     baselineTurns = submission.baselineTurns;
@@ -3716,6 +3734,10 @@ async function runRemoteBrowserMode(
         },
         onRateLimit: async () => {
           await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+        },
+        onRateLimitCooldown: async () => {
+          await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+          await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
         },
         logger,
       });
