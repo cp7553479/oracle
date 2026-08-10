@@ -49,7 +49,7 @@ describe("buildBrowserConfig", () => {
   test("keeps version signal for gpt-5.5 Instant browser runs", async () => {
     const config = await buildBrowserConfig({ model: "gpt-5.5-instant" });
     expect(config.desiredModel).toBe("GPT-5.5 Instant");
-    expect(config.thinkingTime).toBe("light");
+    expect(config.thinkingTime).toBeUndefined();
   });
 
   test.each(["gpt-5.2", "gpt-5.2-instant", "gpt-5.2-thinking", "gpt-5.1"])(

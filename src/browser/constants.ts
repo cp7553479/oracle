@@ -11,7 +11,6 @@ export function defaultBrowserThinkingTimeForModel(
 ): ThinkingTimeLevel | undefined {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "gpt-5.6 sol") return DEFAULT_BROWSER_THINKING_TIME;
-  if (normalized === "gpt-5.5 instant") return "light";
   return undefined;
 }
 export const COOKIE_URLS = [
