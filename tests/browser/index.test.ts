@@ -114,32 +114,25 @@ describe("browser run target cleanup", () => {
     ).toBe(true);
   });
 
-  test("does not close attached or ordinary incomplete targets", () => {
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "complete",
-        ownsTarget: false,
-        keepBrowser: false,
-      }),
-    ).toBe(false);
+  test("closes owned tabs on error/timeout so failed tabs do not accumulate", () => {
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "attempted",
         ownsTarget: true,
         keepBrowser: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("closes owned targets after answer capture errors even when keepBrowser is enabled", () => {
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: true,
-        keepBrowser: true,
-        closeOnError: true,
       }),
     ).toBe(true);
+  });
+
+  test("does not close attached targets on error", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: false,
+        keepBrowser: false,
+        closeOnError: true,
+      }),
+    ).toBe(false);
   });
 
   test("never closes an attached target after an answer capture error", () => {
@@ -746,6 +739,71 @@ describe("runSubmissionWithRecoveryForTest", () => {
         logger: vi.fn<(message: string) => void>(),
       }),
     ).rejects.toThrow(/prompt too large again/i);
+  });
+
+  test("retries after a rate-limit warning with cooldown and dismiss callback", async () => {
+    const rateLimitError = new BrowserAutomationError(
+      "ChatGPT displayed a rate-limit warning: Too many requests",
+      {
+        stage: "submit-prompt",
+        code: "chatgpt-ui-warning",
+        uiWarning: { type: "rate_limit", message: "Too many requests" },
+      },
+    );
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce(rateLimitError)
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({ baselineTurns: 1, baselineAssistantText: "ok" });
+    const reloadPromptComposer = vi.fn().mockResolvedValue(undefined);
+    const onRateLimit = vi.fn().mockResolvedValue(undefined);
+    const logger = vi.fn<(message: string) => void>();
+
+    // Use fake timers so the cooldown delays don't slow the test.
+    vi.useFakeTimers();
+    const pending = runSubmissionWithRecoveryForTest({
+      prompt: "test",
+      attachments: [],
+      submit,
+      reloadPromptComposer,
+      prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
+      onRateLimit,
+      logger,
+    });
+    // Advance past the two cooldowns (60s + 120s = 180s).
+    await vi.advanceTimersByTimeAsync(180_000);
+    const result = await pending;
+
+    expect(result).toEqual({ baselineTurns: 1, baselineAssistantText: "ok" });
+    expect(submit).toHaveBeenCalledTimes(3);
+    // onRateLimit is called twice per retry cycle (dismiss before cooldown + dismiss after).
+    expect(onRateLimit).toHaveBeenCalledTimes(4);
+    expect(reloadPromptComposer).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  test("gives up after exceeding max rate-limit retries", async () => {
+    const rateLimitError = new BrowserAutomationError("rate-limit", {
+      code: "chatgpt-ui-warning",
+      uiWarning: { type: "rate_limit", message: "Too many requests" },
+    });
+    const submit = vi.fn().mockRejectedValue(rateLimitError);
+
+    vi.useFakeTimers();
+    const pending = expect(
+      runSubmissionWithRecoveryForTest({
+        prompt: "test",
+        attachments: [],
+        submit,
+        reloadPromptComposer: vi.fn().mockResolvedValue(undefined),
+        prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
+        onRateLimit: vi.fn().mockResolvedValue(undefined),
+        logger: vi.fn<(message: string) => void>(),
+      }),
+    ).rejects.toThrow(/rate-limit/);
+    await vi.advanceTimersByTimeAsync(300_000);
+    await pending;
+    vi.useRealTimers();
   });
 });
 

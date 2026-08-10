@@ -433,9 +433,12 @@ describe("promptComposer", () => {
   test("waits for a delayed trusted click without issuing a second send", async () => {
     vi.useFakeTimers();
     try {
-      const evaluate = vi.fn().mockResolvedValue({
-        result: { value: { status: "point", x: 10, y: 20 } },
-      });
+      // First evaluate: find send button coords. Subsequent evaluates: sendTookEffect
+      // returns true (composer cleared / stop button visible), so no fallback click.
+      const evaluate = vi
+        .fn()
+        .mockResolvedValueOnce({ result: { value: { status: "point", x: 10, y: 20 } } })
+        .mockResolvedValue({ result: { value: true } });
       const input = {
         dispatchMouseEvent: vi.fn(async ({ type }: { type: string }) => {
           if (type === "mouseReleased") {
@@ -453,7 +456,6 @@ describe("promptComposer", () => {
       await vi.advanceTimersByTimeAsync(1_000);
 
       await expect(result).resolves.toBe(true);
-      expect(evaluate).toHaveBeenCalledTimes(1);
       expect(input.dispatchMouseEvent).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();

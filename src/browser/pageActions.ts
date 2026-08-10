@@ -2,6 +2,7 @@ export {
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensureNotBlocked,
+  dismissBlockingUi,
   ensureLoggedIn,
   ensurePromptReady,
   ensureChatMode,
