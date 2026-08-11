@@ -40,7 +40,7 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(1);
     expect(resolved.desiredModel).toBe("GPT-5.6 Sol");
-    expect(resolved.thinkingTime).toBe("standard");
+    expect(resolved.thinkingTime).toBe("extended");
     expect(resolved.researchMode).toBe("off");
     expect(resolved.archiveConversations).toBe("auto");
   });

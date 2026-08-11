@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with Medium/standard effort. Keep upstream's explicit `gpt-5.5-instant` model alias without adding a separate default effort, while `--browser-thinking-time` overrides the Sol default. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
+- Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with High/extended effort. Keep upstream's explicit `gpt-5.5-instant` model alias without adding a separate default effort, while `--browser-thinking-time` overrides the Sol default. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
 - Browser: ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
 - Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.
 - Browser: automatically close Oracle-owned ChatGPT tabs when answer capture times out or recheck fails, while preserving Cloudflare challenge tabs and explicitly attached tabs.

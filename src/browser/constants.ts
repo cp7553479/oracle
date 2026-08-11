@@ -3,7 +3,7 @@ import type { BrowserModelStrategy } from "./types.js";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
 export const DEFAULT_MODEL_TARGET = "GPT-5.6 Sol";
-export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "standard";
+export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "extended";
 export const DEFAULT_MODEL_STRATEGY: BrowserModelStrategy = "select";
 
 export function defaultBrowserThinkingTimeForModel(

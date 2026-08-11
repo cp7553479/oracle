@@ -211,7 +211,7 @@ describe("summarizeModelRunsForConsult", () => {
     expect(config.cookieSync).toBe(process.platform !== "win32");
   });
 
-  test("selects GPT-5.6 Sol with Medium effort by default", () => {
+  test("selects GPT-5.6 Sol with High effort by default", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {},
       env: {},
@@ -220,10 +220,10 @@ describe("summarizeModelRunsForConsult", () => {
     });
 
     expect(config.desiredModel).toBe("GPT-5.6 Sol");
-    expect(config.thinkingTime).toBe("standard");
+    expect(config.thinkingTime).toBe("extended");
   });
 
-  test("selects GPT-5.6 Sol with Medium effort for the default GPT browser model", () => {
+  test("selects GPT-5.6 Sol with High effort for the default GPT browser model", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {},
       env: {},
@@ -232,7 +232,7 @@ describe("summarizeModelRunsForConsult", () => {
     });
 
     expect(config.desiredModel).toBe("GPT-5.6 Sol");
-    expect(config.thinkingTime).toBe("standard");
+    expect(config.thinkingTime).toBe("extended");
   });
 
   test("lets explicit consult inputs override config defaults", () => {
