@@ -522,7 +522,7 @@ export async function performSessionRun({
     const cloudflareChallenge =
       userError?.category === "browser-automation" &&
       (userError.details as { stage?: string } | undefined)?.stage === "cloudflare-challenge";
-    const browserCanReattach = !browserConfig?.copyProfileSource;
+    const browserCanReattach = true;
     let reattachGuidanceLogged = false;
     const logBrowserReattachGuidance = (
       runtime: BrowserRuntimeMetadata | null | undefined,

@@ -108,8 +108,6 @@ export interface BrowserAutomationConfig {
   manualLogin?: boolean;
   manualLoginProfileDir?: string | null;
   manualLoginCookieSync?: boolean;
-  /** Copy this signed-in Chrome user-data dir to a throwaway profile and run against it (login-free). */
-  copyProfileSource?: string | null;
   /** Thinking time intensity level for Thinking/Pro models: light, standard, extended, heavy */
   thinkingTime?: ThinkingTimeLevel;
   /** Browser-only research mode. "deep" activates ChatGPT Deep Research. */
@@ -205,7 +203,6 @@ export type ResolvedBrowserConfig = Required<
     | "modelStrategy"
     | "maxConcurrentTabs"
     | "researchMode"
-    | "copyProfileSource"
   >
 > & {
   chromeProfile?: string | null;
@@ -224,7 +221,6 @@ export type ResolvedBrowserConfig = Required<
   manualLogin?: boolean;
   manualLoginProfileDir?: string | null;
   manualLoginCookieSync?: boolean;
-  copyProfileSource?: string | null;
   maxConcurrentTabs: number;
   researchMode: BrowserResearchMode;
   archiveConversations: BrowserArchiveMode;

@@ -96,11 +96,11 @@ describe("project sources CLI helpers", () => {
     });
   });
 
-  test("honors explicit cookie sync for an ordinary temporary profile", async () => {
+  test("honors explicit cookie sync for manual-login profiles", async () => {
     const fromConfig = await buildProjectSourcesBrowserConfig({
       options: {},
       projectUrl: "https://chatgpt.com/g/g-p-123/project?tab=sources",
-      configuredBrowser: { cookieSync: true },
+      configuredBrowser: { manualLoginCookieSync: true },
     });
     const fromFlag = await buildProjectSourcesBrowserConfig({
       options: { browserCookieSync: true },

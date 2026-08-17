@@ -150,7 +150,6 @@ interface CliOptions extends OptionValues {
   browserModelStrategy?: "select" | "current" | "ignore";
   browserManualLogin?: boolean;
   browserManualLoginProfileDir?: string;
-  copyProfile?: string;
   browserThinkingTime?: "light" | "standard" | "extended" | "extra-high" | "pro" | "heavy";
   browserResearch?: "off" | "deep";
   browserFollowUp?: string[];
@@ -782,12 +781,6 @@ program
       "--browser-manual-login-profile-dir <path>",
       "Persistent Chrome profile directory for manual-login browser runs.",
     ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--copy-profile <dir>",
-      'Copy a signed-in Chrome user-data dir to a throwaway profile and run browser mode against it (login-free; auto-cleanup). e.g. "$HOME/Library/Application Support/Google/Chrome".',
-    ),
   )
   .addOption(new Option("--browser-headless", "Launch Chrome in headless mode.").hideHelp())
   .addOption(

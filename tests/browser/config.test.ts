@@ -31,11 +31,10 @@ describe("resolveBrowserConfig", () => {
   test("returns defaults when config missing", () => {
     const resolved = resolveBrowserConfig(undefined);
     expect(resolved.url).toBe(CHATGPT_URL);
-    const isWindows = process.platform === "win32";
     expect(resolved.cookieSync).toBe(false);
     expect(resolved.cookieNames).toEqual(DEFAULT_CHATGPT_COOKIE_NAMES);
     expect(resolved.headless).toBe(false);
-    expect(resolved.manualLogin).toBe(isWindows);
+    expect(resolved.manualLogin).toBe(true);
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(3);
@@ -92,21 +91,18 @@ describe("resolveBrowserConfig", () => {
 
     expect(
       resolveBrowserConfig({
-        manualLogin: true,
         manualLoginProfileDir: " /tmp/config-profile ",
       }).manualLoginProfileDir,
     ).toBe("/tmp/config-profile");
 
-    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
-      "/tmp/env-profile",
-    );
+    expect(resolveBrowserConfig({}).manualLoginProfileDir).toBe("/tmp/env-profile");
 
     process.env.ORACLE_BROWSER_PROFILE_DIR = "   ";
-    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
+    expect(resolveBrowserConfig({}).manualLoginProfileDir).toBe(
       path.join(os.homedir(), ".oracle", "browser-profile"),
     );
 
-    expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBeNull();
+    expect(resolveBrowserConfig({ manualLogin: false }).manualLogin).toBe(true);
   });
 
   test("resolves maxConcurrentTabs from config, env, and default", () => {

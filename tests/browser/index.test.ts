@@ -89,16 +89,6 @@ describe("authenticated model-selection errors", () => {
 });
 
 describe("browser run target cleanup", () => {
-  test("never retains a copied profile after a preserved browser error", () => {
-    expect(
-      __test__.shouldKeepLocalBrowserOpen({
-        effectiveKeepBrowser: false,
-        preserveBrowserOnError: true,
-        usingCopiedProfile: true,
-      }),
-    ).toBe(false);
-  });
-
   test("keeps existing retention semantics for ordinary profiles", () => {
     expect(
       __test__.shouldKeepLocalBrowserOpen({
@@ -540,39 +530,6 @@ describe("ChatGPT UI warning detection", () => {
 });
 
 describe("browser follow-ups", () => {
-  test("rejects copy-profile with manual-login before launching Chrome", async () => {
-    await expect(
-      runBrowserMode({
-        prompt: "test",
-        config: {
-          manualLogin: true,
-          copyProfileSource: "/tmp/source-profile",
-        },
-      }),
-    ).rejects.toThrow(/cannot be combined.*browser-manual-login/i);
-  });
-
-  test("rejects copy-profile with existing-browser modes before connecting", async () => {
-    await expect(
-      runBrowserMode({
-        prompt: "test",
-        config: {
-          attachRunning: true,
-          copyProfileSource: "/tmp/source-profile",
-        },
-      }),
-    ).rejects.toThrow(/cannot be combined.*remote Chrome/i);
-    await expect(
-      runBrowserMode({
-        prompt: "test",
-        config: {
-          remoteChrome: { host: "127.0.0.1", port: 9222 },
-          copyProfileSource: "/tmp/source-profile",
-        },
-      }),
-    ).rejects.toThrow(/cannot be combined.*remote Chrome/i);
-  });
-
   test("rejects Deep Research follow-ups before launching Chrome", async () => {
     await expect(
       runBrowserMode({
@@ -845,22 +802,24 @@ describe("runSubmissionWithRecoveryForTest", () => {
 });
 
 describe("resolveRemoteTabLeaseProfileDirForTest", () => {
-  test("coordinates remote Chrome only when a manual-login profile is configured", () => {
+  test("coordinates remote Chrome with the manual-login profile", () => {
     const coordinated = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
-      manualLogin: true,
       manualLoginProfileDir: "/tmp/oracle-profile",
     });
     expect(resolveRemoteTabLeaseProfileDirForTest(coordinated)).toBe(
       path.resolve("/tmp/oracle-profile"),
     );
 
-    const uncoordinated = resolveBrowserConfig({
+    const withDefaultProfile = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
-      manualLogin: false,
-      manualLoginProfileDir: "/tmp/oracle-profile",
     });
-    expect(resolveRemoteTabLeaseProfileDirForTest(uncoordinated)).toBeNull();
+    expect(resolveRemoteTabLeaseProfileDirForTest(withDefaultProfile)).toBe(
+      path.join(os.homedir(), ".oracle", "browser-profile"),
+    );
+
+    const localLaunch = resolveBrowserConfig({ manualLoginProfileDir: "/tmp/oracle-profile" });
+    expect(resolveRemoteTabLeaseProfileDirForTest(localLaunch)).toBeNull();
   });
 });
 

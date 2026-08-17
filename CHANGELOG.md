@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (fork)
+
+### Changed
+
+- Browser: force `--browser-manual-login` on for every browser run (CLI, MCP, and reattach paths) so all sessions reuse the persistent signed-in automation profile; the flag is now redundant but still accepted. `--browser-manual-login-profile-dir` still selects the profile directory.
+
+### Removed
+
+- Browser: the `--copy-profile` throwaway-profile mode and its `src/browser/profileCopy.ts` implementation, including the copied-profile signal cleanup, Cloudflare/capture special-casing, and reattach exclusions.
+
 ## 0.18.0 — 2026-08-14
 
 ### Changed

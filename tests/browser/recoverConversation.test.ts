@@ -199,8 +199,8 @@ describe("resolveRecoveryProfileDir", () => {
     ).toBe("/tmp/runtime-profile");
   });
 
-  test("rejects sessions that did not use manual-login mode", () => {
-    expect(() =>
+  test("recovers sessions whose metadata lacks manualLogin because it is now forced", () => {
+    expect(
       resolveRecoveryProfileDir(
         metaWith(
           {
@@ -213,6 +213,6 @@ describe("resolveRecoveryProfileDir", () => {
           },
         ),
       ),
-    ).toThrow(/manual-login browser profile/);
+    ).toBe("/tmp/temp-profile");
   });
 });

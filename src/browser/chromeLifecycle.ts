@@ -19,15 +19,7 @@ export async function launchChrome(
     debugBindAddress,
     config.hideWindow ?? false,
   );
-  // copy-profile reuses a copied signed-in profile whose cookies are
-  // Keychain-encrypted, so it must launch with the real Keychain (not mocked):
-  // strip the keychain-mocking flags from both chrome-launcher's defaults and
-  // Oracle's set, and ignore the defaults so they aren't re-added.
-  const usingCopiedProfile = Boolean(config.copyProfileSource);
-  if (usingCopiedProfile && config.chromeProfile) {
-    chromeFlags.push(`--profile-directory=${config.chromeProfile}`);
-  }
-  const launchOptions = resolveChromeLaunchOptions(chromeFlags, usingCopiedProfile);
+  const launchOptions = resolveChromeLaunchOptions(chromeFlags);
   const launcher = usePatchedLauncher
     ? await launchWithCustomHost({
         chromeFlags: launchOptions.chromeFlags,
@@ -86,12 +78,6 @@ export function registerTerminationHooks(
     emitRuntimeHint?: () => Promise<void>;
     /** Preserve the profile directory even when Chrome is terminated. */
     preserveUserDataDir?: boolean;
-    /**
-     * Always terminate Chrome and delete `userDataDir` on signal, even when the run is
-     * in-flight — for throwaway copied profiles (`--copy-profile`) that must not be left
-     * on disk. Overrides the in-flight "leave running" behavior.
-     */
-    forceProfileCleanup?: boolean;
   },
 ): () => void {
   const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGQUIT"];
@@ -103,15 +89,10 @@ export function registerTerminationHooks(
     }
     handling = true;
     const inFlight = opts?.isInFlight?.() ?? false;
-    const forceCleanup = opts?.forceProfileCleanup ?? false;
-    const leaveRunning = (keepBrowser || inFlight) && !forceCleanup;
+    const leaveRunning = keepBrowser || inFlight;
     if (leaveRunning) {
       logger(
         `Received ${signal}; leaving Chrome running${inFlight ? " (assistant response pending)" : ""}`,
-      );
-    } else if (forceCleanup && (keepBrowser || inFlight)) {
-      logger(
-        `Received ${signal}; terminating Chrome and removing the copied profile (copy-profile is not retained)`,
       );
     } else {
       logger(`Received ${signal}; terminating Chrome process`);
@@ -788,24 +769,14 @@ export function buildChromeFlagsForTest(
 
 function resolveChromeLaunchOptions(
   chromeFlags: string[],
-  usingCopiedProfile: boolean,
 ): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
-  if (!usingCopiedProfile) {
-    return { chromeFlags, ignoreDefaultFlags: false };
-  }
-  return {
-    chromeFlags: [...Launcher.defaultFlags(), ...chromeFlags].filter(
-      (flag) => flag !== "--use-mock-keychain" && flag !== "--password-store=basic",
-    ),
-    ignoreDefaultFlags: true,
-  };
+  return { chromeFlags, ignoreDefaultFlags: false };
 }
 
 export function resolveChromeLaunchOptionsForTest(
   chromeFlags: string[],
-  usingCopiedProfile: boolean,
 ): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
-  return resolveChromeLaunchOptions(chromeFlags, usingCopiedProfile);
+  return resolveChromeLaunchOptions(chromeFlags);
 }
 
 function parseDebugPortEnv(): number | null {

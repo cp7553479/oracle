@@ -92,9 +92,8 @@ export function resolveBrowserConfig(
     normalizeBrowserModelStrategy(config?.modelStrategy) ??
     DEFAULT_BROWSER_CONFIG.modelStrategy ??
     DEFAULT_MODEL_STRATEGY;
-  const isWindows = process.platform === "win32";
-  const manualLogin =
-    config?.manualLogin ?? (isWindows ? true : DEFAULT_BROWSER_CONFIG.manualLogin);
+  // Manual login is mandatory: every browser run must use the persistent signed-in profile.
+  const manualLogin = true;
   const resolvedProfileDir = resolveManualLoginProfileDir(
     config?.manualLoginProfileDir,
     process.env.ORACLE_BROWSER_PROFILE_DIR,
