@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Browser: stop raising `baselineTurns` from the post-commit turn count. When the submission commit is confirmed via DOM fallback (stop button/assistant already visible), the mounting assistant turn inflates the count and `minTurnIndex` then filters every assistant snapshot until the overall timeout — the answer stays visible in the page while Oracle waits forever. The baseline is now seeded only when the pre-submission read failed, matching upstream. Also port upstream's bounded "Answer now" placeholder predicate (#369) so real Pro answers that merely end with skip-ahead chrome are harvested instead of discarded.
 - Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with High/extended effort. Keep upstream's explicit `gpt-5.5-instant` model alias without adding a separate default effort, while `--browser-thinking-time` overrides the Sol default. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
 - Browser: ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
 - Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.

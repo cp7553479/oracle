@@ -51,10 +51,13 @@ async function submitPromptViaAdapter(ctx: ProviderDomFlowContext): Promise<void
   );
   state.committedTurns =
     typeof committedTurns === "number" && Number.isFinite(committedTurns) ? committedTurns : null;
-  if (
-    state.committedTurns != null &&
-    (state.baselineTurns == null || state.committedTurns > state.baselineTurns)
-  ) {
+  // The post-commit DOM count can already include the mounting assistant turn — the
+  // commit signal itself is stop-button/assistant visibility, and the no-canonical-URL
+  // fallback waits 2s past that. Raising a pre-submission baseline with that count
+  // pushes minTurnIndex past the assistant turn, so every snapshot is filtered and the
+  // wait idles to timeout (seen live: answer present at turnIndex 1, baseline 2+).
+  // Seed only when the pre-submission read failed; never raise an existing baseline.
+  if (state.committedTurns != null && state.baselineTurns == null) {
     state.baselineTurns = Math.max(0, state.committedTurns - 1);
   }
 }
