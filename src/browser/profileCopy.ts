@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
-import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
+
+const MAX_RSYNC_STDERR_BYTES = 16 * 1024;
 
 /**
  * Cache/derived subdirectories that bloat the copy and carry no signed-in-session
@@ -55,6 +57,16 @@ export async function copyChromeProfile(
     );
     const srcProfile = path.join(srcUserDataDir, profileDirectory);
     const destProfile = path.join(destDir, profileDirectory);
+    const srcProfileStat = await stat(srcProfile).catch((err: unknown) => {
+      throw new Error(
+        `--copy-profile: could not access selected Chrome profile source ${JSON.stringify(srcProfile)}: ${(err as Error).message}`,
+      );
+    });
+    if (!srcProfileStat.isDirectory()) {
+      throw new Error(
+        `--copy-profile: selected Chrome profile source is not a directory: ${JSON.stringify(srcProfile)}`,
+      );
+    }
     await mkdir(destProfile, { recursive: true });
     // `Local State` is required (holds the Keychain-wrapped key that decrypts the
     // cookies), so a copy failure must fail fast — otherwise the run continues with
@@ -65,7 +77,20 @@ export async function copyChromeProfile(
     }
     args.push(`${srcProfile}/`, `${destProfile}/`);
     await new Promise<void>((resolve, reject) => {
-      const child = spawn("rsync", args, { stdio: "ignore" });
+      const child = spawn("rsync", args, { stdio: ["ignore", "ignore", "pipe"] });
+      const stderrChunks: Buffer[] = [];
+      let stderrBytes = 0;
+      let stderrTruncated = false;
+      child.stderr.on("data", (chunk: Buffer) => {
+        const remaining = MAX_RSYNC_STDERR_BYTES - stderrBytes;
+        if (remaining > 0) {
+          stderrChunks.push(chunk.subarray(0, remaining));
+          stderrBytes += Math.min(chunk.length, remaining);
+        }
+        if (chunk.length > remaining) {
+          stderrTruncated = true;
+        }
+      });
       child.on("error", (err) =>
         reject(
           new Error(
@@ -76,7 +101,11 @@ export async function copyChromeProfile(
       child.on("close", (code) =>
         code === 0 || code === 24
           ? resolve()
-          : reject(new Error(`rsync failed copying Chrome profile (exit ${code})`)),
+          : reject(
+              new Error(
+                `rsync failed copying Chrome profile (exit ${code})${formatRsyncStderr(stderrChunks, stderrTruncated)}`,
+              ),
+            ),
       );
     });
     return profileDirectory;
@@ -86,6 +115,14 @@ export async function copyChromeProfile(
     await rm(destDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+function formatRsyncStderr(chunks: Buffer[], truncated: boolean): string {
+  const stderr = Buffer.concat(chunks).toString("utf8").trim();
+  if (!stderr) {
+    return "";
+  }
+  return `: ${stderr}${truncated ? "\n[stderr truncated]" : ""}`;
 }
 
 function resolveChromeProfileDirectory(

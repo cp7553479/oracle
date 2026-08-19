@@ -480,6 +480,23 @@ describe("browser follow-ups", () => {
     ).rejects.toThrow(/cannot be combined.*remote Chrome/i);
   });
 
+  test("routes copy-profile mode into profile copying before Chrome launch", async () => {
+    const source = await mkdtemp(path.join(os.tmpdir(), "oracle-copy-profile-route-"));
+    try {
+      await expect(
+        runBrowserMode({
+          prompt: "test",
+          config: {
+            manualLogin: false,
+            copyProfileSource: source,
+          },
+        }),
+      ).rejects.toThrow(/--copy-profile: could not copy required "Local State"/i);
+    } finally {
+      await rm(source, { recursive: true, force: true });
+    }
+  });
+
   test("rejects Deep Research follow-ups before launching Chrome", async () => {
     await expect(
       runBrowserMode({

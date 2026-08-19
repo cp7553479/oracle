@@ -31,11 +31,10 @@ describe("resolveBrowserConfig", () => {
   test("returns defaults when config missing", () => {
     const resolved = resolveBrowserConfig(undefined);
     expect(resolved.url).toBe(CHATGPT_URL);
-    const isWindows = process.platform === "win32";
-    expect(resolved.cookieSync).toBe(!isWindows);
+    expect(resolved.cookieSync).toBe(true);
     expect(resolved.cookieNames).toEqual(DEFAULT_CHATGPT_COOKIE_NAMES);
     expect(resolved.headless).toBe(false);
-    expect(resolved.manualLogin).toBe(isWindows);
+    expect(resolved.manualLogin).toBe(true);
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(1);
@@ -110,6 +109,13 @@ describe("resolveBrowserConfig", () => {
     );
 
     expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBeNull();
+
+    const copied = resolveBrowserConfig({
+      manualLogin: false,
+      copyProfileSource: "/tmp/source",
+    });
+    expect(copied.manualLogin).toBe(false);
+    expect(copied.copyProfileSource).toBe("/tmp/source");
   });
 
   test("resolves maxConcurrentTabs from config, env, and default", () => {

@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Docs: remove registry-based `npx` commands from the bundled Oracle skill.
+- Browser: force every browser request through manual-login mode (CLI, MCP, Project Sources, remote serve, and browser config resolution); remove the manual-login opt-out flags and make config `browser.manualLogin: false` a no-op. `--copy-profile` remains as the only manual-login escape hatch and now fails fast with bounded rsync stderr when the profile copy breaks.
 - Browser: raise default response timeout from 20m to 40m to accommodate the new idle-reload budget.
 - Browser: open each local ChatGPT run in its own Chrome window, including concurrent runs that share the same manual-login profile. Completed runs close only their Oracle-owned window target, while active sibling runs remain untouched.
 - Browser: temporarily close the current Oracle-owned window on SIGTERM instead of retaining it for reattach; shared Chrome remains alive when sibling Oracle runs still hold active browser slots.

@@ -99,21 +99,18 @@ export async function buildProjectSourcesBrowserConfig({
     }),
   );
   const envProfileDir = process.env.ORACLE_BROWSER_PROFILE_DIR?.trim();
-  const manualLogin =
-    flagConfig.manualLogin ?? configuredBrowser.manualLogin ?? (envProfileDir ? true : undefined);
+  const manualLogin = true;
   const manualLoginProfileDir =
-    manualLogin === true
-      ? (flagConfig.manualLoginProfileDir ??
-        configuredBrowser.manualLoginProfileDir ??
-        envProfileDir ??
-        null)
-      : null;
+    flagConfig.manualLoginProfileDir ??
+    configuredBrowser.manualLoginProfileDir ??
+    envProfileDir ??
+    null;
   return {
     ...configuredBrowser,
     ...flagConfig,
     url: projectUrl,
     chatgptUrl: projectUrl,
-    cookieSync: manualLogin ? false : (flagConfig.cookieSync ?? configuredBrowser.cookieSync),
+    cookieSync: false,
     manualLogin,
     manualLoginProfileDir,
     desiredModel: null,

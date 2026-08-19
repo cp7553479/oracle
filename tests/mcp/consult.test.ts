@@ -199,7 +199,7 @@ describe("summarizeModelRunsForConsult", () => {
     });
   });
 
-  test("defaults MCP browser consults to manual login on Windows", () => {
+  test("forces MCP browser consults to manual login", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {},
       env: {},
@@ -207,8 +207,8 @@ describe("summarizeModelRunsForConsult", () => {
       inputModel: "gpt-5.5-pro",
     });
 
-    expect(config.manualLogin).toBe(process.platform === "win32");
-    expect(config.cookieSync).toBe(process.platform !== "win32");
+    expect(config.manualLogin).toBe(true);
+    expect(config.cookieSync).toBe(false);
   });
 
   test("selects GPT-5.6 Sol with High effort by default", () => {

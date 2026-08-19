@@ -82,6 +82,7 @@ describe("buildBrowserConfig", () => {
     const source = "/Users/me/Library/Application Support/Google/Chrome";
     const config = await buildBrowserConfig({ model: "gpt-5.5-pro", copyProfile: source });
     expect(config.copyProfileSource).toBe(source);
+    expect(config.manualLogin).toBe(false);
     expect(config.chromeProfile).toBeNull();
     const selected = await buildBrowserConfig({
       model: "gpt-5.5-pro",

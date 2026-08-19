@@ -778,11 +778,6 @@ program
     ).default(true),
   )
   .addOption(
-    new Option("--no-manual-login", "Disable manual-login and fall back to cookie sync.")
-      .default(undefined)
-      .hideHelp(),
-  )
-  .addOption(
     new Option(
       "--copy-profile <dir>",
       'Copy a signed-in Chrome user-data dir to a throwaway profile and run browser mode against it (login-free; auto-cleanup). e.g. "$HOME/Library/Application Support/Google/Chrome".',

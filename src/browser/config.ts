@@ -66,7 +66,7 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   remoteChrome: null,
   remoteChromeBrowserWSEndpoint: null,
   remoteChromeProfileRoot: null,
-  manualLogin: false,
+  manualLogin: true,
   manualLoginProfileDir: null,
   manualLoginCookieSync: false,
   researchMode: "off",
@@ -97,10 +97,10 @@ export function resolveBrowserConfig(
     normalizeBrowserModelStrategy(config?.modelStrategy) ??
     DEFAULT_BROWSER_CONFIG.modelStrategy ??
     DEFAULT_MODEL_STRATEGY;
-  const isWindows = process.platform === "win32";
-  const manualLogin =
-    config?.manualLogin ?? (isWindows ? true : DEFAULT_BROWSER_CONFIG.manualLogin);
-  const cookieSyncDefault = isWindows ? false : DEFAULT_BROWSER_CONFIG.cookieSync;
+  // Manual-login is always on in this fork; an explicit false is only honored
+  // for the --copy-profile route, which sets it before resolution.
+  const manualLogin = config?.manualLogin ?? true;
+  const cookieSyncDefault = DEFAULT_BROWSER_CONFIG.cookieSync;
   const resolvedProfileDir = resolveManualLoginProfileDir(
     config?.manualLoginProfileDir,
     process.env.ORACLE_BROWSER_PROFILE_DIR,

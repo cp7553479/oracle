@@ -103,6 +103,63 @@ function waitForChildOutput(child: CliChild, timeoutMs: number): Promise<void> {
 
 describe("oracle CLI integration", () => {
   test(
+    "accepts --copy-profile in a browser dry run",
+    async () => {
+      const result = await execCli(
+        [
+          "--engine",
+          "browser",
+          "--dry-run=summary",
+          "--copy-profile",
+          "/tmp/oracle-copy-profile-source",
+          "--prompt",
+          "copy profile config regression",
+        ],
+        { timeout: INTEGRATION_TIMEOUT },
+      );
+
+      expect(result.code).toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("unknown option '--copy-profile'");
+      expect(result.stdout).toContain("[preview] Oracle");
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
+    "rejects the removed manual-login opt-out",
+    async () => {
+      const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-attach-running-cli-"));
+      const result = await execCli(
+        [
+          "--engine",
+          "browser",
+          "--dry-run=summary",
+          "--browser-attach-running",
+          "--no-browser-manual-login",
+          "--prompt",
+          "attach running config regression",
+        ],
+        {
+          timeout: INTEGRATION_TIMEOUT,
+          env: {
+            ...process.env,
+            ORACLE_HOME_DIR: oracleHome,
+            DOTENV_CONFIG_PATH: "/tmp/nonexistent-oracle-env",
+          },
+        },
+      );
+
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(
+        "unknown option '--no-browser-manual-login'",
+      );
+      expect(result.stdout).not.toContain("[preview] Oracle");
+      await rm(oracleHome, { recursive: true, force: true });
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
     "exits nonzero when root options omit the required prompt",
     async () => {
       const result = await execCli(["--engine", "api"], { timeout: INTEGRATION_TIMEOUT });

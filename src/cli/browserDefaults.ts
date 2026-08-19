@@ -171,9 +171,10 @@ export function applyBrowserDefaultsFromConfig(
   if (
     !attachRunningRequested &&
     isUnset("browserManualLogin") &&
-    browser.manualLogin !== undefined
+    // Manual-login is always on in this fork; config can never disable it.
+    browser.manualLogin === true
   ) {
-    options.browserManualLogin = browser.manualLogin;
+    options.browserManualLogin = true;
   }
   if (
     !attachRunningRequested &&

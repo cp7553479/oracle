@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -29,6 +29,54 @@ describe("copyChromeProfile", () => {
     await expect(copyChromeProfile(srcWithoutLocalState, dest)).rejects.toThrow(/Local State/);
     await expect(stat(dest)).rejects.toThrow();
   });
+
+  test("fails before rsync when the selected profile source is missing", async () => {
+    const src = await mkdtemp(path.join(os.tmpdir(), "oracle-copyprofile-src-"));
+    const dest = await mkdtemp(path.join(os.tmpdir(), "oracle-copyprofile-dest-"));
+    tmpDirs.push(src, dest);
+    await writeFile(
+      path.join(src, "Local State"),
+      JSON.stringify({ profile: { last_used: "Profile 3" } }),
+    );
+
+    await expect(copyChromeProfile(src, dest)).rejects.toThrow(
+      `could not access selected Chrome profile source ${JSON.stringify(path.join(src, "Profile 3"))}`,
+    );
+    await expect(stat(dest)).rejects.toThrow();
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "includes bounded stderr when rsync fails",
+    async () => {
+      const src = await mkdtemp(path.join(os.tmpdir(), "oracle-copyprofile-src-"));
+      const dest = await mkdtemp(path.join(os.tmpdir(), "oracle-copyprofile-dest-"));
+      const fakeBin = await mkdtemp(path.join(os.tmpdir(), "oracle-copyprofile-bin-"));
+      tmpDirs.push(src, dest, fakeBin);
+      await mkdir(path.join(src, "Default"));
+      await writeFile(path.join(src, "Local State"), JSON.stringify({}));
+
+      const diagnostic = `diagnostic-start ${"x".repeat(20_000)} diagnostic-end`;
+      const fakeRsync = path.join(fakeBin, "rsync");
+      await writeFile(fakeRsync, `#!/bin/sh\nprintf '%s\\n' '${diagnostic}' >&2\nexit 23\n`);
+      await chmod(fakeRsync, 0o755);
+
+      const originalPath = process.env.PATH;
+      process.env.PATH = `${fakeBin}${path.delimiter}${originalPath ?? ""}`;
+      try {
+        const error = await copyChromeProfile(src, dest).catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(Error);
+        const message = (error as Error).message;
+        expect(message).toContain("rsync failed copying Chrome profile (exit 23)");
+        expect(message).toContain("diagnostic-start");
+        expect(message).toContain("[stderr truncated]");
+        expect(message).not.toContain("diagnostic-end");
+        expect(Buffer.byteLength(message)).toBeLessThan(17 * 1024);
+      } finally {
+        process.env.PATH = originalPath;
+      }
+      await expect(stat(dest)).rejects.toThrow();
+    },
+  );
 
   test.skipIf(process.platform === "win32")(
     "copies the active Local State profile instead of assuming Default",
