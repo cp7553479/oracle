@@ -4,6 +4,7 @@
 
 ### Changed
 
+- CLI: force `--engine browser --browser-manual-login` onto every run at the command entry (overrides any explicit `--engine api`; `ORACLE_ALLOW_API_ENGINE=1` is a test-only escape hatch).
 - Browser: force `--browser-manual-login` on for every browser run (CLI, MCP, and reattach paths) so all sessions reuse the persistent signed-in automation profile; the flag is now redundant but still accepted. `--browser-manual-login-profile-dir` still selects the profile directory.
 
 ### Removed

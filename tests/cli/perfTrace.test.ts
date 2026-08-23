@@ -14,6 +14,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CLI_ENTRY = path.join(process.cwd(), "bin", "oracle-cli.ts");
+// Fork forces --engine browser at the CLI entry; keep API-model CLI invocations valid here.
+process.env.ORACLE_ALLOW_API_ENGINE = "1";
 const TSX_LOADER = pathToFileURL(
   path.join(process.cwd(), "node_modules", "tsx", "dist", "loader.mjs"),
 ).href;

@@ -1722,6 +1722,14 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     await launchTui({ version: VERSION, printIntro: false });
     return;
   }
+  // Fork behavior: every run is forced onto the browser engine with the persistent
+  // manual-login profile, as if `--engine browser --browser-manual-login` were passed.
+  // ORACLE_ALLOW_API_ENGINE=1 is a test-only escape hatch so API-engine integration
+  // tests can still exercise their paths.
+  if (process.env.ORACLE_ALLOW_API_ENGINE !== "1") {
+    options.engine = "browser";
+    options.browserManualLogin = true;
+  }
   const userConfig = (await loadUserConfig()).config;
   const helpRequested = rawCliArgs.some((arg: string) => arg === "--help" || arg === "-h");
   const multiModelProvided = Array.isArray(options.models) && options.models.length > 0;
