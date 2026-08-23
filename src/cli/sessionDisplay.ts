@@ -2,6 +2,7 @@ import chalk from "chalk";
 import kleur from "kleur";
 import fs from "node:fs/promises";
 import type {
+  SessionArtifact,
   SessionMetadata,
   SessionTransportMetadata,
   SessionUserErrorMetadata,
@@ -136,7 +137,11 @@ async function writeReattachAnswer(
 async function saveReattachBrowserArtifacts(
   sessionId: string,
   metadata: SessionMetadata,
-  result: { answerText: string; answerMarkdown: string },
+  result: {
+    answerText: string;
+    answerMarkdown: string;
+    savedImages?: SessionArtifact[];
+  },
 ): Promise<SessionMetadata["artifacts"]> {
   const body = result.answerMarkdown || result.answerText;
   const conversationUrl = metadata.browser?.runtime?.tabUrl;
@@ -150,15 +155,16 @@ async function saveReattachBrowserArtifacts(
       }).catch(() => null)
     : null;
   const prompt = (await readStoredPrompt(sessionId)) ?? metadata.promptPreview ?? "";
+  const reattachedArtifacts = appendArtifacts(metadata.artifacts, result.savedImages ?? []);
   const transcriptArtifact = await saveBrowserTranscriptArtifact({
     sessionId,
     prompt,
     answerMarkdown: body,
     conversationUrl,
-    artifacts: appendArtifacts(undefined, [reportArtifact]),
+    artifacts: appendArtifacts(reattachedArtifacts, [reportArtifact]),
     logger,
   }).catch(() => null);
-  return appendArtifacts(metadata.artifacts, [reportArtifact, transcriptArtifact]);
+  return appendArtifacts(reattachedArtifacts, [reportArtifact, transcriptArtifact]);
 }
 
 export interface ShowStatusOptions {
@@ -337,7 +343,11 @@ export async function attachSession(
           }) as unknown as BrowserLogger,
           { verbose: true },
         ),
-        { promptPreview: metadata.promptPreview },
+        {
+          promptPreview: metadata.promptPreview,
+          generateImagePath: metadata.options?.generateImage,
+          sessionId,
+        },
       );
       const outputTokens = estimateTokenCount(result.answerMarkdown);
       const artifacts = await saveReattachBrowserArtifacts(sessionId, metadata, result);

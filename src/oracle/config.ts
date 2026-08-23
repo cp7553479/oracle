@@ -7,7 +7,7 @@ let countTokensGpt5Impl: TokenizerFn | undefined;
 let countTokensGpt5ProImpl: TokenizerFn | undefined;
 let countTokensAnthropicImpl: ((input: string) => number) | undefined;
 
-export const DEFAULT_MODEL: ModelName = "gpt-5.5-pro";
+export const DEFAULT_MODEL: ModelName = "gpt-5.5";
 export const PRO_MODELS = new Set<ProModelName>([
   "gpt-5.5-pro",
   "gpt-5.4-pro",

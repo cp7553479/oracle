@@ -121,8 +121,8 @@ Notes:
 - `--browser-bundle-files`: bundle all resolved attachments into a single temp file before uploading (only used when uploads are enabled/selected).
 - `--browser-bundle-format <auto|text|zip>`: choose the bundle format. `auto` uses a text bundle for text-only inputs and a byte-preserving ZIP when bundled inputs include raw files; `text` keeps the single Markdown-style text bundle; `zip` archives the original file bytes. ZIP bundle inputs are capped at 128 MiB because bundle creation is in-memory.
 - sqlite bindings: automatic rebuilds now require `ORACLE_ALLOW_SQLITE_REBUILD=1`. Without it, the CLI logs instructions instead of running `pnpm rebuild` on your behalf.
-- `--model`: the same GPT-5.6 aliases work in API and browser mode. Use `gpt-5.6` for the current GPT-5.6 default or `gpt-5.6-sol` to pin Sol; browser mode maps either alias to the `GPT-5.6 Sol` picker entry, while API mode sends the corresponding first-party OpenAI model ID. GPT-5.2 base, Instant, and Thinking aliases remain available through the API but browser mode rejects them because ChatGPT retired those picker entries. Legacy Pro aliases still resolve to the latest Pro picker target.
-- Live Chrome cookie copying is disabled by default. The recommended migration is `--browser-manual-login`, which keeps token rotation inside a dedicated persistent automation profile. To retain the old launcher behavior, pass `--browser-cookie-sync` or set `browser.cookieSync=true` in the user config; Oracle warns about the live-session invalidation risk. When enabled, cookie copy is mandatory—if Oracle cannot copy cookies, the run exits early. Oracle copies a small ChatGPT auth/Cloudflare allowlist to avoid oversized request headers; use `--browser-cookie-names` only when you need to override that set.
+- `--model`: GPT-5.6 aliases work in API and browser mode. The default ChatGPT browser path selects `GPT-5.6 Sol`, then requests High/extended effort unless `--browser-thinking-time` overrides it. Matching upstream, explicit `gpt-5.5-instant` runs select `GPT-5.5 Instant` without applying a separate default effort. If non-Pro model selection fails, Oracle keeps ChatGPT's current model and applies the requested effort best-effort. Explicit Pro aliases remain fail-closed. GPT-5.2 Base, Instant, and Thinking are API-only because ChatGPT retired their browser picker entries.
+- Cookie sync is mandatory—if we can’t copy cookies from Chrome, the run exits early. By default Oracle copies a small ChatGPT auth/Cloudflare allowlist to avoid oversized request headers; use `--browser-cookie-names` only when you need to override that set. Use the hidden `--browser-allow-cookie-errors` flag only when you’re intentionally running logged out (it skips the early exit but still warns).
 - Attach-running mode is mutually exclusive with launcher-owned flags such as `--browser-manual-login`, `--browser-chrome-profile`, `--browser-cookie-path`, `--browser-hide-window`, `--browser-keep-browser`, and `--browser-port`. `--remote-chrome` is allowed in attach-running mode, but only as the local host:port hint used to find matching `DevToolsActivePort` metadata. `--browser-chrome-path` is accepted but ignored.
 - Cookie controls:
   - `--browser-cookie-sync` or user config `browser.cookieSync=true`: opt in to copying cookies from a live Chrome profile. Project config cannot enable this machine-local authentication behavior.
@@ -253,7 +253,7 @@ MCP agents should prefer the `chatgpt_image` tool. It wraps the same behavior wi
 
 ### Manual login mode (persistent profile, no cookie copy)
 
-Use `--browser-manual-login` when cookie decrypt is blocked (e.g., Windows app-bound cookies) or you prefer to sign in explicitly. You can also make it the default via `browser.manualLogin` in `~/.oracle/config.json`.
+Manual-login is always enabled in this fork. Browser configuration cannot disable it.
 
 ```bash
 oracle --engine browser \

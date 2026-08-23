@@ -189,7 +189,7 @@ export async function ensureThinkingTime(
       }
       logger(
         formatBrowserThinkingLog(
-          `unknown outcome selecting ${capitalizedLevel}; continuing with ChatGPT default.`,
+          `unknown outcome selecting ${capitalizedLevel}; keeping the effort already selected in ChatGPT.`,
         ),
       );
       return;
@@ -234,21 +234,25 @@ export async function ensureThinkingTimeIfAvailable(
         if (logger.verbose) {
           logger(
             formatBrowserThinkingLog(
-              `${result.status.replaceAll("-", " ")}; continuing with default.`,
+              `${result.status.replaceAll("-", " ")}; keeping ChatGPT's current selection.`,
             ),
           );
         }
         return false;
       default:
         if (logger.verbose) {
-          logger(formatBrowserThinkingLog("unknown outcome; continuing with default."));
+          logger(formatBrowserThinkingLog("unknown outcome; keeping ChatGPT's current selection."));
         }
         return false;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (logger.verbose) {
-      logger(formatBrowserThinkingLog(`selection failed (${message}); continuing with default.`));
+      logger(
+        formatBrowserThinkingLog(
+          `selection failed (${message}); keeping ChatGPT's current selection.`,
+        ),
+      );
       await logDomFailure(Runtime, logger, "thinking-time");
     }
     return false;
@@ -948,7 +952,7 @@ function buildThinkingTimeExpression(
     ];
     const EFFORT_WORDS = [
       'effort', 'aufwand', '强度', '努力', '推論レベル',
-      'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
+      'esfuerzo', 'esforzo', 'sforzo', 'inspanning', 'wysilek',
     ];
     const containsAny = (label, words) => words.some((word) => label.includes(word));
     const findAdvancedToggle = (menu) => {

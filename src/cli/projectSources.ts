@@ -99,8 +99,7 @@ export async function buildProjectSourcesBrowserConfig({
     }),
   );
   const envProfileDir = process.env.ORACLE_BROWSER_PROFILE_DIR?.trim();
-  const manualLogin =
-    flagConfig.manualLogin ?? configuredBrowser.manualLogin ?? (envProfileDir ? true : undefined);
+  const manualLogin = true;
   const manualLoginProfileDir =
     manualLogin === true
       ? (flagConfig.manualLoginProfileDir ??

@@ -33,7 +33,7 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
     expect(shouldPreserveBrowserOnErrorForTest(error, true)).toBe(false);
   });
 
-  test("preserves the browser for headful assistant capture errors", () => {
+  test("does not preserve the browser for headful assistant capture errors", () => {
     const timeout = new BrowserAutomationError("assistant timed out", {
       stage: "assistant-timeout",
     });
@@ -41,10 +41,10 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
       stage: "assistant-recheck",
     });
 
-    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(true);
-    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(true);
-    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBe("reattachable-capture");
-    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBe("reattachable-capture");
+    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(false);
+    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(false);
+    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBeNull();
+    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBeNull();
   });
 
   test("does not preserve assistant capture errors in headless mode", () => {
@@ -200,6 +200,70 @@ describe("browser run target cleanup", () => {
         chromePort: 9222,
       }),
     ).toBe(false);
+  });
+
+  test("does not close attached targets on error", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: false,
+        keepBrowser: false,
+        closeOnError: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("never closes an attached target after an answer capture error", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: false,
+        keepBrowser: false,
+        closeOnError: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("model-selection fallback", () => {
+  test("keeps the current model when a non-Pro selection fails", () => {
+    const logger = vi.fn();
+    const evidence = __test__.handleModelSelectionFailure({
+      error: new Error("picker option missing"),
+      desiredModel: "GPT-5.6 Sol",
+      strategy: "select",
+      logger: logger as never,
+    });
+
+    expect(evidence).toMatchObject({
+      requestedModel: "GPT-5.6 Sol",
+      resolvedLabel: null,
+      status: "unavailable",
+      verified: false,
+    });
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining("keeping ChatGPT's current model"));
+  });
+
+  test("keeps explicit Pro selection fail-closed", () => {
+    expect(() =>
+      __test__.handleModelSelectionFailure({
+        error: new Error("picker option missing"),
+        desiredModel: "Pro",
+        strategy: "select",
+        logger: vi.fn() as never,
+      }),
+    ).toThrow("picker option missing");
+  });
+
+  test("allows current strategy to keep an already active Pro model", () => {
+    expect(
+      __test__.handleModelSelectionFailure({
+        error: new Error("picker unavailable"),
+        desiredModel: "Pro",
+        strategy: "current",
+        logger: vi.fn() as never,
+      }),
+    ).toMatchObject({ status: "unavailable", verified: false });
   });
 });
 
@@ -798,6 +862,73 @@ describe("runSubmissionWithRecoveryForTest", () => {
         logger: vi.fn<(message: string) => void>(),
       }),
     ).rejects.toThrow(/prompt too large again/i);
+  });
+
+  test("retries after a rate-limit warning with cooldown and dismiss callback", async () => {
+    const rateLimitError = new BrowserAutomationError(
+      "ChatGPT displayed a rate-limit warning: Too many requests",
+      {
+        stage: "submit-prompt",
+        code: "chatgpt-ui-warning",
+        uiWarning: { type: "rate_limit", message: "Too many requests" },
+      },
+    );
+    const submit = vi
+      .fn()
+      .mockRejectedValueOnce(rateLimitError)
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({ baselineTurns: 1, baselineAssistantText: "ok" });
+    const reloadPromptComposer = vi.fn().mockResolvedValue(undefined);
+    const onRateLimit = vi.fn().mockResolvedValue(undefined);
+    const onRateLimitCooldown = vi.fn().mockResolvedValue(undefined);
+    const logger = vi.fn<(message: string) => void>();
+
+    // Use fake timers so the cooldown delays don't slow the test.
+    vi.useFakeTimers();
+    const pending = runSubmissionWithRecoveryForTest({
+      prompt: "test",
+      attachments: [],
+      submit,
+      reloadPromptComposer,
+      prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
+      onRateLimit,
+      onRateLimitCooldown,
+      logger,
+    });
+    // Advance past the two cooldowns (60s + 120s = 180s).
+    await vi.advanceTimersByTimeAsync(180_000);
+    const result = await pending;
+
+    expect(result).toEqual({ baselineTurns: 1, baselineAssistantText: "ok" });
+    expect(submit).toHaveBeenCalledTimes(3);
+    expect(onRateLimit).toHaveBeenCalledTimes(2);
+    expect(onRateLimitCooldown).toHaveBeenCalledTimes(2);
+    expect(reloadPromptComposer).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  test("gives up after exceeding max rate-limit retries", async () => {
+    const rateLimitError = new BrowserAutomationError("rate-limit", {
+      code: "chatgpt-ui-warning",
+      uiWarning: { type: "rate_limit", message: "Too many requests" },
+    });
+    const submit = vi.fn().mockRejectedValue(rateLimitError);
+
+    vi.useFakeTimers();
+    const pending = expect(
+      runSubmissionWithRecoveryForTest({
+        prompt: "test",
+        attachments: [],
+        submit,
+        reloadPromptComposer: vi.fn().mockResolvedValue(undefined),
+        prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
+        onRateLimit: vi.fn().mockResolvedValue(undefined),
+        logger: vi.fn<(message: string) => void>(),
+      }),
+    ).rejects.toThrow(/rate-limit/);
+    await vi.advanceTimersByTimeAsync(300_000);
+    await pending;
+    vi.useRealTimers();
   });
 });
 

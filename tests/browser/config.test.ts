@@ -37,7 +37,9 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.manualLogin).toBe(true);
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
-    expect(resolved.maxConcurrentTabs).toBe(3);
+    expect(resolved.maxConcurrentTabs).toBe(1);
+    expect(resolved.desiredModel).toBe("GPT-5.6 Sol");
+    expect(resolved.thinkingTime).toBe("extended");
     expect(resolved.researchMode).toBe("off");
     expect(resolved.archiveConversations).toBe("auto");
   });
@@ -83,6 +85,7 @@ describe("resolveBrowserConfig", () => {
 
     expect(resolved.url).toBe("https://chatgpt.com/?temporary-chat=true");
     expect(resolved.desiredModel).toBe("GPT-5.2 Pro");
+    expect(resolved.thinkingTime).toBeUndefined();
     expect(resolved.modelStrategy).toBe("select");
   });
 
@@ -111,14 +114,14 @@ describe("resolveBrowserConfig", () => {
     expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(5);
 
     process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "0";
-    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
 
     process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "not-a-number";
-    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
 
     for (const malformed of ["5junk", "2.5", "1e2"]) {
       process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = malformed;
-      expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(3);
+      expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
     }
   });
 

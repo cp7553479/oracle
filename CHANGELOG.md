@@ -19,6 +19,19 @@
 - Browser: stop copying cookies from a live Chrome profile by default because ChatGPT token rotation can invalidate the user's interactive session. Use the persistent `--browser-manual-login` profile (recommended), inline cookies, or explicitly restore the old behavior with `--browser-cookie-sync` / `browser.cookieSync=true`. Fixes #367.
 - Browser: route the generic current-Pro aliases (`gpt-5-pro`, `gpt-5.1-pro`, `gpt-5.2-pro`, and `gpt-5.4-pro`) to GPT-5.6 Sol with Pro effort. Use the explicit `gpt-5.5-pro` model to keep the historical GPT-5.5 target; an explicit thinking-time setting still overrides the alias default. Fixes #373. Thanks @pdurlej!
 
+### Added
+
+- Browser: auto-reload the ChatGPT conversation every 5 minutes (up to 7 reloads, 40 min total) when the assistant response stalls, so transient freezes recover without losing the in-flight turn. Thinking-active periods are excluded to avoid interrupting long Pro reasoning. Configure with `--browser-idle-reload` / `--browser-max-idle-reloads`.
+
+### Changed
+
+- Docs: remove registry-based `npx` commands from the bundled Oracle skill.
+- Browser: force every browser request through manual-login mode (CLI, MCP, Project Sources, remote serve, and browser config resolution); remove the manual-login opt-out flags and make config `browser.manualLogin: false` a no-op. `--copy-profile` remains as the only manual-login escape hatch and now fails fast with bounded rsync stderr when the profile copy breaks.
+- Browser: raise default response timeout from 20m to 40m to accommodate the new idle-reload budget.
+- Browser: open each local ChatGPT run in its own Chrome window, including concurrent runs that share the same manual-login profile. Completed runs close only their Oracle-owned window target, while active sibling runs remain untouched.
+- Browser: temporarily close the current Oracle-owned window on SIGTERM instead of retaining it for reattach; shared Chrome remains alive when sibling Oracle runs still hold active browser slots.
+- Browser: persist the canonical conversation URL before SIGTERM, reopen that exact URL on reattach, and keep image-generation reattach alive until the requested image artifact is saved.
+
 ### Fixed
 
 - Browser: detect a disabled ChatGPT effort tier (e.g. an exhausted Pro allotment) before clicking it, and report the account's own reset notice instead of a misleading "selection unverified" failure. Thanks @enieuwy!
@@ -102,6 +115,12 @@ select the right model _and_ the Pro effort tier.
 
 - Browser: ignore transient `/c/WEB:<request-id>` routes until ChatGPT exposes the durable conversation URL, preventing completed GPT-5.6 and Pro answers from hanging until timeout under a mismatched response scope. Fixes #333. Thanks @dbachko and @kesslerio!
 - Browser: recover completed answers after a recoverable DevTools disconnect by confirming target liveness and attempting bounded reattachment, while preserving fail-closed handling for unavailable targets. Fixes #326. Thanks @piyushbag!
+- Browser: stop raising `baselineTurns` from the post-commit turn count. When the submission commit is confirmed via DOM fallback (stop button/assistant already visible), the mounting assistant turn inflates the count and `minTurnIndex` then filters every assistant snapshot until the overall timeout — the answer stays visible in the page while Oracle waits forever. The baseline is now seeded only when the pre-submission read failed, matching upstream. Also port upstream's bounded "Answer now" placeholder predicate (#369) so real Pro answers that merely end with skip-ahead chrome are harvested instead of discarded.
+- Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with High/extended effort. Keep upstream's explicit `gpt-5.5-instant` model alias without adding a separate default effort, while `--browser-thinking-time` overrides the Sol default. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
+- Browser: ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
+- Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.
+- Browser: automatically close Oracle-owned ChatGPT tabs when answer capture times out or recheck fails, while preserving Cloudflare challenge tabs and explicitly attached tabs.
+- Browser: close the recovered ChatGPT target after reattaching through an existing browser WebSocket, instead of only detaching the DevTools session and leaving the tab open.
 - CLI: avoid inheriting `browser.thinkingTime` from config when `--browser-model-strategy current` is explicit, while preserving an explicit `--browser-thinking-time` override. Thanks @jung0han!
 - Browser/Serve: keep the authenticated manual-login Chrome process alive while closing each successfully captured service-owned run tab, preventing renderer and memory accumulation across repeated remote consultations without changing explicit `--browser-keep-browser`, attached-tab, or incomplete-run recovery behavior. Thanks @rtl-ai!
 

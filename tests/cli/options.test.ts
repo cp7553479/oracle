@@ -193,6 +193,7 @@ describe("parseThinkingTimeOption", () => {
     ["medium", "standard"],
     ["extended", "extended"],
     ["high", "extended"],
+    ["pro", "pro"],
     ["heavy", "heavy"],
     ["extra-high", "extra-high"],
     ["extra high", "extra-high"],
@@ -321,7 +322,7 @@ describe("inferModelFromLabel", () => {
     expect(inferModelFromLabel("5.5 FAST")).toBe("gpt-5.5-instant");
     expect(inferModelFromLabel("GPT-5.5 Pro")).toBe("gpt-5.5-pro");
     expect(inferModelFromLabel("Pro Extended")).toBe("gpt-5.5-pro");
-    // New ChatGPT UI (2026-05): bare "Pro" label maps to default (gpt-5.5-pro)
+    // New ChatGPT UI (2026-05): bare "Pro" label maps to the current Pro model (gpt-5.5-pro)
     expect(inferModelFromLabel("Pro")).toBe("gpt-5.5-pro");
     expect(inferModelFromLabel("Thinking Heavy")).toBe("gpt-5.5");
   });
@@ -372,8 +373,8 @@ describe("inferModelFromLabel", () => {
     expect(inferModelFromLabel("Grok-4-1")).toBe("grok-4.1");
   });
 
-  test("falls back to gpt-5.5-pro when label empty and to gpt-5.2 for other ambiguous strings", () => {
-    expect(inferModelFromLabel("")).toBe("gpt-5.5-pro");
+  test("falls back to gpt-5.5 when label empty and to gpt-5.2 for other ambiguous strings", () => {
+    expect(inferModelFromLabel("")).toBe("gpt-5.5");
     expect(inferModelFromLabel("something else")).toBe("gpt-5.2");
   });
 });

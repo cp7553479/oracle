@@ -1,8 +1,10 @@
 import {
   CHATGPT_URL,
   DEEP_RESEARCH_DEFAULT_TIMEOUT_MS,
+  DEFAULT_BROWSER_THINKING_TIME,
   DEFAULT_MODEL_STRATEGY,
   DEFAULT_MODEL_TARGET,
+  defaultBrowserThinkingTimeForModel,
 } from "./constants.js";
 import { normalizeBrowserModelStrategy } from "./modelStrategy.js";
 import {
@@ -34,12 +36,14 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   browserTabRef: null,
   url: CHATGPT_URL,
   chatgptUrl: CHATGPT_URL,
-  timeoutMs: 1_200_000,
+  timeoutMs: 2_400_000,
   debugPort: null,
   inputTimeoutMs: 60_000,
   attachmentTimeoutMs: 45_000,
   assistantRecheckDelayMs: 0,
   assistantRecheckTimeoutMs: 120_000,
+  idleReloadMs: 5 * 60_000,
+  maxIdleReloads: 7,
   reuseChromeWaitMs: 10_000,
   profileLockTimeoutMs: 300_000,
   maxConcurrentTabs: DEFAULT_MAX_CONCURRENT_CHATGPT_TABS,
@@ -55,13 +59,14 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   keepBrowser: false,
   hideWindow: false,
   desiredModel: DEFAULT_MODEL_TARGET,
+  thinkingTime: DEFAULT_BROWSER_THINKING_TIME,
   modelStrategy: DEFAULT_MODEL_STRATEGY,
   debug: false,
   allowCookieErrors: false,
   remoteChrome: null,
   remoteChromeBrowserWSEndpoint: null,
   remoteChromeProfileRoot: null,
-  manualLogin: false,
+  manualLogin: true,
   manualLoginProfileDir: null,
   manualLoginCookieSync: false,
   researchMode: "off",
@@ -115,6 +120,8 @@ export function resolveBrowserConfig(
       config?.assistantRecheckDelayMs ?? DEFAULT_BROWSER_CONFIG.assistantRecheckDelayMs,
     assistantRecheckTimeoutMs:
       config?.assistantRecheckTimeoutMs ?? DEFAULT_BROWSER_CONFIG.assistantRecheckTimeoutMs,
+    idleReloadMs: config?.idleReloadMs ?? DEFAULT_BROWSER_CONFIG.idleReloadMs,
+    maxIdleReloads: config?.maxIdleReloads ?? DEFAULT_BROWSER_CONFIG.maxIdleReloads,
     reuseChromeWaitMs: config?.reuseChromeWaitMs ?? DEFAULT_BROWSER_CONFIG.reuseChromeWaitMs,
     profileLockTimeoutMs:
       config?.profileLockTimeoutMs ?? DEFAULT_BROWSER_CONFIG.profileLockTimeoutMs,
@@ -148,7 +155,7 @@ export function resolveBrowserConfig(
       config?.remoteChromeBrowserWSEndpoint ?? DEFAULT_BROWSER_CONFIG.remoteChromeBrowserWSEndpoint,
     remoteChromeProfileRoot:
       config?.remoteChromeProfileRoot ?? DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
-    thinkingTime: config?.thinkingTime,
+    thinkingTime: config?.thinkingTime ?? defaultBrowserThinkingTimeForModel(desiredModel),
     researchMode,
     archiveConversations,
     resumeConversationUrl:

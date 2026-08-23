@@ -28,6 +28,7 @@ import {
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensureNotBlocked,
+  dismissBlockingUi,
   ensureLoggedIn,
   ensurePromptReady,
   ensureChatMode,
@@ -46,7 +47,7 @@ import {
 import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
 import { ensureThinkingTime } from "./actions/thinkingTime.js";
-import { startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
+import { readThinkingActivity, startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
 import {
   activateDeepResearch,
   captureDeepResearchTargetKeys,
@@ -91,6 +92,7 @@ import {
 } from "./artifacts.js";
 import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import { collectChatGptFileArtifacts } from "./chatgptFiles.js";
+import { extractCanonicalConversationId, isCanonicalConversationUrl } from "./conversationUrl.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
 import { chatgptDomProvider } from "./providers/index.js";
 import { resolveAttachRunningConnection } from "./attachRunning.js";
@@ -156,7 +158,7 @@ function isReattachableCaptureError(error: unknown): error is BrowserAutomationE
   return stage === "assistant-timeout" || stage === "assistant-recheck";
 }
 
-type PreservedBrowserErrorKind = "cloudflare-challenge" | "reattachable-capture";
+type PreservedBrowserErrorKind = "cloudflare-challenge";
 
 function classifyPreservedBrowserError(
   error: unknown,
@@ -164,7 +166,6 @@ function classifyPreservedBrowserError(
 ): PreservedBrowserErrorKind | null {
   if (headless) return null;
   if (isCloudflareChallengeError(error)) return "cloudflare-challenge";
-  if (isReattachableCaptureError(error)) return "reattachable-capture";
   return null;
 }
 
@@ -519,11 +520,11 @@ async function saveOptionalArtifact<T>(
   }
 }
 
-type AssistantAnswer = {
+export interface AssistantAnswer {
   text: string;
   html?: string;
   meta: { turnId?: string | null; messageId?: string | null };
-};
+}
 
 const RATE_LIMIT_WATCH_INTERVAL_MS = 15_000;
 const RATE_LIMIT_NOTICE = "Too many requests, Please wait a few minutes before trying again.";
@@ -808,6 +809,9 @@ type BrowserSubmissionFallback = {
   attachments: BrowserAttachment[];
 };
 
+const MAX_RATE_LIMIT_RETRIES = 2;
+const RATE_LIMIT_COOLDOWN_BASE_MS = 60_000;
+
 async function runSubmissionWithRecovery({
   prompt,
   attachments,
@@ -815,6 +819,8 @@ async function runSubmissionWithRecovery({
   submit,
   reloadPromptComposer,
   prepareFallbackSubmission,
+  onRateLimit,
+  onRateLimitCooldown,
   logger,
 }: {
   prompt: string;
@@ -823,12 +829,15 @@ async function runSubmissionWithRecovery({
   submit: (prompt: string, attachments: BrowserAttachment[]) => Promise<BrowserSubmissionResult>;
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
+  onRateLimit?: () => Promise<void>;
+  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   let currentPrompt = prompt;
   let currentAttachments = attachments;
   let retriedDeadComposer = false;
   let usedFallbackSubmission = false;
+  let rateLimitRetries = 0;
 
   while (true) {
     try {
@@ -851,6 +860,23 @@ async function runSubmissionWithRecovery({
         continue;
       }
 
+      const isRateLimit = hasBrowserErrorCode(error, "chatgpt-ui-warning");
+      if (isRateLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+        rateLimitRetries += 1;
+        const cooldownMs = RATE_LIMIT_COOLDOWN_BASE_MS * rateLimitRetries;
+        logger(
+          `[browser] ChatGPT rate-limited; cooling down ${cooldownMs / 1000}s before retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}.`,
+        );
+        await onRateLimit?.().catch(() => undefined);
+        await delay(cooldownMs);
+        // After cooldown, dismiss any lingering dialog and ensure the composer is
+        // ready. Do NOT clear the composer here — submitOnce clears it itself
+        // before typing the prompt, and a premature clear on an unsettled page
+        // (SPA re-init / dialog overlay) causes "Failed to clear prompt composer".
+        await onRateLimitCooldown?.().catch(() => undefined);
+        continue;
+      }
+
       throw error;
     }
   }
@@ -863,6 +889,8 @@ export async function runSubmissionWithRecoveryForTest(args: {
   submit: (prompt: string, attachments: BrowserAttachment[]) => Promise<BrowserSubmissionResult>;
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
+  onRateLimit?: () => Promise<void>;
+  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   return runSubmissionWithRecovery(args);
@@ -962,6 +990,38 @@ function buildSkippedModelSelectionEvidence(
     source: "config",
     capturedAt: new Date().toISOString(),
   };
+}
+
+function buildUnavailableModelSelectionEvidence(
+  desiredModel: string | null | undefined,
+  strategy: BrowserModelSelectionEvidence["strategy"],
+): BrowserModelSelectionEvidence {
+  return {
+    requestedModel: desiredModel ?? null,
+    resolvedLabel: null,
+    strategy,
+    status: "unavailable",
+    verified: false,
+    source: "config",
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function handleModelSelectionFailure(options: {
+  error: unknown;
+  desiredModel: string;
+  strategy: BrowserModelSelectionEvidence["strategy"];
+  logger: BrowserLogger;
+  strictFailureHint?: string;
+}): BrowserModelSelectionEvidence {
+  const message = options.error instanceof Error ? options.error.message : String(options.error);
+  if (options.strategy === "select" && /\bpro\b/i.test(options.desiredModel)) {
+    throw new Error(`${message}${options.strictFailureHint ?? ""}`);
+  }
+  options.logger(
+    `[browser] Model selection failed for "${options.desiredModel}"; keeping ChatGPT's current model and continuing. ${message}`,
+  );
+  return buildUnavailableModelSelectionEvidence(options.desiredModel, options.strategy);
 }
 
 export async function runBrowserMode(options: BrowserRunOptions): Promise<BrowserRunResult> {
@@ -1142,6 +1202,10 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       chromePort: chrome.port,
     });
   }
+  let client: ChromeClient | null = null;
+  let isolatedTargetId: string | null = null;
+  let ownsTarget = true;
+  let runStatus: "attempted" | "complete" = "attempted";
   let removeTerminationHooks: (() => void) | null = null;
   try {
     removeTerminationHooks = registerTerminationHooks(
@@ -1153,24 +1217,87 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         isInFlight: () => runStatus !== "complete",
         emitRuntimeHint,
         preserveUserDataDir: manualLogin,
+        cleanupOnSigterm: manualLogin
+          ? async () => {
+              await conversationUrlMonitor?.update("sigterm", 2_500).catch(() => false);
+              try {
+                const response = await client?.Runtime.evaluate({
+                  expression: "location.href",
+                  returnByValue: true,
+                });
+                const currentUrl =
+                  typeof response?.result?.value === "string" ? response.result.value.trim() : "";
+                if (
+                  currentUrl &&
+                  (isCanonicalConversationUrl(currentUrl) ||
+                    !lastUrl ||
+                    !isCanonicalConversationUrl(lastUrl))
+                ) {
+                  lastUrl = currentUrl;
+                }
+              } catch {
+                // Persist the most recent URL already captured by the monitor.
+              }
+              await emitRuntimeHint();
+              if (lastUrl) {
+                logger(`[browser] Saved browser URL before SIGTERM: ${lastUrl}`);
+              }
+              try {
+                await client?.close();
+              } catch {
+                // Continue with target-level cleanup.
+              }
+              if (!ownsTarget) {
+                detachKeptChromeProcess(chrome);
+                logger("[browser] SIGTERM cleanup skipped the explicitly attached browser target.");
+                return;
+              }
+              if (isolatedTargetId) {
+                await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(
+                  () => false,
+                );
+              }
+              let hasOtherLeases = false;
+              if (tabLease) {
+                const handle = tabLease;
+                hasOtherLeases = await hasOtherActiveBrowserTabLeases(userDataDir, handle.id).catch(
+                  () => true,
+                );
+                tabLease = null;
+                await handle.release().catch(() => undefined);
+              }
+              if (hasOtherLeases) {
+                detachKeptChromeProcess(chrome);
+                logger(
+                  "[browser] Other ChatGPT browser slots remain active; shared Chrome stays running.",
+                );
+                return;
+              }
+              try {
+                await chrome.kill();
+              } catch {
+                // Best effort; the owned target was already closed above.
+              }
+              await cleanupStaleProfileState(userDataDir, logger, {
+                lockRemovalMode: "never",
+              }).catch(() => undefined);
+            }
+          : undefined,
       },
     );
   } catch {
     // ignore failure; cleanup still happens below
   }
 
-  let client: ChromeClient | null = null;
-  let isolatedTargetId: string | null = null;
-  let ownsTarget = true;
   const startedAt = Date.now();
   let answerText = "";
   let answerMarkdown = "";
   let answerHtml = "";
-  let runStatus: "attempted" | "complete" = "attempted";
   let connectionClosedUnexpectedly = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let appliedCookies = 0;
+  let closeOwnedTargetOnError = false;
   let preserveBrowserOnError = false;
 
   try {
@@ -1196,6 +1323,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           fallbackToDefault: !strictTabIsolation,
           retries: devtoolsRetries,
           retryDelayMs: 500,
+          newWindow: true,
         });
         client = connection.client;
         isolatedTargetId = connection.targetId ?? null;
@@ -1492,21 +1620,22 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
     if (config.desiredModel && modelStrategy !== "ignore" && !isResumingConversation) {
       modelSelectionEvidence = await raceWithDisconnect(
-        withRetries(
-          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-          {
-            retries: 2,
-            delayMs: 300,
-            onRetry: (attempt, error) => {
-              if (options.verbose) {
-                logger(
-                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                );
-              }
+          withRetries(
+            () =>
+              ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+            {
+              retries: 2,
+              delayMs: 300,
+              onRetry: (attempt, error) => {
+                if (options.verbose) {
+                  logger(
+                    `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                  );
+                }
+              },
             },
-          },
-        ),
-      ).catch((error) => {
+          ),
+        ).catch((error) => {
         // Login has already been verified above. Preserve the picker failure instead of
         // misdiagnosing an unavailable model as missing cookies.
         throw normalizeAuthenticatedModelSelectionError(error);
@@ -1530,7 +1659,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     // Handle thinking time selection if specified. Deep Research owns its own effort flow.
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
+      const thinkingTargetModel =
+        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
       await raceWithDisconnect(
         withRetries(() => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel), {
           retries: 2,
@@ -1564,6 +1694,16 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
+      // Pre-submit rate-limit check: if ChatGPT is already showing a "Too many
+      // requests" warning, don't waste a send — throw so runSubmissionWithRecovery
+      // can cool down and retry.
+      await throwChatGptUiWarningIfPresent({
+        Runtime,
+        logger,
+        runtime: {},
+        stage: "submit-prompt",
+        waitTarget: "pre-submit rate-limit check",
+      });
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),
@@ -1706,6 +1846,17 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         reloadPromptComposer,
         prepareFallbackSubmission: async () => {
           await raceWithDisconnect(clearPromptComposer(Runtime, logger));
+          await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
+        },
+        onRateLimit: async () => {
+          await raceWithDisconnect(
+            dismissBlockingUi(Runtime, logger).catch(() => undefined),
+          ).catch(() => undefined);
+        },
+        onRateLimitCooldown: async () => {
+          await raceWithDisconnect(
+            dismissBlockingUi(Runtime, logger).catch(() => undefined),
+          ).catch(() => undefined);
           await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
         },
         logger,
@@ -1906,6 +2057,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
+                config.idleReloadMs,
+                config.maxIdleReloads,
               ),
             timeoutMs,
             logger,
@@ -1942,6 +2095,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                   logger,
                   baselineTurns ?? undefined,
                   expectedConversationId(),
+                  config.idleReloadMs,
+                  config.maxIdleReloads,
                 ),
               timeoutMs: config.timeoutMs,
               logger,
@@ -2178,6 +2333,17 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           reloadPromptComposer,
           prepareFallbackSubmission: async () => {
             await raceWithDisconnect(clearPromptComposer(Runtime, logger));
+            await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
+          },
+          onRateLimit: async () => {
+            await raceWithDisconnect(
+              dismissBlockingUi(Runtime, logger).catch(() => undefined),
+            ).catch(() => undefined);
+          },
+          onRateLimitCooldown: async () => {
+            await raceWithDisconnect(
+              dismissBlockingUi(Runtime, logger).catch(() => undefined),
+            ).catch(() => undefined);
             await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
           },
           logger,
@@ -2938,6 +3104,7 @@ async function runRemoteBrowserMode(
   let answerHtml = "";
   let connectionClosedUnexpectedly = false;
   let runStatus: "attempted" | "complete" = "attempted";
+  let closeOwnedTargetOnError = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let connection: Awaited<ReturnType<typeof connectToRemoteChrome>> | null = null;
@@ -3080,20 +3247,29 @@ async function runRemoteBrowserMode(
 
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
     if (config.desiredModel && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
-      modelSelectionEvidence = await withRetries(
-        () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-        {
-          retries: 2,
-          delayMs: 300,
-          onRetry: (attempt, error) => {
-            if (options.verbose) {
-              logger(
-                `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-              );
-            }
+      try {
+        modelSelectionEvidence = await withRetries(
+          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+          {
+            retries: 2,
+            delayMs: 300,
+            onRetry: (attempt, error) => {
+              if (options.verbose) {
+                logger(
+                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                );
+              }
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        modelSelectionEvidence = handleModelSelectionFailure({
+          error,
+          desiredModel: config.desiredModel,
+          strategy: modelStrategy,
+          logger,
+        });
+      }
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
       logger(
         `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
@@ -3113,7 +3289,8 @@ async function runRemoteBrowserMode(
     // Handle thinking time selection if specified. Deep Research owns its own effort flow.
     const thinkingTime = config.thinkingTime;
     if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
+      const thinkingTargetModel =
+        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
       await withRetries(
         () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
         {
@@ -3133,6 +3310,16 @@ async function runRemoteBrowserMode(
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
+      // Pre-submit rate-limit check: if ChatGPT is already showing a "Too many
+      // requests" warning, don't waste a send — throw so runSubmissionWithRecovery
+      // can cool down and retry.
+      await throwChatGptUiWarningIfPresent({
+        Runtime,
+        logger,
+        runtime: {},
+        stage: "submit-prompt",
+        waitTarget: "pre-submit rate-limit check",
+      });
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),
@@ -3230,6 +3417,13 @@ async function runRemoteBrowserMode(
       reloadPromptComposer,
       prepareFallbackSubmission: async () => {
         await clearPromptComposer(Runtime, logger);
+        await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
+      },
+      onRateLimit: async () => {
+        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+      },
+      onRateLimitCooldown: async () => {
+        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
         await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
       },
       logger,
@@ -3420,6 +3614,8 @@ async function runRemoteBrowserMode(
               logger,
               baselineTurns ?? undefined,
               expectedConversationId(),
+              config.idleReloadMs,
+              config.maxIdleReloads,
             ),
           timeoutMs,
           logger,
@@ -3454,6 +3650,8 @@ async function runRemoteBrowserMode(
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
+                config.idleReloadMs,
+                config.maxIdleReloads,
               ),
             timeoutMs: config.timeoutMs,
             logger,
@@ -3654,6 +3852,13 @@ async function runRemoteBrowserMode(
           await clearPromptComposer(Runtime, logger);
           await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
         },
+        onRateLimit: async () => {
+          await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+        },
+        onRateLimitCooldown: async () => {
+          await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+          await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
+        },
         logger,
       });
       baselineTurns = submission.baselineTurns;
@@ -3782,6 +3987,13 @@ async function runRemoteBrowserMode(
     const socketClosed = connectionClosedUnexpectedly || isWebSocketClosureError(normalizedError);
     connectionClosedUnexpectedly = connectionClosedUnexpectedly || socketClosed;
 
+    if (isReattachableCaptureError(normalizedError)) {
+      closeOwnedTargetOnError = true;
+      logger(
+        "Assistant capture incomplete; closing the Oracle-owned remote browser tab automatically.",
+      );
+    }
+
     if (!socketClosed) {
       logger(`Failed to complete ChatGPT run: ${normalizedError.message}`);
       if ((config.debug || process.env.CHATGPT_DEVTOOLS_TRACE === "1") && normalizedError.stack) {
@@ -3886,12 +4098,14 @@ export const __test__ = {
   createAssistantTimeoutError,
   detachKeptChromeProcess,
   formatManualLoginSetupCommand,
+  handleModelSelectionFailure,
   isAssistantResponseTimeoutError,
   isManualLoginProfileInitialized,
   isImageOnlyUiChromeText,
   listIgnoredRemoteChromeFlags,
   normalizeAuthenticatedModelSelectionError,
   resolveManualLoginWaitMs,
+  runIdleReloadLoop,
   shouldCleanupBlankTabsAfterLastLease,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
@@ -3950,38 +4164,174 @@ async function waitForAssistantResponseWithReload(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
+  idleReloadMs = 0,
+  maxIdleReloads = 7,
 ) {
-  try {
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
-  } catch (error) {
-    if (!shouldReloadAfterAssistantError(error)) {
-      throw error;
+  // Check for a ChatGPT rate-limit warning before entering the wait loop. If the
+  // page is showing "Too many requests", dismiss the dialog (OK/Got it) and throw
+  // so the caller can cool down and retry.
+  await throwChatGptUiWarningIfPresent({
+    Runtime,
+    logger,
+    runtime: {},
+    stage: "assistant-response",
+    waitTarget: "pre-wait rate-limit check",
+  }).catch(async (error) => {
+    await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+    throw error;
+  });
+  // When idle-reload is disabled, fall back to the original "reload once" behavior so the
+  // happy-path / legacy callers and tests are unchanged.
+  if (!idleReloadMs || idleReloadMs <= 0) {
+    try {
+      return await waitForAssistantResponse(
+        Runtime,
+        timeoutMs,
+        logger,
+        minTurnIndex,
+        expectedConversationId,
+      );
+    } catch (error) {
+      if (!shouldReloadAfterAssistantError(error)) {
+        throw error;
+      }
+      const conversationUrl = await readConversationUrl(Runtime);
+      if (!conversationUrl || !isConversationUrl(conversationUrl)) {
+        throw error;
+      }
+      logger("Assistant response stalled; reloading conversation and retrying once");
+      await Page.navigate({ url: conversationUrl });
+      await waitForResumedConversationHydration(Runtime, timeoutMs, logger, {
+        requirePriorTurns: true,
+        requirePromptReady: false,
+        expectedConversationUrl: conversationUrl,
+      });
+      return await waitForAssistantResponse(
+        Runtime,
+        timeoutMs,
+        logger,
+        minTurnIndex,
+        expectedConversationId,
+      );
     }
-    const conversationUrl = await readConversationUrl(Runtime);
-    if (!conversationUrl || !isConversationUrl(conversationUrl)) {
-      throw error;
-    }
-    logger("Assistant response stalled; reloading conversation and retrying once");
-    await Page.navigate({ url: conversationUrl });
-    await waitForResumedConversationHydration(Runtime, timeoutMs, logger, {
-      requirePriorTurns: true,
-      requirePromptReady: false,
-      expectedConversationUrl: conversationUrl,
-    });
-    return await waitForAssistantResponse(
-      Runtime,
-      timeoutMs,
-      logger,
-      minTurnIndex,
-      expectedConversationId,
-    );
   }
+
+  // Idle-reload loop: slice the overall budget into idleReloadMs windows. Each window that
+  // ends without a confirmed answer triggers a conversation reload (up to maxIdleReloads).
+  // Thinking-active periods extend the current window without consuming a reload slot, so
+  // long Pro reasoning runs are not interrupted.
+  return runIdleReloadLoop({
+    waitOnce: (sliceMs) =>
+      waitForAssistantResponse(Runtime, sliceMs, logger, minTurnIndex, expectedConversationId),
+    readConversationUrl: () => readConversationUrl(Runtime),
+    navigate: (url) => Page.navigate({ url }),
+    sleep: (ms) => delay(ms),
+    readThinking: () =>
+      readThinkingActivity(Runtime).catch(() => ({ active: false, strong: false })),
+    isConversationUrl,
+    shouldReload: shouldReloadAfterAssistantError,
+    formatElapsed,
+    timeoutMs,
+    idleReloadMs,
+    maxIdleReloads,
+    logger,
+    checkRateLimit: async () => {
+      await throwChatGptUiWarningIfPresent({
+        Runtime,
+        logger,
+        runtime: {},
+        stage: "assistant-response",
+        waitTarget: "idle-reload rate-limit check",
+      }).catch(async (error) => {
+        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
+        throw error;
+      });
+    },
+  });
+}
+
+interface IdleReloadDeps {
+  waitOnce: (sliceMs: number) => Promise<AssistantAnswer>;
+  readConversationUrl: () => Promise<string | null>;
+  navigate: (url: string) => Promise<unknown>;
+  sleep: (ms: number) => Promise<unknown>;
+  readThinking: () => Promise<{ active: boolean; strong: boolean }>;
+  isConversationUrl: (url: string) => boolean;
+  shouldReload: (error: unknown) => boolean;
+  formatElapsed: (ms: number) => string;
+  timeoutMs: number;
+  idleReloadMs: number;
+  maxIdleReloads: number;
+  logger: BrowserLogger;
+  checkRateLimit?: () => Promise<void>;
+}
+
+async function runIdleReloadLoop(deps: IdleReloadDeps) {
+  const overallDeadline = Date.now() + deps.timeoutMs;
+  let reloadsUsed = 0;
+  while (Date.now() < overallDeadline) {
+    const remaining = overallDeadline - Date.now();
+    const sliceMs = Math.min(deps.idleReloadMs, remaining);
+    // Periodic rate-limit check: if a "Too many requests" dialog appeared since
+    // the last slice, dismiss it and throw so the submission layer can cool down.
+    if (deps.checkRateLimit) {
+      await deps.checkRateLimit().catch(() => undefined);
+    }
+    try {
+      return await deps.waitOnce(sliceMs);
+    } catch (error) {
+      const stillLeft = overallDeadline - Date.now();
+      const budgetLeft = stillLeft > 10_000;
+      const reloadableError = deps.shouldReload(error);
+
+      // Reloads exhausted: throw a hard BrowserAutomationError so the outer
+      // attemptAssistantRecheckOrRethrow path transparently rethrows (skips recheck),
+      // capping total wait time at the configured budget.
+      if (reloadableError && reloadsUsed >= deps.maxIdleReloads) {
+        throw new BrowserAutomationError(
+          `Assistant response stalled; exhausted ${deps.maxIdleReloads} idle reloads over ${deps.formatElapsed(
+            deps.timeoutMs,
+          )}. Reattach later to capture the answer.`,
+          { stage: "assistant-timeout", idleReloadsExhausted: true },
+          error,
+        );
+      }
+
+      // Either the budget ran out, the error is not reload-recoverable, or no URL is
+      // available — rethrow the original so callers see the underlying watchdog/timeout.
+      if (!budgetLeft || !reloadableError) {
+        throw error;
+      }
+
+      // Protect long Pro reasoning: if the page still shows active thinking, extend the
+      // current window instead of reloading. Do not consume a reload slot.
+      const thinking = await deps.readThinking();
+      if (thinking.active || thinking.strong) {
+        deps.logger(
+          `[browser] Assistant still thinking after ${deps.formatElapsed(
+            sliceMs,
+          )}; extending wait (reload deferred).`,
+        );
+        continue;
+      }
+
+      const conversationUrl = await deps.readConversationUrl();
+      if (!conversationUrl || !deps.isConversationUrl(conversationUrl)) {
+        throw error;
+      }
+      reloadsUsed += 1;
+      deps.logger(
+        `[browser] No assistant progress for ${deps.formatElapsed(
+          deps.idleReloadMs,
+        )}; reloading conversation (${reloadsUsed}/${deps.maxIdleReloads}).`,
+      );
+      await deps.navigate(conversationUrl);
+      await deps.sleep(1000);
+    }
+  }
+  throw new Error(
+    "assistant-response watchdog timeout; overall deadline exceeded before completion",
+  );
 }
 
 function shouldReloadAfterAssistantError(error: unknown): boolean {

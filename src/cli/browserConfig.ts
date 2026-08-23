@@ -4,7 +4,12 @@ import chalk from "chalk";
 import type { BrowserSessionConfig } from "../sessionStore.js";
 import type { ModelName, ThinkingTimeLevel } from "../oracle/types.js";
 import { normalizeThinkingTimeLevel } from "../oracle/thinkingTime.js";
-import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY, DEFAULT_MODEL_TARGET } from "../browser/constants.js";
+import {
+  CHATGPT_URL,
+  DEFAULT_MODEL_STRATEGY,
+  DEFAULT_MODEL_TARGET,
+  defaultBrowserThinkingTimeForModel,
+} from "../browser/constants.js";
 import { normalizeChatgptUrl } from "../browser/utils.js";
 import { parseDuration } from "../duration.js";
 import { normalizeBrowserModelStrategy } from "../browser/modelStrategy.js";
@@ -16,11 +21,12 @@ import type {
 import type { CookieParam } from "../browser/types.js";
 import { getOracleHomeDir } from "../oracleHome.js";
 
-const DEFAULT_BROWSER_TIMEOUT_MS = 1_200_000;
+const DEFAULT_BROWSER_TIMEOUT_MS = 2_400_000;
 const DEFAULT_BROWSER_INPUT_TIMEOUT_MS = 60_000;
 const DEFAULT_BROWSER_ATTACHMENT_TIMEOUT_MS = 45_000;
 const DEFAULT_BROWSER_RECHECK_TIMEOUT_MS = 120_000;
 const DEFAULT_BROWSER_AUTO_REATTACH_TIMEOUT_MS = 120_000;
+const DEFAULT_BROWSER_IDLE_RELOAD_MS = 5 * 60_000;
 const DEFAULT_CHROME_PROFILE = "Default";
 const CURRENT_CHATGPT_PRO_ALIASES = new Set([
   "gpt-5-pro",
@@ -37,7 +43,7 @@ const BROWSER_MODEL_LABELS: [ModelName, string][] = [
   ["gpt-5.6", "GPT-5.6 Sol"],
   ["gpt-5.5-pro", "GPT-5.5"],
   ["gpt-5.5-instant", "GPT-5.5 Instant"],
-  ["gpt-5.5", "Thinking 5.5"],
+  ["gpt-5.5", "GPT-5.6 Sol"],
   ["gpt-5.4-pro", "Pro"],
   ["gpt-5.2-thinking", "GPT-5.2 Thinking"],
   ["gpt-5.2-instant", "GPT-5.2 Instant"],
@@ -68,6 +74,8 @@ export interface BrowserFlagOptions {
   browserAttachmentTimeout?: string;
   browserRecheckDelay?: string;
   browserRecheckTimeout?: string;
+  browserIdleReload?: string;
+  browserMaxIdleReloads?: string;
   browserReuseWait?: string;
   browserProfileLockTimeout?: string;
   browserMaxConcurrentTabs?: string;
@@ -170,13 +178,6 @@ export async function buildBrowserConfig(
     !isChatGptModel && normalizedOverride.length > 0 && normalizedOverride !== baseModel;
   const modelStrategy =
     normalizeBrowserModelStrategy(options.browserModelStrategy) ?? DEFAULT_MODEL_STRATEGY;
-  const thinkingTime =
-    normalizeThinkingTimeLevel(options.browserThinkingTime) ??
-    resolveDefaultBrowserThinkingTime({
-      model: options.model,
-      requestedModel: options.browserRequestedModel,
-      modelStrategy,
-    });
   assertBrowserModelAvailable(options.model, modelStrategy);
   const cookieNames = parseCookieNames(
     options.browserCookieNames ?? process.env.ORACLE_BROWSER_COOKIE_NAMES,
@@ -206,12 +207,16 @@ export async function buildBrowserConfig(
   });
   const rawUrl = options.chatgptUrl ?? options.browserUrl;
   const url = rawUrl ? normalizeChatgptUrl(rawUrl, CHATGPT_URL) : undefined;
+  // Manual-login is always on (fork rule): every browser run reuses the persistent
+  // signed-in profile. copy-profile was removed and cannot disable it.
 
   const desiredModel = isChatGptModel
     ? mapModelToBrowserLabel(options.model)
     : shouldUseOverride
       ? desiredModelOverride
       : mapModelToBrowserLabel(options.model);
+
+  const requestedThinkingTime = normalizeThinkingTimeLevel(options.browserThinkingTime);
 
   return {
     chromeProfile: options.browserChromeProfile ?? DEFAULT_CHROME_PROFILE,
@@ -251,6 +256,10 @@ export async function buildBrowserConfig(
           DEFAULT_BROWSER_RECHECK_TIMEOUT_MS,
         )
       : undefined,
+    idleReloadMs: options.browserIdleReload
+      ? parseDuration(options.browserIdleReload, DEFAULT_BROWSER_IDLE_RELOAD_MS)
+      : undefined,
+    maxIdleReloads: parseMaxIdleReloads(options.browserMaxIdleReloads),
     reuseChromeWaitMs: options.browserReuseWait
       ? parseBrowserDuration(options.browserReuseWait, "--browser-reuse-wait", 0)
       : undefined,
@@ -284,7 +293,8 @@ export async function buildBrowserConfig(
         ? false
         : options.browserCookieSync === true || options.browserManualLoginCookieSync === true
           ? true
-          : undefined,
+          : // Unset: manual-login runs skip cookie copy at the policy layer.
+            undefined,
     cookieNames,
     inlineCookies: inline?.cookies,
     inlineCookiesSource: inline?.source ?? null,
@@ -301,7 +311,14 @@ export async function buildBrowserConfig(
     allowCookieErrors: options.browserAllowCookieErrors ?? true,
     remoteChrome,
     browserTabRef: options.browserTab ?? undefined,
-    thinkingTime,
+    thinkingTime:
+      requestedThinkingTime ??
+      resolveDefaultBrowserThinkingTime({
+        model: options.model,
+        requestedModel: options.browserRequestedModel,
+        modelStrategy,
+      }) ??
+      defaultBrowserThinkingTimeForModel(desiredModel),
     researchMode: options.browserResearch === "deep" ? "deep" : "off",
     archiveConversations: options.browserArchive,
   };
@@ -385,6 +402,15 @@ function parseBrowserDuration(raw: string, optionName: string, fallbackMs: numbe
     ),
   );
   return fallbackMs;
+}
+
+function parseMaxIdleReloads(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid browser max idle reloads: ${raw}. Expected a non-negative integer.`);
+  }
+  return Math.trunc(value);
 }
 
 export function mapModelToBrowserLabel(model: ModelName): string {

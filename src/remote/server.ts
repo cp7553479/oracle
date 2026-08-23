@@ -283,17 +283,9 @@ export async function createRemoteServer(
         payload.browserConfig.cookieSync = options.cookieSyncDefault === true;
       }
 
-      // Enforce manual-login profile when cookie sync is unavailable (e.g., Windows/WSL).
-      if (options.manualLoginDefault) {
-        payload.browserConfig.manualLogin = true;
-        payload.browserConfig.manualLoginProfileDir = options.manualLoginProfileDir;
-        payload.browserConfig.keepBrowser = true;
-        if (verbose) {
-          logger(
-            `[serve] Enforcing manual-login profile at ${options.manualLoginProfileDir ?? "default"} for remote run ${runId}`,
-          );
-        }
-      }
+      payload.browserConfig.manualLogin = true;
+      payload.browserConfig.manualLoginProfileDir = options.manualLoginProfileDir;
+      payload.browserConfig.keepBrowser = true;
 
       const result = await runBrowser({
         prompt: payload.prompt,
@@ -386,11 +378,7 @@ export async function createRemoteServer(
 export async function serveRemote(options: RemoteServerOptions = {}): Promise<void> {
   const manualProfileDir =
     options.manualLoginProfileDir ?? path.join(os.homedir(), ".oracle", "browser-profile");
-  const preferManualLogin =
-    options.manualLoginDefault ||
-    options.cookieSyncDefault !== true ||
-    process.platform === "win32" ||
-    isWsl();
+  const preferManualLogin = true;
   let cookies: CookieParam[] | null = null;
   let opened = false;
 

@@ -77,7 +77,7 @@ export interface PromptReadyNavigationDeps {
   ensurePromptReady?: typeof ensurePromptReady;
 }
 
-async function dismissBlockingUi(
+export async function dismissBlockingUi(
   Runtime: ChromeClient["Runtime"],
   logger: BrowserLogger,
 ): Promise<boolean> {

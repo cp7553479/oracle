@@ -13,6 +13,7 @@ import { captureAssistantMarkdown, readAssistantSnapshot } from "./actions/assis
 import { buildConversationTurnListExpression } from "./conversationTurns.js";
 import { extractStableConversationIdFromUrl } from "./conversationUrl.js";
 import { delay } from "./utils.js";
+import { extractCanonicalConversationId } from "./conversationUrl.js";
 
 export const DEFAULT_REMOTE_CHROME_HOST = "127.0.0.1";
 export const DEFAULT_REMOTE_CHROME_PORT = 9222;
