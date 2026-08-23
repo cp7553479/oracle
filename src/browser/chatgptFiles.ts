@@ -1592,10 +1592,12 @@ export async function collectChatGptFileArtifacts(params: {
     return [];
   });
   const textFiles = readTextDownloadableFiles(params.answerText);
-  params.logger?.(`[browser] Found ${files.length} DOM downloadable file candidate(s).`);
-  params.logger?.(
-    `[browser] Found ${textFiles.length} downloadable file link(s) in captured answer text.`,
-  );
+  if (files.length > 0) {
+    params.logger?.(`[browser] Found ${files.length} downloadable image/file candidate(s) in the DOM.`);
+  }
+  if (textFiles.length > 0) {
+    params.logger?.(`[browser] Found ${textFiles.length} downloadable file link(s) in the answer.`);
+  }
   const allFiles = dedupeFiles([...files, ...textFiles]);
   if (allFiles.length === 0) {
     return { files: [], savedFiles: [], fileCount: 0 };

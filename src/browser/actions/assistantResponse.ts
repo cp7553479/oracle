@@ -383,7 +383,9 @@ export async function waitForAssistantResponse(
   const elapsedMs = Date.now() - start;
   const remainingMs = Math.max(0, timeoutMs - elapsedMs);
   if (remainingMs > 0) {
-    logger("Confirming the capture is terminal (not a mid-stream/preamble capture)");
+    if (logger.verbose) {
+      logger("[browser] Confirming the capture is terminal (not mid-stream)");
+    }
     const completed = await pollAssistantCompletion(
       Runtime,
       remainingMs,
@@ -650,7 +652,9 @@ async function refreshAssistantSnapshot(
   const isLonger = latestLength > currentLength;
   const hasDifferentText = best.text.trim() !== current.text.trim();
   if (isLonger || hasBetterId || hasDifferentText) {
-    logger("Refreshed assistant response via latest snapshot");
+    if (logger.verbose) {
+      logger("[browser] Refreshed assistant response via latest snapshot");
+    }
     return best;
   }
   return null;

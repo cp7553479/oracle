@@ -325,7 +325,7 @@ describe("connectWithNewTab", () => {
       port: 9222,
       target: "window-target",
     });
-    expect(logger).toHaveBeenCalledWith("Opened isolated browser window (target=window-target)");
+    expect(logger).toHaveBeenCalledWith("Opened browser window");
   });
 
   test("retries transient DevTools connection failures before falling back", async () => {

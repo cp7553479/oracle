@@ -75,7 +75,7 @@ function confirmedThinkingTarget(
   return level === "pro" ? "Pro" : strictModelKind === "pro" ? "Pro Extended" : capitalizedLevel;
 }
 
-const BROWSER_THINKING_LOG_PREFIX = "[browser] Thinking time:";
+const BROWSER_THINKING_LOG_PREFIX = "[browser] Thinking effort:";
 
 function formatBrowserThinkingLog(message: string): string {
   return `${BROWSER_THINKING_LOG_PREFIX} ${message.replace(/^Thinking time:\s*/, "")}`;

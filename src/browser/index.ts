@@ -410,7 +410,10 @@ async function createChatGptUiWarningError(params: {
   const [uiWarning] = await collectChatGptUiWarnings(params.Runtime);
   if (!uiWarning) return null;
 
-  params.logger(`[browser] ChatGPT UI warning detected (${uiWarning.type}): ${uiWarning.message}`);
+  const warningText = uiWarning.message
+    .replace(/\s*(Got it|OK|Okay|Dismiss|Understood|Close)\s*$/i, "")
+    .trim();
+  params.logger(`[browser] ChatGPT UI warning detected (${uiWarning.type}): ${warningText}`);
   return new BrowserAutomationError(
     `ChatGPT displayed a ${formatChatGptUiWarningType(uiWarning.type)} warning while waiting for ${params.waitTarget}: ${uiWarning.message}`,
     {
@@ -478,7 +481,6 @@ async function enableFocusEmulation(
 ): Promise<void> {
   try {
     await client.Emulation.setFocusEmulationEnabled({ enabled: true });
-    logger(`[browser] Focus emulation enabled for ${label}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger(`[browser] Focus emulation unavailable: ${message}`);
@@ -527,7 +529,8 @@ export interface AssistantAnswer {
 }
 
 const RATE_LIMIT_WATCH_INTERVAL_MS = 15_000;
-const RATE_LIMIT_NOTICE = "Too many requests, Please wait a few minutes before trying again.";
+const RATE_LIMIT_NOTICE =
+  "[browser] Too many requests, Please wait a few minutes before trying again.";
 
 function startRateLimitWatch(
   Runtime: ChromeClient["Runtime"],
@@ -577,7 +580,7 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
       return params.waitForText();
     }
 
-    params.logger("[browser] Waiting for ChatGPT generated image response.");
+    params.logger("[browser] Waiting for ChatGPT response (image generation).");
     const response = await pollGeneratedImageOrTextAssistantResponse(
       params.Runtime,
       params.timeoutMs,
@@ -852,7 +855,7 @@ async function runSubmissionWithRecovery({
       if (isRateLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
         rateLimitRetries += 1;
         logger(
-          `[browser] ChatGPT rate-limited; retrying immediately (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}, no cooldown).`,
+          `[browser] ChatGPT rate-limited; retrying (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}).`,
         );
         await onRateLimit?.().catch(() => undefined);
         // Dismiss any lingering dialog and ensure the composer is ready before the
@@ -1432,11 +1435,11 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             ? "No inline cookies applied; continuing without session reuse"
             : "No Chrome cookies found; continuing without session reuse",
       );
-    } else {
+    } else if (logger.verbose) {
       logger(
         manualLogin
-          ? "Skipping Chrome cookie sync (--browser-manual-login enabled); reuse the opened profile after signing in."
-          : "Skipping Chrome cookie copy (disabled by default; use --browser-cookie-sync to opt in).",
+          ? "[browser] Skipping Chrome cookie sync (manual-login profile)."
+          : "[browser] Skipping Chrome cookie copy (disabled by default; use --browser-cookie-sync to opt in).",
       );
     }
     await clearStaleChatGptConversationCookies(Network, Target, logger, {
@@ -1549,7 +1552,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
     }
     logger(
-      `Prompt textarea ready (initial focus, ${promptText.length.toLocaleString()} chars queued)`,
+      `Prompt queued (${promptText.length.toLocaleString()} chars)`,
     );
     const captureRuntimeSnapshot = async () => {
       try {
@@ -1573,7 +1576,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         // ignore
       }
       if (lastUrl) {
-        logger(`[browser] url = ${lastUrl}`);
       }
       if (chrome?.port) {
         const suffix = lastTargetId ? ` target=${lastTargetId}` : "";
@@ -1628,9 +1630,11 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         throw normalizeAuthenticatedModelSelectionError(error);
       });
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-      logger(
-        `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
-      );
+      if (logger.verbose) {
+        logger(
+          `[browser] Prompt textarea ready after model switch (${promptText.length.toLocaleString()} chars).`,
+        );
+      }
     } else if (modelStrategy === "ignore" || isResumingConversation) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -1746,9 +1750,11 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           }),
         );
         await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-        logger(
-          `Prompt textarea ready (after Deep Research activation, ${prompt.length.toLocaleString()} chars queued)`,
-        );
+        if (logger.verbose) {
+          logger(
+            `[browser] Prompt textarea ready after Deep Research activation (${prompt.length.toLocaleString()} chars).`,
+          );
+        }
       }
       let baselineTurns = await readConversationTurnCount(Runtime, logger);
       // Learned: return baselineTurns so assistant polling can ignore earlier content.
@@ -2172,7 +2178,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             onRetry: (attempt, error) => {
               if (options.verbose) {
                 logger(
-                  `[retry] Markdown capture attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                  `[browser] Markdown capture retry ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
                 );
               }
             },
@@ -2209,7 +2215,9 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           trimmedMarkdown.length > 0 &&
           lengthDelta >= Math.max(12, Math.floor(trimmedMarkdown.length * 0.75));
         if ((missingCopy || likelyTruncatedCopy) && !finalIsEcho && finalText !== trimmedMarkdown) {
-          logger("Refreshed assistant response via final DOM snapshot");
+          if (logger.verbose) {
+            logger("[browser] Refreshed assistant response via final DOM snapshot");
+          }
           turnAnswerText = finalText;
           turnAnswerMarkdown = finalText;
         }
@@ -2690,7 +2698,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       }
       if (!connectionClosedUnexpectedly) {
         const totalSeconds = (Date.now() - startedAt) / 1000;
-        logger(`Cleanup ${runStatus} • ${totalSeconds.toFixed(1)}s total`);
       }
     } else {
       detachKeptChromeProcess(chrome);
@@ -2955,7 +2962,9 @@ async function maybeReuseRunningChrome(
   let port = await readDevToolsPort(userDataDir);
   if (!port && waitForPortMs > 0) {
     const deadline = Date.now() + waitForPortMs;
-    logger(`Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`);
+    if (logger.verbose) {
+      logger(`[browser] Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`);
+    }
     while (!port && Date.now() < deadline) {
       await delay(250);
       port = await readDevToolsPort(userDataDir);
@@ -2966,9 +2975,11 @@ async function maybeReuseRunningChrome(
     const discovered = await findRunningChromeDebugTargetForProfile(userDataDir);
     if (!discovered) {
       if (pid) {
-        logger(
-          `No reachable Chrome DevTools target found for ${userDataDir}; clearing stale profile state before launching new Chrome.`,
-        );
+        if (logger.verbose) {
+          logger(
+            `[browser] No reachable Chrome DevTools target for the profile; launching a new Chrome.`,
+          );
+        }
         await cleanupStaleProfileState(userDataDir, logger, {
           lockRemovalMode: "if_oracle_pid_dead",
         });
@@ -3217,7 +3228,7 @@ async function runRemoteBrowserMode(
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
     }
     logger(
-      `Prompt textarea ready (initial focus, ${promptText.length.toLocaleString()} chars queued)`,
+      `Prompt queued (${promptText.length.toLocaleString()} chars)`,
     );
     try {
       const { result } = await Runtime.evaluate({
@@ -3258,9 +3269,11 @@ async function runRemoteBrowserMode(
         });
       }
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-      logger(
-        `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
-      );
+      if (logger.verbose) {
+        logger(
+          `[browser] Prompt textarea ready after model switch (${promptText.length.toLocaleString()} chars).`,
+        );
+      }
     } else if (modelStrategy === "ignore" || config.resumeConversationUrl) {
       modelSelectionEvidence = buildSkippedModelSelectionEvidence(
         config.desiredModel,
@@ -3347,9 +3360,11 @@ async function runRemoteBrowserMode(
           },
         });
         await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-        logger(
-          `Prompt textarea ready (after Deep Research activation, ${prompt.length.toLocaleString()} chars queued)`,
-        );
+        if (logger.verbose) {
+          logger(
+            `[browser] Prompt textarea ready after Deep Research activation (${prompt.length.toLocaleString()} chars).`,
+          );
+        }
       }
       let baselineTurns = await readConversationTurnCount(Runtime, logger);
       const providerState: Record<string, unknown> = {
@@ -3726,7 +3741,7 @@ async function runRemoteBrowserMode(
           onRetry: (attempt, error) => {
             if (options.verbose) {
               logger(
-                `[retry] Markdown capture attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                `[browser] Markdown capture retry ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
               );
             }
           },
@@ -3757,7 +3772,9 @@ async function runRemoteBrowserMode(
         finalText !== turnPrompt.trim() &&
         finalText.length >= turnAnswerMarkdown.trim().length
       ) {
-        logger("Refreshed assistant response via final DOM snapshot");
+        if (logger.verbose) {
+          logger("[browser] Refreshed assistant response via final DOM snapshot");
+        }
         turnAnswerText = finalText;
         turnAnswerMarkdown = finalText;
       }
@@ -4069,7 +4086,6 @@ async function runRemoteBrowserMode(
     }
     // Don't kill remote Chrome - it's not ours to manage
     const totalSeconds = (Date.now() - startedAt) / 1000;
-    logger(`Remote session complete • ${totalSeconds.toFixed(1)}s total`);
   }
 }
 

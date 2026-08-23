@@ -901,7 +901,7 @@ describe("runSubmissionWithRecoveryForTest", () => {
     expect(onRateLimitCooldown).toHaveBeenCalledTimes(2);
     expect(reloadPromptComposer).not.toHaveBeenCalled();
     expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT rate-limited; retrying immediately (1/2, no cooldown).",
+      "[browser] ChatGPT rate-limited; retrying (1/2).",
     );
   });
 
@@ -991,7 +991,7 @@ describe("rate-limit watch during assistant wait", () => {
 
       await vi.advanceTimersByTimeAsync(16_000);
       expect(logger).toHaveBeenCalledWith(
-        "Too many requests, Please wait a few minutes before trying again.",
+        "[browser] Too many requests, Please wait a few minutes before trying again.",
       );
       resolveText({ text: "assistant answer after rate limit" });
       await expect(waitPromise).resolves.toEqual({ text: "assistant answer after rate limit" });
@@ -1024,7 +1024,7 @@ describe("rate-limit watch during assistant wait", () => {
       resolveText({ text: "assistant answer" });
       await expect(waitPromise).resolves.toEqual({ text: "assistant answer" });
       expect(logger).not.toHaveBeenCalledWith(
-        "Too many requests, Please wait a few minutes before trying again.",
+        "[browser] Too many requests, Please wait a few minutes before trying again.",
       );
     } finally {
       vi.useRealTimers();

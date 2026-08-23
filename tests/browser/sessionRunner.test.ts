@@ -180,7 +180,7 @@ describe("runBrowserSessionExecution", () => {
     );
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining(
-        "[browser] Model selection evidence: requestedKey=gpt-5.2-pro; target=GPT-5.5 Pro; resolvedLabel=Pro",
+        "[browser] Model verified: gpt-5.2-pro -> Pro",
       ),
     );
   });
@@ -769,7 +769,7 @@ describe("runBrowserSessionExecution", () => {
       .map((c) => String(c[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
     expect(finishedLine).toBeDefined();
-    expect(finishedLine).toContain("[browser]");
+    expect(finishedLine).toContain(" (browser)");
     expect(finishedLine).not.toContain("tok(");
     expect(finishedLine).not.toContain("tokens (");
   });
@@ -809,7 +809,7 @@ describe("runBrowserSessionExecution", () => {
       .map((c) => String(c[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
     expect(finishedLine).toBeDefined();
-    expect(finishedLine).toContain("[browser]");
+    expect(finishedLine).toContain(" (browser)");
     expect(finishedLine).not.toContain("tok(");
     expect(finishedLine).not.toContain("tokens (");
   });
@@ -857,8 +857,8 @@ describe("runBrowserSessionExecution", () => {
     const finishedLine = log.mock.calls
       .map((call) => String(call[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
-    expect(finishedLine).toContain("Pro[browser]");
-    expect(finishedLine).not.toContain("gpt-5.5-pro[browser]");
+    expect(finishedLine).toContain("Pro (browser)");
+    expect(finishedLine).not.toContain("gpt-5.5-pro (browser)");
   });
 
   test("keeps the requested key in the live finish line when picker evidence is unverified", async () => {
@@ -904,7 +904,7 @@ describe("runBrowserSessionExecution", () => {
     const finishedLine = log.mock.calls
       .map((call) => String(call[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
-    expect(finishedLine).toContain("gpt-5.5-pro[browser]");
+    expect(finishedLine).toContain("gpt-5.5-pro (browser)");
     expect(finishedLine).not.toContain("Thinking 5.5 Heavy[browser]");
   });
 

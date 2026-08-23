@@ -25,7 +25,7 @@ describe("createConversationUrlMonitor", () => {
 
     expect(persistUrl).toHaveBeenCalledWith("https://chatgpt.com/c/issue-284");
     expect(logger).toHaveBeenCalledWith(
-      "[browser] conversation url (post-submit) = https://chatgpt.com/c/issue-284",
+      "[browser] conversation url = https://chatgpt.com/c/issue-284",
     );
   });
 

@@ -39,7 +39,7 @@ export async function launchChrome(
       });
   const pidLabel = typeof launcher.pid === "number" ? ` (pid ${launcher.pid})` : "";
   const hostLabel = connectHost ? ` on ${connectHost}` : "";
-  logger(`Launched Chrome${pidLabel} on port ${launcher.port}${hostLabel}`);
+  logger(`[browser] Launched Chrome${pidLabel} on port ${launcher.port}${hostLabel}`);
   return Object.assign(launcher, { host: connectHost ?? "127.0.0.1" }) as LaunchedChrome & {
     host?: string;
   };
@@ -583,7 +583,7 @@ export async function connectWithNewTab(
       url,
       logger,
       {
-        opened: (targetId) => `Opened isolated browser ${targetKind} (target=${targetId})`,
+        opened: () => `Opened browser ${targetKind}`,
         openFailed: (message) =>
           `Failed to open isolated browser ${targetKind} (${message}); ${fallbackLabel}`,
         attachFailed: (targetId, message) =>
@@ -633,7 +633,7 @@ export async function closeTab(
         continue;
       }
       if (!targets.some((target) => (target.targetId ?? target.id) === targetId)) {
-        logger(`Closed isolated browser tab (target=${targetId})`);
+        logger(`Closed browser tab`);
         return true;
       }
     }
@@ -646,7 +646,7 @@ export async function closeTab(
         targetId?: string;
       }>;
       if (!targets.some((target) => (target.targetId ?? target.id) === targetId)) {
-        logger(`Closed isolated browser tab (target=${targetId})`);
+        logger(`Closed browser tab`);
         return true;
       }
     } catch {

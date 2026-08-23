@@ -88,11 +88,6 @@ export function describeBrowserControlPlan(config: BrowserControlConfig = {}): B
   }
 
   guidance.push(
-    config.manualLogin
-      ? "Manual-login mode may show the persistent Oracle Chrome profile for sign-in or automation."
-      : "A visible automation Chrome window may take focus while Oracle controls ChatGPT.",
-  );
-  guidance.push(
     "Use --browser-hide-window, --browser-attach-running, or --remote-chrome to reduce desktop disruption.",
   );
   if (config.keepBrowser) {

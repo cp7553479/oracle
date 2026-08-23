@@ -108,9 +108,6 @@ export async function acquireBrowserTabLease(
     });
 
     if (acquired) {
-      options.logger?.(
-        `[browser] Acquired ChatGPT browser slot ${leaseId.slice(0, 8)} (${maxConcurrentTabs} max).`,
-      );
       return {
         id: leaseId,
         release: async (releaseOptions) =>
@@ -169,7 +166,7 @@ export async function releaseBrowserTabLease(
     await writeRegistry(profileDir, { version: 1, leases });
     await options.onRelease?.({ isLastLease: leases.length === 0 });
   }).catch(() => undefined);
-  logger?.(`[browser] Released ChatGPT browser slot ${leaseId.slice(0, 8)}.`);
+
 }
 
 export async function hasOtherActiveBrowserTabLeases(

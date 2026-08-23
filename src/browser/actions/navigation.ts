@@ -133,7 +133,9 @@ export async function dismissBlockingUi(
   }).catch(() => null);
   const value = outcome?.result?.value as { dismissed?: boolean; action?: string } | undefined;
   if (value?.dismissed) {
-    logger(`[nav] dismissed blocking UI (${value.action ?? "unknown"})`);
+    if (logger.verbose) {
+      logger(`[nav] dismissed blocking UI (${value.action ?? "unknown"})`);
+    }
     return true;
   }
   return false;
@@ -411,9 +413,7 @@ export async function ensureLoggedIn(
   });
   const probe = normalizeLoginProbe(outcome.result?.value);
   if (probe.ok) {
-    logger(
-      `Login check passed (sessionStatus=${probe.status}, sessionAuthenticated=${Boolean(probe.sessionAuthenticated)}, backendStatus=${probe.backendStatus ?? "n/a"}, domLoginCta=${Boolean(probe.domLoginCta)}, appAuthenticated=${Boolean(probe.appAuthenticated)})`,
-    );
+    logger("[browser] Signed in to ChatGPT (login check passed)");
     return;
   }
 

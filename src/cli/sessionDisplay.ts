@@ -1066,7 +1066,7 @@ export function formatCompletionSummary(
   }
   const modeLabel =
     (metadata.mode ?? metadata.options?.mode) === "browser"
-      ? `${resolveSessionBrowserModelDisplayName(metadata)}[browser]`
+      ? `${resolveSessionBrowserModelDisplayName(metadata)} (browser)`
       : (metadata.model ?? "n/a");
   const usage = metadata.usage;
   const cost = resolveSessionCost(metadata);

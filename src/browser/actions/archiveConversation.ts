@@ -85,7 +85,7 @@ export async function archiveChatGptConversation(
     | undefined;
   const resolvedUrl = value?.conversationUrl ?? conversationUrl ?? undefined;
   if (value?.status === "archived") {
-    logger("[browser] Archived ChatGPT conversation after saving local artifacts.");
+    logger("[browser] Archived ChatGPT conversation.");
     return { mode, attempted: true, archived: true, conversationUrl: resolvedUrl };
   }
   const reason = value?.status === "skipped" ? value.reason : "archive-failed";

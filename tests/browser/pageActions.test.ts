@@ -1037,7 +1037,7 @@ describe("ensureLoggedIn", () => {
       }),
     } as unknown as ChromeClient["Runtime"];
     await expect(ensureLoggedIn(runtime, logger, { appliedCookies: 2 })).resolves.toBeUndefined();
-    expect(logger).toHaveBeenCalledWith(expect.stringContaining("Login check passed"));
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining("[browser] Signed in to ChatGPT (login check passed)"));
   });
 
   test("does not treat history items starting with login as login CTAs", async () => {

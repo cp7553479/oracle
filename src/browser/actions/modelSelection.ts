@@ -56,9 +56,11 @@ export async function ensureModelSelection(
     }
     if (!announcedWait) {
       announcedWait = true;
-      logger(
-        `Model picker button not mounted yet; waiting up to ${Math.round(buttonWaitMs / 1000)}s for the composer pill to render.`,
-      );
+      if (logger.verbose) {
+        logger(
+          `[browser] Waiting up to ${Math.round(buttonWaitMs / 1000)}s for the model picker to render.`,
+        );
+      }
     }
     await delay(buttonPollMs);
   }

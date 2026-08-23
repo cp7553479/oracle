@@ -33,7 +33,13 @@ export function createConversationUrlMonitor(options: {
           return false;
         }
         if (url && isStableConversationUrl(url)) {
-          options.logger(`[browser] conversation url (${label}) = ${url}`);
+          // The post-submit URL is the one line agents need (where the conversation
+          // lives); later phase updates are diagnostics.
+          if (label === "post-submit") {
+            options.logger(`[browser] conversation url = ${url}`);
+          } else if (options.logger.verbose) {
+            options.logger(`[browser] conversation url (${label}) = ${url}`);
+          }
           const persist = options.persistUrl(url);
           activePersists.add(persist);
           try {
