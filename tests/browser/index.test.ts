@@ -864,7 +864,7 @@ describe("runSubmissionWithRecoveryForTest", () => {
     ).rejects.toThrow(/prompt too large again/i);
   });
 
-  test("retries after a rate-limit warning with cooldown and dismiss callback", async () => {
+  test("retries immediately after a rate-limit warning with dismiss callback", async () => {
     const rateLimitError = new BrowserAutomationError(
       "ChatGPT displayed a rate-limit warning: Too many requests",
       {
@@ -883,9 +883,8 @@ describe("runSubmissionWithRecoveryForTest", () => {
     const onRateLimitCooldown = vi.fn().mockResolvedValue(undefined);
     const logger = vi.fn<(message: string) => void>();
 
-    // Use fake timers so the cooldown delays don't slow the test.
-    vi.useFakeTimers();
-    const pending = runSubmissionWithRecoveryForTest({
+    // No cooldown: the retries happen without any timed delay.
+    const result = await runSubmissionWithRecoveryForTest({
       prompt: "test",
       attachments: [],
       submit,
@@ -895,16 +894,15 @@ describe("runSubmissionWithRecoveryForTest", () => {
       onRateLimitCooldown,
       logger,
     });
-    // Advance past the two cooldowns (60s + 120s = 180s).
-    await vi.advanceTimersByTimeAsync(180_000);
-    const result = await pending;
 
     expect(result).toEqual({ baselineTurns: 1, baselineAssistantText: "ok" });
     expect(submit).toHaveBeenCalledTimes(3);
     expect(onRateLimit).toHaveBeenCalledTimes(2);
     expect(onRateLimitCooldown).toHaveBeenCalledTimes(2);
     expect(reloadPromptComposer).not.toHaveBeenCalled();
-    vi.useRealTimers();
+    expect(logger).toHaveBeenCalledWith(
+      "[browser] ChatGPT rate-limited; retrying immediately (1/2, no cooldown).",
+    );
   });
 
   test("gives up after exceeding max rate-limit retries", async () => {
@@ -914,8 +912,7 @@ describe("runSubmissionWithRecoveryForTest", () => {
     });
     const submit = vi.fn().mockRejectedValue(rateLimitError);
 
-    vi.useFakeTimers();
-    const pending = expect(
+    await expect(
       runSubmissionWithRecoveryForTest({
         prompt: "test",
         attachments: [],
@@ -926,9 +923,6 @@ describe("runSubmissionWithRecoveryForTest", () => {
         logger: vi.fn<(message: string) => void>(),
       }),
     ).rejects.toThrow(/rate-limit/);
-    await vi.advanceTimersByTimeAsync(300_000);
-    await pending;
-    vi.useRealTimers();
   });
 });
 
@@ -971,7 +965,7 @@ describe("isLocalChromeHostForTest", () => {
 });
 
 describe("rate-limit watch during assistant wait", () => {
-  test("logs the notice and aborts the wait instead of blocking until timeout", async () => {
+  test("logs the notice and keeps waiting instead of aborting on rate-limit", async () => {
     vi.useFakeTimers();
     try {
       const logger = vi.fn();
@@ -982,22 +976,25 @@ describe("rate-limit watch during assistant wait", () => {
           },
         }),
       };
-      const pending = new Promise<never>(() => undefined);
+      let resolveText: (value: { text: string }) => void = () => undefined;
+      const waitForText = () =>
+        new Promise<{ text: string }>((resolve) => {
+          resolveText = resolve;
+        });
       const waitPromise = __test__.waitForAssistantOrGeneratedImageResponse({
         Runtime: Runtime as never,
-        waitForText: () => pending,
+        waitForText,
         timeoutMs: 600_000,
         imageOutputRequested: false,
         logger: logger as never,
       });
 
-      const assertion = expect(waitPromise).rejects.toThrow(/rate-limit warning/);
       await vi.advanceTimersByTimeAsync(16_000);
-      await assertion;
-
       expect(logger).toHaveBeenCalledWith(
         "Too many requests, Please wait a few minutes before trying again.",
       );
+      resolveText({ text: "assistant answer after rate limit" });
+      await expect(waitPromise).resolves.toEqual({ text: "assistant answer after rate limit" });
     } finally {
       vi.useRealTimers();
     }

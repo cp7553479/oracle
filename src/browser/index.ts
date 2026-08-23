@@ -569,8 +569,8 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
   imageOutputRequested: boolean;
   logger: BrowserLogger;
 }): Promise<AssistantAnswer> {
-  // Abort the wait as soon as ChatGPT shows a rate-limit warning so the run does not
-  // block until the full browser timeout; the session stays reattachable.
+  // Rate-limit warnings during the wait are log-only: never block or abort the run,
+  // just surface the notice in the terminal while the response wait continues.
   const rateLimitWatch = startRateLimitWatch(params.Runtime, params.logger);
   const operation = (async () => {
     if (!params.imageOutputRequested) {
@@ -595,18 +595,7 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
   })();
   operation.catch(() => undefined);
   try {
-    return await Promise.race([
-      operation,
-      rateLimitWatch.triggered.then((rateLimited) => {
-        if (!rateLimited) {
-          return new Promise<AssistantAnswer>(() => undefined);
-        }
-        throw new BrowserAutomationError(
-          "ChatGPT rate-limit warning while waiting for the assistant response; reattach later to capture the answer.",
-          { stage: "assistant-timeout", code: "chatgpt-rate-limit" },
-        );
-      }),
-    ]);
+    return await operation;
   } finally {
     rateLimitWatch.stop();
   }
@@ -810,7 +799,6 @@ type BrowserSubmissionFallback = {
 };
 
 const MAX_RATE_LIMIT_RETRIES = 2;
-const RATE_LIMIT_COOLDOWN_BASE_MS = 60_000;
 
 async function runSubmissionWithRecovery({
   prompt,
@@ -863,16 +851,15 @@ async function runSubmissionWithRecovery({
       const isRateLimit = hasBrowserErrorCode(error, "chatgpt-ui-warning");
       if (isRateLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
         rateLimitRetries += 1;
-        const cooldownMs = RATE_LIMIT_COOLDOWN_BASE_MS * rateLimitRetries;
         logger(
-          `[browser] ChatGPT rate-limited; cooling down ${cooldownMs / 1000}s before retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}.`,
+          `[browser] ChatGPT rate-limited; retrying immediately (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}, no cooldown).`,
         );
         await onRateLimit?.().catch(() => undefined);
-        await delay(cooldownMs);
-        // After cooldown, dismiss any lingering dialog and ensure the composer is
-        // ready. Do NOT clear the composer here — submitOnce clears it itself
-        // before typing the prompt, and a premature clear on an unsettled page
-        // (SPA re-init / dialog overlay) causes "Failed to clear prompt composer".
+        // Dismiss any lingering dialog and ensure the composer is ready before the
+        // immediate retry. Do NOT clear the composer here — submitOnce clears it
+        // itself before typing the prompt, and a premature clear on an unsettled
+        // page (SPA re-init / dialog overlay) causes "Failed to clear prompt
+        // composer".
         await onRateLimitCooldown?.().catch(() => undefined);
         continue;
       }
