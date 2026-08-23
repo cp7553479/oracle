@@ -525,6 +525,40 @@ type AssistantAnswer = {
   meta: { turnId?: string | null; messageId?: string | null };
 };
 
+const RATE_LIMIT_WATCH_INTERVAL_MS = 15_000;
+const RATE_LIMIT_NOTICE = "Too many requests, Please wait a few minutes before trying again.";
+
+function startRateLimitWatch(
+  Runtime: ChromeClient["Runtime"],
+  logger: BrowserLogger,
+): { stop: () => void; triggered: Promise<boolean> } {
+  let stopped = false;
+  let resolveTriggered: (value: boolean) => void = () => undefined;
+  const triggered = new Promise<boolean>((resolve) => {
+    resolveTriggered = resolve;
+  });
+  void (async () => {
+    while (!stopped) {
+      await delay(RATE_LIMIT_WATCH_INTERVAL_MS);
+      if (stopped) break;
+      const warnings = await collectChatGptUiWarnings(Runtime).catch(() => []);
+      if (warnings.some((warning) => warning.type === "rate_limit")) {
+        logger(RATE_LIMIT_NOTICE);
+        resolveTriggered(true);
+        return;
+      }
+    }
+    resolveTriggered(false);
+  })();
+  return {
+    stop: () => {
+      stopped = true;
+      resolveTriggered(false);
+    },
+    triggered,
+  };
+}
+
 async function waitForAssistantOrGeneratedImageResponse(params: {
   Runtime: ChromeClient["Runtime"];
   waitForText: () => Promise<AssistantAnswer>;
@@ -534,25 +568,47 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
   imageOutputRequested: boolean;
   logger: BrowserLogger;
 }): Promise<AssistantAnswer> {
-  if (!params.imageOutputRequested) {
-    return params.waitForText();
-  }
-
-  params.logger("[browser] Waiting for ChatGPT generated image response.");
-  const response = await pollGeneratedImageOrTextAssistantResponse(
-    params.Runtime,
-    params.timeoutMs,
-    params.minTurnIndex,
-    params.expectedConversationId,
-  );
-  if (response) {
-    if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
-      params.logger("[browser] Captured generated image response before text appeared.");
+  // Abort the wait as soon as ChatGPT shows a rate-limit warning so the run does not
+  // block until the full browser timeout; the session stays reattachable.
+  const rateLimitWatch = startRateLimitWatch(params.Runtime, params.logger);
+  const operation = (async () => {
+    if (!params.imageOutputRequested) {
+      return params.waitForText();
     }
-    return response;
-  }
 
-  throw new Error("assistant response timeout while waiting for generated image or text");
+    params.logger("[browser] Waiting for ChatGPT generated image response.");
+    const response = await pollGeneratedImageOrTextAssistantResponse(
+      params.Runtime,
+      params.timeoutMs,
+      params.minTurnIndex,
+      params.expectedConversationId,
+    );
+    if (response) {
+      if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
+        params.logger("[browser] Captured generated image response before text appeared.");
+      }
+      return response;
+    }
+
+    throw new Error("assistant response timeout while waiting for generated image or text");
+  })();
+  operation.catch(() => undefined);
+  try {
+    return await Promise.race([
+      operation,
+      rateLimitWatch.triggered.then((rateLimited) => {
+        if (!rateLimited) {
+          return new Promise<AssistantAnswer>(() => undefined);
+        }
+        throw new BrowserAutomationError(
+          "ChatGPT rate-limit warning while waiting for the assistant response; reattach later to capture the answer.",
+          { stage: "assistant-timeout", code: "chatgpt-rate-limit" },
+        );
+      }),
+    ]);
+  } finally {
+    rateLimitWatch.stop();
+  }
 }
 
 async function attemptAssistantRecheckOrRethrow(
@@ -3839,6 +3895,7 @@ export const __test__ = {
   shouldCleanupBlankTabsAfterLastLease,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
+  waitForAssistantOrGeneratedImageResponse,
   waitForAssistantResponseWithReload,
 };
 export { syncCookies } from "./cookies.js";

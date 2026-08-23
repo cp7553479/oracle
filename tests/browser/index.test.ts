@@ -838,3 +838,68 @@ describe("isLocalChromeHostForTest", () => {
     },
   );
 });
+
+describe("rate-limit watch during assistant wait", () => {
+  test("logs the notice and aborts the wait instead of blocking until timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const logger = vi.fn();
+      const Runtime = {
+        evaluate: vi.fn().mockResolvedValue({
+          result: {
+            value: [{ text: "You're sending too many requests. Please wait a few minutes" }],
+          },
+        }),
+      };
+      const pending = new Promise<never>(() => undefined);
+      const waitPromise = __test__.waitForAssistantOrGeneratedImageResponse({
+        Runtime: Runtime as never,
+        waitForText: () => pending,
+        timeoutMs: 600_000,
+        imageOutputRequested: false,
+        logger: logger as never,
+      });
+
+      const assertion = expect(waitPromise).rejects.toThrow(/rate-limit warning/);
+      await vi.advanceTimersByTimeAsync(16_000);
+      await assertion;
+
+      expect(logger).toHaveBeenCalledWith(
+        "Too many requests, Please wait a few minutes before trying again.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("keeps waiting when no rate-limit warning is present", async () => {
+    vi.useFakeTimers();
+    try {
+      const logger = vi.fn();
+      const Runtime = {
+        evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
+      };
+      let resolveText: (value: { text: string }) => void = () => undefined;
+      const waitForText = () =>
+        new Promise<{ text: string }>((resolve) => {
+          resolveText = resolve;
+        });
+      const waitPromise = __test__.waitForAssistantOrGeneratedImageResponse({
+        Runtime: Runtime as never,
+        waitForText,
+        timeoutMs: 600_000,
+        imageOutputRequested: false,
+        logger: logger as never,
+      });
+
+      await vi.advanceTimersByTimeAsync(45_000);
+      resolveText({ text: "assistant answer" });
+      await expect(waitPromise).resolves.toEqual({ text: "assistant answer" });
+      expect(logger).not.toHaveBeenCalledWith(
+        "Too many requests, Please wait a few minutes before trying again.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
