@@ -454,7 +454,7 @@ describe("ChatGPT UI warning detection", () => {
     expect(JSON.stringify(warnings)).not.toContain("secret-session-value");
   });
 
-  test("builds a structured timeout error when ChatGPT shows a blocking warning", async () => {
+  test("logs a rate limit but keeps the ordinary timeout error", async () => {
     const Runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -479,20 +479,59 @@ describe("ChatGPT UI warning detection", () => {
       diagnostics: { domPath: "/tmp/assistant-timeout.dom.json" },
       cause: new Error("timeout"),
     });
+    await __test__.createAssistantTimeoutError({
+      Runtime: Runtime as never,
+      logger: logger as never,
+      runtime: { chromePort: 9222 },
+      cause: new Error("timeout again"),
+    });
 
-    expect(error.message).toContain("rate-limit warning");
+    expect(error.message).toBe(
+      "Assistant response timed out before completion; reattach later to capture the answer.",
+    );
     expect(error.details).toMatchObject({
       stage: "assistant-timeout",
-      code: "chatgpt-ui-warning",
       runtime: { chromePort: 9222 },
       diagnostics: { domPath: "/tmp/assistant-timeout.dom.json" },
-      uiWarning: {
-        type: "rate_limit",
-        message: "You are sending too many requests too quickly. Please try again later.",
-      },
+    });
+    expect(error.details).not.toHaveProperty("code");
+    expect(error.details).not.toHaveProperty("uiWarning");
+    expect(logger).toHaveBeenCalledWith(
+      "[browser] ChatGPT rate limit detected; continuing without special handling.",
+    );
+    expect(logger).toHaveBeenCalledTimes(1);
+  });
+
+  test("logs a rate limit but still surfaces a simultaneous authentication warning", async () => {
+    const Runtime = {
+      evaluate: vi.fn().mockResolvedValue({
+        result: {
+          value: [
+            { text: "Too many requests. Please wait a few minutes", role: "alert" },
+            { text: "Verify you are human to continue", role: "dialog" },
+          ],
+        },
+      }),
+    };
+    const logger = vi.fn<(message: string) => void>();
+
+    const error = await __test__.createAssistantTimeoutError({
+      Runtime: Runtime as never,
+      logger: logger as never,
+      runtime: { chromePort: 9222 },
+      cause: new Error("timeout"),
+    });
+
+    expect(error.message).toContain("authentication/challenge warning");
+    expect(error.details).toMatchObject({
+      code: "chatgpt-ui-warning",
+      uiWarning: { type: "auth_or_challenge", message: "Verify you are human to continue" },
     });
     expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT UI warning detected (rate_limit): You are sending too many requests too quickly. Please try again later.",
+      "[browser] ChatGPT rate limit detected; continuing without special handling.",
+    );
+    expect(logger).toHaveBeenCalledWith(
+      "[browser] ChatGPT UI warning detected (auth_or_challenge): Verify you are human to continue",
     );
   });
 
@@ -864,65 +903,33 @@ describe("runSubmissionWithRecoveryForTest", () => {
     ).rejects.toThrow(/prompt too large again/i);
   });
 
-  test("retries immediately after a rate-limit warning with dismiss callback", async () => {
-    const rateLimitError = new BrowserAutomationError(
-      "ChatGPT displayed a rate-limit warning: Too many requests",
+  test("does not retry ChatGPT UI warning failures", async () => {
+    const warningError = new BrowserAutomationError(
+      "ChatGPT displayed a temporary-unavailable warning",
       {
         stage: "submit-prompt",
         code: "chatgpt-ui-warning",
-        uiWarning: { type: "rate_limit", message: "Too many requests" },
+        uiWarning: { type: "temporary_unavailable", message: "Something went wrong" },
       },
     );
-    const submit = vi
-      .fn()
-      .mockRejectedValueOnce(rateLimitError)
-      .mockRejectedValueOnce(rateLimitError)
-      .mockResolvedValueOnce({ baselineTurns: 1, baselineAssistantText: "ok" });
+    const submit = vi.fn().mockRejectedValue(warningError);
     const reloadPromptComposer = vi.fn().mockResolvedValue(undefined);
-    const onRateLimit = vi.fn().mockResolvedValue(undefined);
-    const onRateLimitCooldown = vi.fn().mockResolvedValue(undefined);
     const logger = vi.fn<(message: string) => void>();
-
-    // No cooldown: the retries happen without any timed delay.
-    const result = await runSubmissionWithRecoveryForTest({
-      prompt: "test",
-      attachments: [],
-      submit,
-      reloadPromptComposer,
-      prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
-      onRateLimit,
-      onRateLimitCooldown,
-      logger,
-    });
-
-    expect(result).toEqual({ baselineTurns: 1, baselineAssistantText: "ok" });
-    expect(submit).toHaveBeenCalledTimes(3);
-    expect(onRateLimit).toHaveBeenCalledTimes(2);
-    expect(onRateLimitCooldown).toHaveBeenCalledTimes(2);
-    expect(reloadPromptComposer).not.toHaveBeenCalled();
-    expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT rate-limited; retrying (1/2).",
-    );
-  });
-
-  test("gives up after exceeding max rate-limit retries", async () => {
-    const rateLimitError = new BrowserAutomationError("rate-limit", {
-      code: "chatgpt-ui-warning",
-      uiWarning: { type: "rate_limit", message: "Too many requests" },
-    });
-    const submit = vi.fn().mockRejectedValue(rateLimitError);
 
     await expect(
       runSubmissionWithRecoveryForTest({
         prompt: "test",
         attachments: [],
         submit,
-        reloadPromptComposer: vi.fn().mockResolvedValue(undefined),
+        reloadPromptComposer,
         prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
-        onRateLimit: vi.fn().mockResolvedValue(undefined),
-        logger: vi.fn<(message: string) => void>(),
+        logger,
       }),
-    ).rejects.toThrow(/rate-limit/);
+    ).rejects.toBe(warningError);
+
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(reloadPromptComposer).not.toHaveBeenCalled();
+    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate-limit"));
   });
 });
 
@@ -991,7 +998,7 @@ describe("rate-limit watch during assistant wait", () => {
 
       await vi.advanceTimersByTimeAsync(16_000);
       expect(logger).toHaveBeenCalledWith(
-        "[browser] Too many requests, Please wait a few minutes before trying again.",
+        "[browser] ChatGPT rate limit detected; continuing without special handling.",
       );
       resolveText({ text: "assistant answer after rate limit" });
       await expect(waitPromise).resolves.toEqual({ text: "assistant answer after rate limit" });
@@ -1023,9 +1030,7 @@ describe("rate-limit watch during assistant wait", () => {
       await vi.advanceTimersByTimeAsync(45_000);
       resolveText({ text: "assistant answer" });
       await expect(waitPromise).resolves.toEqual({ text: "assistant answer" });
-      expect(logger).not.toHaveBeenCalledWith(
-        "[browser] Too many requests, Please wait a few minutes before trying again.",
-      );
+      expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate limit detected"));
     } finally {
       vi.useRealTimers();
     }

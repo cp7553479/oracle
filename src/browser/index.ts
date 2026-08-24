@@ -407,7 +407,12 @@ async function createChatGptUiWarningError(params: {
   diagnostics?: unknown;
   cause?: unknown;
 }): Promise<BrowserAutomationError | null> {
-  const [uiWarning] = await collectChatGptUiWarnings(params.Runtime);
+  const warnings = await collectChatGptUiWarnings(params.Runtime);
+  const rateLimitWarning = warnings.find((warning) => warning.type === "rate_limit");
+  if (rateLimitWarning) {
+    logRateLimitNoticeOnce(params.Runtime, params.logger);
+  }
+  const uiWarning = warnings.find((warning) => warning.type !== "rate_limit");
   if (!uiWarning) return null;
 
   const warningText = uiWarning.message
@@ -529,37 +534,39 @@ export interface AssistantAnswer {
 }
 
 const RATE_LIMIT_WATCH_INTERVAL_MS = 15_000;
-const RATE_LIMIT_NOTICE =
-  "[browser] Too many requests, Please wait a few minutes before trying again.";
+const rateLimitNoticeRuntimes = new WeakSet<object>();
+
+function logRateLimitNoticeOnce(
+  Runtime: ChromeClient["Runtime"],
+  logger: BrowserLogger,
+): void {
+  const runtimeKey = Runtime as object;
+  if (rateLimitNoticeRuntimes.has(runtimeKey)) return;
+  rateLimitNoticeRuntimes.add(runtimeKey);
+  logger("[browser] ChatGPT rate limit detected; continuing without special handling.");
+}
 
 function startRateLimitWatch(
   Runtime: ChromeClient["Runtime"],
   logger: BrowserLogger,
-): { stop: () => void; triggered: Promise<boolean> } {
+): { stop: () => void } {
   let stopped = false;
-  let resolveTriggered: (value: boolean) => void = () => undefined;
-  const triggered = new Promise<boolean>((resolve) => {
-    resolveTriggered = resolve;
-  });
   void (async () => {
     while (!stopped) {
       await delay(RATE_LIMIT_WATCH_INTERVAL_MS);
       if (stopped) break;
       const warnings = await collectChatGptUiWarnings(Runtime).catch(() => []);
-      if (warnings.some((warning) => warning.type === "rate_limit")) {
-        logger(RATE_LIMIT_NOTICE);
-        resolveTriggered(true);
+      const warning = warnings.find((candidate) => candidate.type === "rate_limit");
+      if (warning) {
+        logRateLimitNoticeOnce(Runtime, logger);
         return;
       }
     }
-    resolveTriggered(false);
   })();
   return {
     stop: () => {
       stopped = true;
-      resolveTriggered(false);
     },
-    triggered,
   };
 }
 
@@ -801,8 +808,6 @@ type BrowserSubmissionFallback = {
   attachments: BrowserAttachment[];
 };
 
-const MAX_RATE_LIMIT_RETRIES = 2;
-
 async function runSubmissionWithRecovery({
   prompt,
   attachments,
@@ -810,8 +815,6 @@ async function runSubmissionWithRecovery({
   submit,
   reloadPromptComposer,
   prepareFallbackSubmission,
-  onRateLimit,
-  onRateLimitCooldown,
   logger,
 }: {
   prompt: string;
@@ -820,15 +823,12 @@ async function runSubmissionWithRecovery({
   submit: (prompt: string, attachments: BrowserAttachment[]) => Promise<BrowserSubmissionResult>;
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
-  onRateLimit?: () => Promise<void>;
-  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   let currentPrompt = prompt;
   let currentAttachments = attachments;
   let retriedDeadComposer = false;
   let usedFallbackSubmission = false;
-  let rateLimitRetries = 0;
 
   while (true) {
     try {
@@ -851,22 +851,6 @@ async function runSubmissionWithRecovery({
         continue;
       }
 
-      const isRateLimit = hasBrowserErrorCode(error, "chatgpt-ui-warning");
-      if (isRateLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
-        rateLimitRetries += 1;
-        logger(
-          `[browser] ChatGPT rate-limited; retrying (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}).`,
-        );
-        await onRateLimit?.().catch(() => undefined);
-        // Dismiss any lingering dialog and ensure the composer is ready before the
-        // immediate retry. Do NOT clear the composer here — submitOnce clears it
-        // itself before typing the prompt, and a premature clear on an unsettled
-        // page (SPA re-init / dialog overlay) causes "Failed to clear prompt
-        // composer".
-        await onRateLimitCooldown?.().catch(() => undefined);
-        continue;
-      }
-
       throw error;
     }
   }
@@ -879,8 +863,6 @@ export async function runSubmissionWithRecoveryForTest(args: {
   submit: (prompt: string, attachments: BrowserAttachment[]) => Promise<BrowserSubmissionResult>;
   reloadPromptComposer: () => Promise<void>;
   prepareFallbackSubmission: () => Promise<void>;
-  onRateLimit?: () => Promise<void>;
-  onRateLimitCooldown?: () => Promise<void>;
   logger: BrowserLogger;
 }): Promise<BrowserSubmissionResult> {
   return runSubmissionWithRecovery(args);
@@ -1685,9 +1667,8 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
-      // Pre-submit rate-limit check: if ChatGPT is already showing a "Too many
-      // requests" warning, don't waste a send — throw so runSubmissionWithRecovery
-      // can cool down and retry.
+      // Surface visible rate limits without changing submission control flow.
+      // Other blocking UI warnings still fail fast.
       await throwChatGptUiWarningIfPresent({
         Runtime,
         logger,
@@ -1839,17 +1820,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         reloadPromptComposer,
         prepareFallbackSubmission: async () => {
           await raceWithDisconnect(clearPromptComposer(Runtime, logger));
-          await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-        },
-        onRateLimit: async () => {
-          await raceWithDisconnect(
-            dismissBlockingUi(Runtime, logger).catch(() => undefined),
-          ).catch(() => undefined);
-        },
-        onRateLimitCooldown: async () => {
-          await raceWithDisconnect(
-            dismissBlockingUi(Runtime, logger).catch(() => undefined),
-          ).catch(() => undefined);
           await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
         },
         logger,
@@ -2328,17 +2298,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           reloadPromptComposer,
           prepareFallbackSubmission: async () => {
             await raceWithDisconnect(clearPromptComposer(Runtime, logger));
-            await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-          },
-          onRateLimit: async () => {
-            await raceWithDisconnect(
-              dismissBlockingUi(Runtime, logger).catch(() => undefined),
-            ).catch(() => undefined);
-          },
-          onRateLimitCooldown: async () => {
-            await raceWithDisconnect(
-              dismissBlockingUi(Runtime, logger).catch(() => undefined),
-            ).catch(() => undefined);
             await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
           },
           logger,
@@ -3421,13 +3380,6 @@ async function runRemoteBrowserMode(
         await clearPromptComposer(Runtime, logger);
         await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
       },
-      onRateLimit: async () => {
-        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-      },
-      onRateLimitCooldown: async () => {
-        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-        await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-      },
       logger,
     });
     baselineTurns = submission.baselineTurns;
@@ -3856,13 +3808,6 @@ async function runRemoteBrowserMode(
           await clearPromptComposer(Runtime, logger);
           await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
         },
-        onRateLimit: async () => {
-          await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-        },
-        onRateLimitCooldown: async () => {
-          await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-          await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-        },
         logger,
       });
       baselineTurns = submission.baselineTurns;
@@ -4170,9 +4115,8 @@ async function waitForAssistantResponseWithReload(
   idleReloadMs = 0,
   maxIdleReloads = 7,
 ) {
-  // Check for a ChatGPT rate-limit warning before entering the wait loop. If the
-  // page is showing "Too many requests", dismiss the dialog (OK/Got it) and throw
-  // so the caller can cool down and retry.
+  // Surface visible rate limits without changing response-wait control flow.
+  // Other blocking UI warnings are still dismissed and rethrown.
   await throwChatGptUiWarningIfPresent({
     Runtime,
     logger,
@@ -4275,10 +4219,9 @@ async function runIdleReloadLoop(deps: IdleReloadDeps) {
   while (Date.now() < overallDeadline) {
     const remaining = overallDeadline - Date.now();
     const sliceMs = Math.min(deps.idleReloadMs, remaining);
-    // Periodic rate-limit check: if a "Too many requests" dialog appeared since
-    // the last slice, dismiss it and throw so the submission layer can cool down.
+    // Periodically surface UI warnings before the next response-wait slice.
     if (deps.checkRateLimit) {
-      await deps.checkRateLimit().catch(() => undefined);
+      await deps.checkRateLimit();
     }
     try {
       return await deps.waitOnce(sliceMs);

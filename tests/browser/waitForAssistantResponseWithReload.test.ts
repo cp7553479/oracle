@@ -15,6 +15,7 @@ interface DepsOverrides {
   navigate?: (url: string) => Promise<unknown>;
   sleep?: (ms: number) => Promise<unknown>;
   readThinking?: () => Promise<{ active: boolean; strong: boolean }>;
+  checkRateLimit?: () => Promise<void>;
   timeoutMs?: number;
   idleReloadMs?: number;
   maxIdleReloads?: number;
@@ -36,6 +37,7 @@ function makeDeps(overrides: DepsOverrides = {}) {
     idleReloadMs: overrides.idleReloadMs ?? 60_000,
     maxIdleReloads: overrides.maxIdleReloads ?? 3,
     logger: vi.fn<(message: string) => void>(),
+    checkRateLimit: overrides.checkRateLimit,
   };
 }
 
@@ -46,6 +48,22 @@ describe("runIdleReloadLoop", () => {
     expect(result).toEqual(OK);
     expect(deps.navigate).not.toHaveBeenCalled();
     expect(deps.logger).not.toHaveBeenCalled();
+  });
+
+  test("continues when the UI warning check is informational", async () => {
+    const checkRateLimit = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ checkRateLimit });
+
+    await expect(runIdleReloadLoop(deps)).resolves.toEqual(OK);
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+  });
+
+  test("propagates a non-rate-limit blocking UI warning", async () => {
+    const warningError = new Error("authentication challenge");
+    const deps = makeDeps({ checkRateLimit: vi.fn().mockRejectedValue(warningError) });
+
+    await expect(runIdleReloadLoop(deps)).rejects.toBe(warningError);
+    expect(deps.waitOnce).not.toHaveBeenCalled();
   });
 
   test("reloads once and succeeds on the second window", async () => {
