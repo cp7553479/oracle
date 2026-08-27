@@ -80,16 +80,16 @@ export function registerTerminationHooks(
     preserveUserDataDir?: boolean;
     /**
      * Always terminate Chrome and delete `userDataDir` on signal, even when the run is
-     * in-flight — for throwaway copied profiles (`--copy-profile`) that must not be left
-     * on disk. Overrides the in-flight "leave running" behavior.
+     * in-flight — for throwaway profiles that must not be left on disk. Overrides the
+     * in-flight "leave running" behavior.
      */
     forceProfileCleanup?: boolean;
     /**
-     * Temporary SIGTERM override for callers that own an isolated browser target.
-     * The caller closes only its target and decides whether the shared Chrome process
-     * can also be terminated after checking active leases.
+     * Signal cleanup for callers that own an isolated browser target (SIGTERM and
+     * SIGINT). The caller closes only its target and decides whether the shared
+     * Chrome process can also be terminated after checking active leases.
      */
-    cleanupOnSigterm?: () => Promise<void>;
+    cleanupOnSigterm?: (signal: NodeJS.Signals) => Promise<void>;
   },
 ): () => void {
   const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGQUIT"];
@@ -102,10 +102,13 @@ export function registerTerminationHooks(
     handling = true;
     const inFlight = opts?.isInFlight?.() ?? false;
     const forceCleanup = opts?.forceProfileCleanup ?? false;
-    const cleanupOnSigterm = signal === "SIGTERM" ? opts?.cleanupOnSigterm : undefined;
-    const leaveRunning = !cleanupOnSigterm && (keepBrowser || inFlight) && !forceCleanup;
-    if (cleanupOnSigterm) {
-      logger("Received SIGTERM; closing the Oracle-owned browser window.");
+    // Fork semantics: Ctrl+C (SIGINT) must close the Oracle-owned tab and release the
+    // browser slot too, so interrupted runs don't leave tabs behind or stall the queue.
+    const cleanupOnSignal =
+      signal === "SIGTERM" || signal === "SIGINT" ? opts?.cleanupOnSigterm : undefined;
+    const leaveRunning = !cleanupOnSignal && (keepBrowser || inFlight) && !forceCleanup;
+    if (cleanupOnSignal) {
+      logger(`Received ${signal}; closing the Oracle-owned browser window.`);
     } else if (leaveRunning) {
       logger(
         `Received ${signal}; leaving Chrome running${inFlight ? " (assistant response pending)" : ""}`,
@@ -114,10 +117,10 @@ export function registerTerminationHooks(
       logger(`Received ${signal}; terminating Chrome process`);
     }
     void (async () => {
-      if (cleanupOnSigterm) {
-        await cleanupOnSigterm().catch((error) => {
+      if (cleanupOnSignal) {
+        await cleanupOnSignal(signal).catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
-          logger(`Failed to clean up the Oracle-owned browser window after SIGTERM: ${message}`);
+          logger(`Failed to clean up the Oracle-owned browser window after ${signal}: ${message}`);
         });
       } else if (leaveRunning) {
         // Ensure reattach hints are written before we exit.

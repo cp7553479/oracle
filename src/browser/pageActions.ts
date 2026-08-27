@@ -21,6 +21,7 @@ export {
 export {
   waitForAssistantResponse,
   readAssistantSnapshot,
+  normalizeAssistantSnapshot,
   captureAssistantMarkdown,
   buildAssistantExtractorForTest,
   buildAssistantSnapshotExpressionForTest,

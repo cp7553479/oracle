@@ -43,6 +43,7 @@ import {
   waitForAttachmentCompletion,
   waitForUserTurnAttachments,
   readAssistantSnapshot,
+  normalizeAssistantSnapshot,
 } from "./pageActions.js";
 import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
@@ -923,12 +924,23 @@ function shouldCloseOwnedRunTargetAfterRun(options: {
   ownsTarget: boolean;
   keepBrowser: boolean;
   closeOwnedTabOnComplete?: boolean;
+  closeOwnedTargetOnError?: boolean;
+  preserveBrowserOnError?: boolean;
 }): boolean {
-  return (
-    options.runStatus === "complete" &&
-    options.ownsTarget &&
-    (Boolean(options.closeOwnedTabOnComplete) || !options.keepBrowser)
-  );
+  if (!options.ownsTarget) {
+    return false;
+  }
+  if (options.runStatus === "complete") {
+    return Boolean(options.closeOwnedTabOnComplete) || !options.keepBrowser;
+  }
+  // Fork semantics: the owned tab is closed when the run ends even on failure, so
+  // serialized runs don't accumulate stale tabs. Deliberate retention still wins:
+  // --browser-keep-browser debugging and preserved-error recovery (Cloudflare check,
+  // in-flight reattach capture) keep the tab open.
+  if (options.closeOwnedTargetOnError) {
+    return true;
+  }
+  return !options.keepBrowser && !options.preserveBrowserOnError;
 }
 
 function shouldCleanupBlankTabsAfterLastLease(options: {
@@ -1190,7 +1202,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         emitRuntimeHint,
         preserveUserDataDir: manualLogin,
         cleanupOnSigterm: manualLogin
-          ? async () => {
+          ? async (signal) => {
               await conversationUrlMonitor?.update("sigterm", 2_500).catch(() => false);
               try {
                 const response = await client?.Runtime.evaluate({
@@ -1212,7 +1224,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
               }
               await emitRuntimeHint();
               if (lastUrl) {
-                logger(`[browser] Saved browser URL before SIGTERM: ${lastUrl}`);
+                logger(`[browser] Saved browser URL before ${signal}: ${lastUrl}`);
               }
               try {
                 await client?.close();
@@ -1221,7 +1233,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
               }
               if (!ownsTarget) {
                 detachKeptChromeProcess(chrome);
-                logger("[browser] SIGTERM cleanup skipped the explicitly attached browser target.");
+                logger("[browser] Signal cleanup skipped the explicitly attached browser target.");
                 return;
               }
               if (isolatedTargetId) {
@@ -1242,6 +1254,16 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                 detachKeptChromeProcess(chrome);
                 logger(
                   "[browser] Other ChatGPT browser slots remain active; shared Chrome stays running.",
+                );
+                return;
+              }
+              // SIGINT is interactive: with --browser-keep-browser the shared Chrome must
+              // survive Ctrl+C (manual Cloudflare clearance, DOM inspection). SIGTERM keeps
+              // its historical terminate semantics.
+              if (signal === "SIGINT" && effectiveKeepBrowser) {
+                detachKeptChromeProcess(chrome);
+                logger(
+                  "[browser] --browser-keep-browser set; shared Chrome stays running after interrupt.",
                 );
                 return;
               }
@@ -1269,7 +1291,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let appliedCookies = 0;
-  let closeOwnedTargetOnError = false;
   let preserveBrowserOnError = false;
 
   try {
@@ -2520,14 +2541,16 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     } catch {
       // ignore
     }
-    // Close the isolated tab once the response has been fully captured to prevent
-    // tab accumulation across repeated runs. Keep the tab open on incomplete runs
-    // so reattach can recover the response.
+    // Close the isolated tab once the run ends to prevent tab accumulation across
+    // repeated serialized runs — on success and on failure alike. Deliberate retention
+    // (--browser-keep-browser, preserved-error recovery) keeps the tab open; see
+    // shouldCloseOwnedRunTargetAfterRun.
     const shouldCloseOwnedRunTarget = shouldCloseOwnedRunTargetAfterRun({
       runStatus,
       ownsTarget,
       keepBrowser: effectiveKeepBrowser,
       closeOwnedTabOnComplete: options.closeOwnedTabOnComplete,
+      preserveBrowserOnError,
     });
     let keepBrowserOpen = shouldKeepLocalBrowserOpen({
       effectiveKeepBrowser,
@@ -3996,6 +4019,7 @@ async function runRemoteBrowserMode(
       ownsTarget,
       keepBrowser: keepRemoteBrowser,
       closeOwnedTabOnComplete: options.closeOwnedTabOnComplete,
+      closeOwnedTargetOnError,
     });
     const closeOwnedRemoteTarget = async () => {
       if (!shouldCloseOwnedRemoteTarget || !remoteTargetId) {
@@ -4165,8 +4189,8 @@ async function waitForAssistantResponseWithReload(
 
   // Idle-reload loop: slice the overall budget into idleReloadMs windows. Each window that
   // ends without a confirmed answer triggers a conversation reload (up to maxIdleReloads).
-  // Thinking-active periods extend the current window without consuming a reload slot, so
-  // long Pro reasoning runs are not interrupted.
+  // Thinking-active periods and still-growing answers extend the current window without
+  // consuming a reload slot, so long Pro reasoning runs are not interrupted.
   return runIdleReloadLoop({
     waitOnce: (sliceMs) =>
       waitForAssistantResponse(Runtime, sliceMs, logger, minTurnIndex, expectedConversationId),
@@ -4175,6 +4199,18 @@ async function waitForAssistantResponseWithReload(
     sleep: (ms) => delay(ms),
     readThinking: () =>
       readThinkingActivity(Runtime).catch(() => ({ active: false, strong: false })),
+    readProgressKey: async () => {
+      const snapshot = await readAssistantSnapshot(
+        Runtime,
+        minTurnIndex,
+        expectedConversationId,
+      ).catch(() => null);
+      const normalized = normalizeAssistantSnapshot(snapshot);
+      if (!normalized) {
+        return null;
+      }
+      return `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text.length}`;
+    },
     isConversationUrl,
     shouldReload: shouldReloadAfterAssistantError,
     formatElapsed,
@@ -4203,6 +4239,10 @@ interface IdleReloadDeps {
   navigate: (url: string) => Promise<unknown>;
   sleep: (ms: number) => Promise<unknown>;
   readThinking: () => Promise<{ active: boolean; strong: boolean }>;
+  // Fingerprint of the partial assistant answer (turn identity + text length). The idle
+  // window measures time since the LAST content change, so a still-streaming answer keeps
+  // extending the window instead of being cut off by an absolute slice deadline.
+  readProgressKey?: () => Promise<string | null>;
   isConversationUrl: (url: string) => boolean;
   shouldReload: (error: unknown) => boolean;
   formatElapsed: (ms: number) => string;
@@ -4215,7 +4255,14 @@ interface IdleReloadDeps {
 
 async function runIdleReloadLoop(deps: IdleReloadDeps) {
   const overallDeadline = Date.now() + deps.timeoutMs;
+  const readProgressKeySafe = async (): Promise<string | null> => {
+    if (!deps.readProgressKey) {
+      return null;
+    }
+    return await deps.readProgressKey().catch(() => null);
+  };
   let reloadsUsed = 0;
+  let windowStartKey = await readProgressKeySafe();
   while (Date.now() < overallDeadline) {
     const remaining = overallDeadline - Date.now();
     const sliceMs = Math.min(deps.idleReloadMs, remaining);
@@ -4255,6 +4302,22 @@ async function runIdleReloadLoop(deps: IdleReloadDeps) {
       if (thinking.active || thinking.strong) {
         deps.logger(
           `[browser] Assistant still thinking after ${deps.formatElapsed(
+            sliceMs,
+          )}; extending wait (reload deferred).`,
+        );
+        continue;
+      }
+
+      // Content still counts as "new" if the partial answer changed during the window
+      // (including first appearing: null fingerprint → real content). Extend instead of
+      // reloading so a slow but live stream is never interrupted.
+      const currentKey = await readProgressKeySafe();
+      const contentProgressed =
+        typeof currentKey === "string" && currentKey !== windowStartKey;
+      windowStartKey = typeof currentKey === "string" ? currentKey : windowStartKey;
+      if (contentProgressed) {
+        deps.logger(
+          `[browser] Assistant response still growing after ${deps.formatElapsed(
             sliceMs,
           )}; extending wait (reload deferred).`,
         );

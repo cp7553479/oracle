@@ -69,7 +69,7 @@ describe("registerTerminationHooks", () => {
     }
   });
 
-  test("still preserves an in-flight browser on SIGINT", async () => {
+  test("runs the caller cleanup on SIGINT instead of preserving an in-flight browser", async () => {
     const { registerTerminationHooks } = await import("../../src/browser/chromeLifecycle.js");
     const chrome = {
       kill: vi.fn().mockResolvedValue(undefined),
@@ -95,12 +95,15 @@ describe("registerTerminationHooks", () => {
 
     try {
       process.emit("SIGINT");
-      await vi.waitFor(() => expect(emitRuntimeHint).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(cleanupOnSigterm).toHaveBeenCalledTimes(1));
 
-      expect(cleanupOnSigterm).not.toHaveBeenCalled();
+      // Fork semantics: Ctrl+C must close the Oracle-owned tab and release the browser
+      // slot, delegating Chrome termination to the cleanup callback.
+      expect(cleanupOnSigterm).toHaveBeenCalledWith("SIGINT");
       expect(chrome.kill).not.toHaveBeenCalled();
+      expect(emitRuntimeHint).not.toHaveBeenCalled();
       expect(logger).toHaveBeenCalledWith(
-        "Received SIGINT; leaving Chrome running (assistant response pending)",
+        "Received SIGINT; closing the Oracle-owned browser window.",
       );
     } finally {
       removeHooks();

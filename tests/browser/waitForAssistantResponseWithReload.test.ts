@@ -16,6 +16,7 @@ interface DepsOverrides {
   sleep?: (ms: number) => Promise<unknown>;
   readThinking?: () => Promise<{ active: boolean; strong: boolean }>;
   checkRateLimit?: () => Promise<void>;
+  readProgressKey?: () => Promise<string | null>;
   timeoutMs?: number;
   idleReloadMs?: number;
   maxIdleReloads?: number;
@@ -29,6 +30,7 @@ function makeDeps(overrides: DepsOverrides = {}) {
     navigate: overrides.navigate ?? vi.fn(async () => ({})),
     sleep: overrides.sleep ?? vi.fn(async () => undefined),
     readThinking: overrides.readThinking ?? vi.fn(async () => ({ active: false, strong: false })),
+    readProgressKey: overrides.readProgressKey ?? vi.fn(async () => null),
     isConversationUrl: (url: string) => /chatgpt\.com\/c\//.test(url),
     shouldReload: (error: unknown) =>
       error instanceof Error && /watchdog|timeout|assistant-response/.test(error.message),
@@ -146,5 +148,54 @@ describe("runIdleReloadLoop", () => {
     });
     await expect(runIdleReloadLoop(deps)).rejects.toBe(WATCHDOG_ERROR);
     expect(deps.navigate).not.toHaveBeenCalled();
+  });
+
+  test("a still-growing answer extends the window instead of reloading", async () => {
+    const deps = makeDeps({
+      // window 1 stalls while the answer grows; window 2 stalls with no growth
+      // (→ reload); window 3 succeeds after the reload.
+      waitOnce: vi
+        .fn()
+        .mockRejectedValueOnce(WATCHDOG_ERROR)
+        .mockRejectedValueOnce(WATCHDOG_ERROR)
+        .mockResolvedValueOnce(OK),
+      readProgressKey: vi
+        .fn()
+        .mockResolvedValueOnce("turn-a::100") // window 1 start
+        .mockResolvedValueOnce("turn-a::350") // window 1 end: content grew → extend
+        .mockResolvedValueOnce("turn-a::350"), // window 2 end: unchanged → reload
+    });
+    const result = await runIdleReloadLoop(deps);
+    expect(result).toEqual(OK);
+    expect(deps.navigate).toHaveBeenCalledTimes(1);
+    expect(deps.logger).toHaveBeenCalledWith(
+      expect.stringMatching(/still growing.*extending wait.*reload deferred/),
+    );
+  });
+
+  test("answer text appearing mid-window counts as progress", async () => {
+    const deps = makeDeps({
+      waitOnce: vi.fn().mockRejectedValueOnce(WATCHDOG_ERROR).mockResolvedValueOnce(OK),
+      readProgressKey: vi
+        .fn()
+        .mockResolvedValueOnce(null) // window start: no assistant turn yet
+        .mockResolvedValueOnce("turn-a::42"), // window end: partial answer appeared → extend
+    });
+    const result = await runIdleReloadLoop(deps);
+    expect(result).toEqual(OK);
+    expect(deps.navigate).not.toHaveBeenCalled();
+  });
+
+  test("unchanged answer content does not defer the reload", async () => {
+    const deps = makeDeps({
+      waitOnce: vi.fn().mockRejectedValueOnce(WATCHDOG_ERROR).mockResolvedValueOnce(OK),
+      readProgressKey: vi.fn(async () => "turn-a::350"),
+    });
+    const result = await runIdleReloadLoop(deps);
+    expect(result).toEqual(OK);
+    expect(deps.navigate).toHaveBeenCalledTimes(1);
+    expect(deps.logger).not.toHaveBeenCalledWith(
+      expect.stringMatching(/still growing/),
+    );
   });
 });

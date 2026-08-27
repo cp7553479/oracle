@@ -858,7 +858,7 @@ export function hasScopedCompletionProof(meta: { completionVisible?: boolean }):
 
 export const buildCompletionVisibilityExpressionForTest = buildCompletionVisibilityExpression;
 
-function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
+export function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
   text: string;
   html?: string;
   meta: {

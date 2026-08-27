@@ -130,7 +130,7 @@ describe("browser run target cleanup", () => {
     ).toBe(true);
   });
 
-  test("does not close attached or incomplete targets", () => {
+  test("does not close attached targets and closes owned error-run tabs", () => {
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "complete",
@@ -139,14 +139,14 @@ describe("browser run target cleanup", () => {
         closeOwnedTabOnComplete: true,
       }),
     ).toBe(false);
+    // Fork semantics: the owned tab is closed when the run ends, even on failure.
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "attempted",
         ownsTarget: true,
         keepBrowser: false,
-        closeOwnedTabOnComplete: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("schedules final blank cleanup for retained manual-login Chrome", () => {
@@ -208,7 +208,7 @@ describe("browser run target cleanup", () => {
         runStatus: "attempted",
         ownsTarget: false,
         keepBrowser: false,
-        closeOnError: true,
+        closeOwnedTargetOnError: true,
       }),
     ).toBe(false);
   });
@@ -219,9 +219,40 @@ describe("browser run target cleanup", () => {
         runStatus: "attempted",
         ownsTarget: false,
         keepBrowser: false,
-        closeOnError: true,
+        closeOwnedTargetOnError: true,
       }),
     ).toBe(false);
+  });
+
+  test("keeps the owned error-run tab for deliberate retention cases", () => {
+    // --browser-keep-browser debugging keeps the tab available for inspection.
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: true,
+        keepBrowser: true,
+      }),
+    ).toBe(false);
+    // Preserved-error recovery (Cloudflare check, in-flight reattach capture).
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: true,
+        keepBrowser: false,
+        preserveBrowserOnError: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("closes the owned error-run tab when the caller requests it explicitly", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: true,
+        keepBrowser: true,
+        closeOwnedTargetOnError: true,
+      }),
+    ).toBe(true);
   });
 });
 

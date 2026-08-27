@@ -8,6 +8,8 @@
 - Browser: "Too many requests" is now informational only everywhere. A visible ChatGPT rate-limit warning is logged once and normal submission/response/image-artifact processing continues without a rate-limit-specific retry, cooldown, dismissal, abort, detach, or session-status change. Other blocking warnings and ordinary operation timeouts keep their existing behavior.
 - CLI: force `--engine browser --browser-manual-login` onto every run at the command entry (overrides any explicit `--engine api`; `ORACLE_ALLOW_API_ENGINE=1` is a test-only escape hatch).
 - Browser: force `--browser-manual-login` on for every browser run (CLI, MCP, and reattach paths) so all sessions reuse the persistent signed-in automation profile; the flag is now redundant but still accepted. `--browser-manual-login-profile-dir` still selects the profile directory.
+- Browser: close the Oracle-owned tab when a run ends, including failures and Ctrl+C (SIGINT now runs the same tab-close/slot-release cleanup as SIGTERM), so serialized runs don't accumulate stale tabs. `--browser-keep-browser` and preserved-error recovery (Cloudflare check, in-flight reattach capture) still keep the tab; Ctrl+C with `--browser-keep-browser` keeps the shared Chrome process alive for debugging.
+- Browser: the 5-minute idle reload now measures time since the last NEW assistant content instead of an absolute window deadline — a still-streaming answer keeps extending the wait (like thinking-active periods) and is never interrupted by a reload.
 
 ### Removed
 
