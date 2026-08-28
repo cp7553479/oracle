@@ -395,20 +395,20 @@ describe("formatBrowserTurnTranscript", () => {
 });
 
 describe("ChatGPT UI warning detection", () => {
-  test("classifies request-speed warnings as rate limits", () => {
+  test("ignores request-speed warnings entirely", () => {
     expect(
       __test__.classifyChatGptUiWarningText(
         "You are sending too many requests too quickly. Please try again later.",
       ),
-    ).toBe("rate_limit");
+    ).toBeNull();
   });
 
-  test("classifies visually mangled request-speed modal text as rate limits", () => {
+  test("ignores visually mangled request-speed modal text", () => {
     expect(
       __test__.classifyChatGptUiWarningText(
         "Too many reque t. You’re making reque t too quickly. We’ve temporarily limited access to your conversations. Please wait a few minutes before trying again.",
       ),
-    ).toBe("rate_limit");
+    ).toBeNull();
   });
 
   test("classifies bare retry-later warnings as temporary unavailability", () => {
@@ -421,7 +421,7 @@ describe("ChatGPT UI warning detection", () => {
         result: {
           value: [
             {
-              text: "You are sending too many requests too quickly. Please try again later.",
+              text: "Something went wrong while generating a response.",
               source: "selector",
               role: "alert",
               ariaLive: "assertive",
@@ -438,8 +438,8 @@ describe("ChatGPT UI warning detection", () => {
 
     await expect(__test__.collectChatGptUiWarnings(Runtime as never)).resolves.toEqual([
       {
-        type: "rate_limit",
-        message: "You are sending too many requests too quickly. Please try again later.",
+        type: "temporary_unavailable",
+        message: "Something went wrong while generating a response.",
         source: "selector",
         role: "alert",
         ariaLive: "assertive",
@@ -485,7 +485,7 @@ describe("ChatGPT UI warning detection", () => {
     expect(JSON.stringify(warnings)).not.toContain("secret-session-value");
   });
 
-  test("logs a rate limit but keeps the ordinary timeout error", async () => {
+  test("keeps the ordinary timeout error for rate-limit-only notices without logging", async () => {
     const Runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -527,13 +527,10 @@ describe("ChatGPT UI warning detection", () => {
     });
     expect(error.details).not.toHaveProperty("code");
     expect(error.details).not.toHaveProperty("uiWarning");
-    expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT rate limit detected; continuing without special handling.",
-    );
-    expect(logger).toHaveBeenCalledTimes(1);
+    expect(logger).not.toHaveBeenCalled();
   });
 
-  test("logs a rate limit but still surfaces a simultaneous authentication warning", async () => {
+  test("still surfaces a simultaneous authentication warning beside a rate-limit notice", async () => {
     const Runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -559,11 +556,9 @@ describe("ChatGPT UI warning detection", () => {
       uiWarning: { type: "auth_or_challenge", message: "Verify you are human to continue" },
     });
     expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT rate limit detected; continuing without special handling.",
-    );
-    expect(logger).toHaveBeenCalledWith(
       "[browser] ChatGPT UI warning detected (auth_or_challenge): Verify you are human to continue",
     );
+    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate limit"));
   });
 
   test("keeps the generic timeout error when no blocking warning is visible", async () => {
@@ -960,7 +955,6 @@ describe("runSubmissionWithRecoveryForTest", () => {
 
     expect(submit).toHaveBeenCalledTimes(1);
     expect(reloadPromptComposer).not.toHaveBeenCalled();
-    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate-limit"));
   });
 });
 
@@ -1002,68 +996,22 @@ describe("isLocalChromeHostForTest", () => {
   );
 });
 
-describe("rate-limit watch during assistant wait", () => {
-  test("logs the notice and keeps waiting instead of aborting on rate-limit", async () => {
-    vi.useFakeTimers();
-    try {
-      const logger = vi.fn();
-      const Runtime = {
-        evaluate: vi.fn().mockResolvedValue({
-          result: {
-            value: [{ text: "You're sending too many requests. Please wait a few minutes" }],
-          },
-        }),
-      };
-      let resolveText: (value: { text: string }) => void = () => undefined;
-      const waitForText = () =>
-        new Promise<{ text: string }>((resolve) => {
-          resolveText = resolve;
-        });
-      const waitPromise = __test__.waitForAssistantOrGeneratedImageResponse({
+describe("assistant wait with rate-limit notices", () => {
+  test("does not poll the page or log anything for rate-limit notices", async () => {
+    const logger = vi.fn();
+    const Runtime = { evaluate: vi.fn() };
+
+    await expect(
+      __test__.waitForAssistantOrGeneratedImageResponse({
         Runtime: Runtime as never,
-        waitForText,
+        waitForText: () => Promise.resolve({ text: "assistant answer", meta: {} }),
         timeoutMs: 600_000,
         imageOutputRequested: false,
         logger: logger as never,
-      });
+      }),
+    ).resolves.toEqual({ text: "assistant answer", meta: {} });
 
-      await vi.advanceTimersByTimeAsync(16_000);
-      expect(logger).toHaveBeenCalledWith(
-        "[browser] ChatGPT rate limit detected; continuing without special handling.",
-      );
-      resolveText({ text: "assistant answer after rate limit" });
-      await expect(waitPromise).resolves.toEqual({ text: "assistant answer after rate limit" });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("keeps waiting when no rate-limit warning is present", async () => {
-    vi.useFakeTimers();
-    try {
-      const logger = vi.fn();
-      const Runtime = {
-        evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
-      };
-      let resolveText: (value: { text: string }) => void = () => undefined;
-      const waitForText = () =>
-        new Promise<{ text: string }>((resolve) => {
-          resolveText = resolve;
-        });
-      const waitPromise = __test__.waitForAssistantOrGeneratedImageResponse({
-        Runtime: Runtime as never,
-        waitForText,
-        timeoutMs: 600_000,
-        imageOutputRequested: false,
-        logger: logger as never,
-      });
-
-      await vi.advanceTimersByTimeAsync(45_000);
-      resolveText({ text: "assistant answer" });
-      await expect(waitPromise).resolves.toEqual({ text: "assistant answer" });
-      expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate limit detected"));
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(Runtime.evaluate).not.toHaveBeenCalled();
+    expect(logger).not.toHaveBeenCalled();
   });
 });

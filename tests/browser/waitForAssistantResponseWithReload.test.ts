@@ -15,7 +15,7 @@ interface DepsOverrides {
   navigate?: (url: string) => Promise<unknown>;
   sleep?: (ms: number) => Promise<unknown>;
   readThinking?: () => Promise<{ active: boolean; strong: boolean }>;
-  checkRateLimit?: () => Promise<void>;
+  checkUiWarnings?: () => Promise<void>;
   readProgressKey?: () => Promise<string | null>;
   timeoutMs?: number;
   idleReloadMs?: number;
@@ -39,7 +39,7 @@ function makeDeps(overrides: DepsOverrides = {}) {
     idleReloadMs: overrides.idleReloadMs ?? 60_000,
     maxIdleReloads: overrides.maxIdleReloads ?? 3,
     logger: vi.fn<(message: string) => void>(),
-    checkRateLimit: overrides.checkRateLimit,
+    checkUiWarnings: overrides.checkUiWarnings,
   };
 }
 
@@ -52,17 +52,17 @@ describe("runIdleReloadLoop", () => {
     expect(deps.logger).not.toHaveBeenCalled();
   });
 
-  test("continues when the UI warning check is informational", async () => {
-    const checkRateLimit = vi.fn().mockResolvedValue(undefined);
-    const deps = makeDeps({ checkRateLimit });
+  test("passes cleanly when the UI warning check finds nothing", async () => {
+    const checkUiWarnings = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ checkUiWarnings });
 
     await expect(runIdleReloadLoop(deps)).resolves.toEqual(OK);
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(checkUiWarnings).toHaveBeenCalledTimes(1);
   });
 
-  test("propagates a non-rate-limit blocking UI warning", async () => {
+  test("propagates a blocking UI warning", async () => {
     const warningError = new Error("authentication challenge");
-    const deps = makeDeps({ checkRateLimit: vi.fn().mockRejectedValue(warningError) });
+    const deps = makeDeps({ checkUiWarnings: vi.fn().mockRejectedValue(warningError) });
 
     await expect(runIdleReloadLoop(deps)).rejects.toBe(warningError);
     expect(deps.waitOnce).not.toHaveBeenCalled();

@@ -183,7 +183,7 @@ export async function runBrowserSessionExecution(
     if (typeof message !== "string") return;
     const shouldAlwaysPrint =
       message.startsWith("[browser] ") &&
-      /archive|fallback|follow-up|retry|thinking|waiting for chatgpt|browser slot|browser control|browser guidance|model selection|model picker|rate[- ]limit|too many requests|launched chrome|signed in|conversation url/i.test(
+      /archive|fallback|follow-up|retry|thinking|waiting for chatgpt|browser slot|browser control|browser guidance|model selection|model picker|launched chrome|signed in|conversation url/i.test(
         message,
       );
     if (!runOptions.verbose && !shouldAlwaysPrint) return;
@@ -195,7 +195,11 @@ export async function runBrowserSessionExecution(
   log(headerLine);
   log(chalk.dim("This run can take up to an hour (usually ~10 minutes)."));
   if (runOptions.verbose) {
-    log(chalk.dim("Browser automation does not stream output; the result prints when the run completes."));
+    log(
+      chalk.dim(
+        "Browser automation does not stream output; the result prints when the run completes.",
+      ),
+    );
   }
   const persistRuntimeHint = deps.persistRuntimeHint ?? (() => {});
   const executionBrowserConfig = runOptions.browserResumeConversationUrl

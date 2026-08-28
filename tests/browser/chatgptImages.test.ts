@@ -438,7 +438,7 @@ describe("collectGeneratedImageArtifacts", () => {
     }
   });
 
-  test("fails fast when a non-rate-limit blocking UI warning appears before image artifacts", async () => {
+  test("fails fast when a blocking UI warning appears before image artifacts", async () => {
     const runtime = {
       evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
     } as unknown as ChromeClient["Runtime"];

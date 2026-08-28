@@ -203,7 +203,23 @@ export function classifyPreservedBrowserErrorForTest(
 // defaults to Standard effort. ensureThinkingTime() already handles the
 // "already-selected" case as a no-op, so always attempting it is safe.
 
-type ChatGptUiWarningType = "rate_limit" | "temporary_unavailable" | "auth_or_challenge";
+type ChatGptUiWarningType = "temporary_unavailable" | "auth_or_challenge";
+
+// Request-speed notices ("Too many requests", "slow down", ...) are transient and
+// must be ignored entirely: never classified as a warning, never printed, never
+// allowed to block a run (they also overlap "try again later", so they have to be
+// excluded before the temporary-unavailability patterns run).
+function isRateLimitNoticeText(normalized: string): boolean {
+  return (
+    /\btoo many requests\b/.test(normalized) ||
+    /\bsending too many requests\b/.test(normalized) ||
+    /\btoo quickly\b/.test(normalized) ||
+    /\btemporarily limited access\b/.test(normalized) ||
+    /\bplease wait a few minutes\b/.test(normalized) ||
+    /\brate limit(?:ed)?\b/.test(normalized) ||
+    /\bslow down\b/.test(normalized)
+  );
+}
 
 type ChatGptUiWarning = {
   type: ChatGptUiWarningType;
@@ -219,16 +235,8 @@ const MAX_CHATGPT_UI_WARNINGS = 3;
 
 function classifyChatGptUiWarningText(text: string): ChatGptUiWarningType | null {
   const normalized = text.toLowerCase();
-  if (
-    /\btoo many requests\b/.test(normalized) ||
-    /\bsending too many requests\b/.test(normalized) ||
-    /\btoo quickly\b/.test(normalized) ||
-    /\btemporarily limited access\b/.test(normalized) ||
-    /\bplease wait a few minutes\b/.test(normalized) ||
-    /\brate limit(?:ed)?\b/.test(normalized) ||
-    /\bslow down\b/.test(normalized)
-  ) {
-    return "rate_limit";
+  if (isRateLimitNoticeText(normalized)) {
+    return null;
   }
   if (
     /\btemporarily unavailable\b/.test(normalized) ||
@@ -292,7 +300,7 @@ async function collectChatGptUiWarnings(
       awaitPromise: true,
       returnByValue: true,
       expression: `(() => {
-        const warningPattern = /too many requests|sending too many requests|too quickly|temporarily limited access|please wait a few minutes|rate limit|rate limited|slow down|try again later|temporarily unavailable|something went wrong|failed to generate|verify you are human|unusual activity|cloudflare|challenge|login required|sign in/i;
+        const warningPattern = /try again later|temporarily unavailable|something went wrong|failed to generate|verify you are human|unusual activity|cloudflare|challenge|login required|sign in/i;
         const selectors = [
           '[role="alert"]',
           '[role="status"]',
@@ -390,8 +398,6 @@ async function collectChatGptUiWarnings(
 
 function formatChatGptUiWarningType(type: ChatGptUiWarningType): string {
   switch (type) {
-    case "rate_limit":
-      return "rate-limit";
     case "temporary_unavailable":
       return "temporary-unavailable";
     case "auth_or_challenge":
@@ -409,11 +415,7 @@ async function createChatGptUiWarningError(params: {
   cause?: unknown;
 }): Promise<BrowserAutomationError | null> {
   const warnings = await collectChatGptUiWarnings(params.Runtime);
-  const rateLimitWarning = warnings.find((warning) => warning.type === "rate_limit");
-  if (rateLimitWarning) {
-    logRateLimitNoticeOnce(params.Runtime, params.logger);
-  }
-  const uiWarning = warnings.find((warning) => warning.type !== "rate_limit");
+  const uiWarning = warnings[0];
   if (!uiWarning) return null;
 
   const warningText = uiWarning.message
@@ -534,43 +536,6 @@ export interface AssistantAnswer {
   meta: { turnId?: string | null; messageId?: string | null };
 }
 
-const RATE_LIMIT_WATCH_INTERVAL_MS = 15_000;
-const rateLimitNoticeRuntimes = new WeakSet<object>();
-
-function logRateLimitNoticeOnce(
-  Runtime: ChromeClient["Runtime"],
-  logger: BrowserLogger,
-): void {
-  const runtimeKey = Runtime as object;
-  if (rateLimitNoticeRuntimes.has(runtimeKey)) return;
-  rateLimitNoticeRuntimes.add(runtimeKey);
-  logger("[browser] ChatGPT rate limit detected; continuing without special handling.");
-}
-
-function startRateLimitWatch(
-  Runtime: ChromeClient["Runtime"],
-  logger: BrowserLogger,
-): { stop: () => void } {
-  let stopped = false;
-  void (async () => {
-    while (!stopped) {
-      await delay(RATE_LIMIT_WATCH_INTERVAL_MS);
-      if (stopped) break;
-      const warnings = await collectChatGptUiWarnings(Runtime).catch(() => []);
-      const warning = warnings.find((candidate) => candidate.type === "rate_limit");
-      if (warning) {
-        logRateLimitNoticeOnce(Runtime, logger);
-        return;
-      }
-    }
-  })();
-  return {
-    stop: () => {
-      stopped = true;
-    },
-  };
-}
-
 async function waitForAssistantOrGeneratedImageResponse(params: {
   Runtime: ChromeClient["Runtime"];
   waitForText: () => Promise<AssistantAnswer>;
@@ -580,36 +545,25 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
   imageOutputRequested: boolean;
   logger: BrowserLogger;
 }): Promise<AssistantAnswer> {
-  // Rate-limit warnings during the wait are log-only: never block or abort the run,
-  // just surface the notice in the terminal while the response wait continues.
-  const rateLimitWatch = startRateLimitWatch(params.Runtime, params.logger);
-  const operation = (async () => {
-    if (!params.imageOutputRequested) {
-      return params.waitForText();
-    }
-
-    params.logger("[browser] Waiting for ChatGPT response (image generation).");
-    const response = await pollGeneratedImageOrTextAssistantResponse(
-      params.Runtime,
-      params.timeoutMs,
-      params.minTurnIndex,
-      params.expectedConversationId,
-    );
-    if (response) {
-      if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
-        params.logger("[browser] Captured generated image response before text appeared.");
-      }
-      return response;
-    }
-
-    throw new Error("assistant response timeout while waiting for generated image or text");
-  })();
-  operation.catch(() => undefined);
-  try {
-    return await operation;
-  } finally {
-    rateLimitWatch.stop();
+  if (!params.imageOutputRequested) {
+    return params.waitForText();
   }
+
+  params.logger("[browser] Waiting for ChatGPT response (image generation).");
+  const response = await pollGeneratedImageOrTextAssistantResponse(
+    params.Runtime,
+    params.timeoutMs,
+    params.minTurnIndex,
+    params.expectedConversationId,
+  );
+  if (response) {
+    if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
+      params.logger("[browser] Captured generated image response before text appeared.");
+    }
+    return response;
+  }
+
+  throw new Error("assistant response timeout while waiting for generated image or text");
 }
 
 async function attemptAssistantRecheckOrRethrow(
@@ -1554,9 +1508,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     if (chatMode === "switched") {
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
     }
-    logger(
-      `Prompt queued (${promptText.length.toLocaleString()} chars)`,
-    );
+    logger(`Prompt queued (${promptText.length.toLocaleString()} chars)`);
     const captureRuntimeSnapshot = async () => {
       try {
         if (client?.Target?.getTargetInfo) {
@@ -1612,22 +1564,21 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
     if (config.desiredModel && modelStrategy !== "ignore" && !isResumingConversation) {
       modelSelectionEvidence = await raceWithDisconnect(
-          withRetries(
-            () =>
-              ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-            {
-              retries: 2,
-              delayMs: 300,
-              onRetry: (attempt, error) => {
-                if (options.verbose) {
-                  logger(
-                    `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                  );
-                }
-              },
+        withRetries(
+          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+          {
+            retries: 2,
+            delayMs: 300,
+            onRetry: (attempt, error) => {
+              if (options.verbose) {
+                logger(
+                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                );
+              }
             },
-          ),
-        ).catch((error) => {
+          },
+        ),
+      ).catch((error) => {
         // Login has already been verified above. Preserve the picker failure instead of
         // misdiagnosing an unavailable model as missing cookies.
         throw normalizeAuthenticatedModelSelectionError(error);
@@ -1688,14 +1639,14 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
-      // Surface visible rate limits without changing submission control flow.
-      // Other blocking UI warnings still fail fast.
+      // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
+      // before spending a send. Rate-limit notices are intentionally not detected.
       await throwChatGptUiWarningIfPresent({
         Runtime,
         logger,
         runtime: {},
         stage: "submit-prompt",
-        waitTarget: "pre-submit rate-limit check",
+        waitTarget: "pre-submit UI warning check",
       });
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
@@ -2945,7 +2896,9 @@ async function maybeReuseRunningChrome(
   if (!port && waitForPortMs > 0) {
     const deadline = Date.now() + waitForPortMs;
     if (logger.verbose) {
-      logger(`[browser] Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`);
+      logger(
+        `[browser] Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`,
+      );
     }
     while (!port && Date.now() < deadline) {
       await delay(250);
@@ -3209,9 +3162,7 @@ async function runRemoteBrowserMode(
     if (chatMode === "switched") {
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
     }
-    logger(
-      `Prompt queued (${promptText.length.toLocaleString()} chars)`,
-    );
+    logger(`Prompt queued (${promptText.length.toLocaleString()} chars)`);
     try {
       const { result } = await Runtime.evaluate({
         expression: "location.href",
@@ -3292,15 +3243,14 @@ async function runRemoteBrowserMode(
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
-      // Pre-submit rate-limit check: if ChatGPT is already showing a "Too many
-      // requests" warning, don't waste a send — throw so runSubmissionWithRecovery
-      // can cool down and retry.
+      // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
+      // before spending a send.
       await throwChatGptUiWarningIfPresent({
         Runtime,
         logger,
         runtime: {},
         stage: "submit-prompt",
-        waitTarget: "pre-submit rate-limit check",
+        waitTarget: "pre-submit UI warning check",
       });
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
@@ -4139,14 +4089,14 @@ async function waitForAssistantResponseWithReload(
   idleReloadMs = 0,
   maxIdleReloads = 7,
 ) {
-  // Surface visible rate limits without changing response-wait control flow.
-  // Other blocking UI warnings are still dismissed and rethrown.
+  // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
+  // before the response wait. Rate-limit notices are intentionally not detected.
   await throwChatGptUiWarningIfPresent({
     Runtime,
     logger,
     runtime: {},
     stage: "assistant-response",
-    waitTarget: "pre-wait rate-limit check",
+    waitTarget: "pre-wait UI warning check",
   }).catch(async (error) => {
     await dismissBlockingUi(Runtime, logger).catch(() => undefined);
     throw error;
@@ -4218,13 +4168,13 @@ async function waitForAssistantResponseWithReload(
     idleReloadMs,
     maxIdleReloads,
     logger,
-    checkRateLimit: async () => {
+    checkUiWarnings: async () => {
       await throwChatGptUiWarningIfPresent({
         Runtime,
         logger,
         runtime: {},
         stage: "assistant-response",
-        waitTarget: "idle-reload rate-limit check",
+        waitTarget: "idle-reload UI warning check",
       }).catch(async (error) => {
         await dismissBlockingUi(Runtime, logger).catch(() => undefined);
         throw error;
@@ -4250,7 +4200,7 @@ interface IdleReloadDeps {
   idleReloadMs: number;
   maxIdleReloads: number;
   logger: BrowserLogger;
-  checkRateLimit?: () => Promise<void>;
+  checkUiWarnings?: () => Promise<void>;
 }
 
 async function runIdleReloadLoop(deps: IdleReloadDeps) {
@@ -4266,9 +4216,9 @@ async function runIdleReloadLoop(deps: IdleReloadDeps) {
   while (Date.now() < overallDeadline) {
     const remaining = overallDeadline - Date.now();
     const sliceMs = Math.min(deps.idleReloadMs, remaining);
-    // Periodically surface UI warnings before the next response-wait slice.
-    if (deps.checkRateLimit) {
-      await deps.checkRateLimit();
+    // Check for blocking UI warnings before the next response-wait slice.
+    if (deps.checkUiWarnings) {
+      await deps.checkUiWarnings();
     }
     try {
       return await deps.waitOnce(sliceMs);
