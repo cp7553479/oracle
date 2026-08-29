@@ -16,6 +16,7 @@ import {
   launchChrome,
   registerTerminationHooks,
   positionChromeWindowOffscreen,
+  positionChromeWindowOnscreen,
   connectToRemoteChrome,
   connectWithNewTab,
   closeTab,
@@ -61,6 +62,11 @@ import type { BrowserModelSelectionEvidence } from "../sessionStore.js";
 import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY } from "./constants.js";
 import type { LaunchedChrome } from "chrome-launcher";
 import { BrowserAutomationError } from "../oracle/errors.js";
+import {
+  buildAttachmentBasenameCollisionDetails,
+  findAttachmentBasenameCollisions,
+  formatAttachmentBasenameCollisionMessage,
+} from "./attachmentValidation.js";
 import { alignPromptEchoPair, buildPromptEchoMatcher } from "./reattachHelpers.js";
 import { buildConversationTurnCountExpression } from "./conversationTurns.js";
 import type { ProfileRunLock } from "./profileState.js";
@@ -202,6 +208,21 @@ export function classifyPreservedBrowserErrorForTest(
 // effort. This is wrong for lower-tier plans ($100/mo Pro) where selecting "Pro"
 // defaults to Standard effort. ensureThinkingTime() already handles the
 // "already-selected" case as a no-op, so always attempting it is safe.
+
+type BrowserConfigWithThinkingTime = Pick<
+  ResolvedBrowserConfig,
+  "researchMode" | "thinkingTime"
+> & {
+  thinkingTime: NonNullable<ResolvedBrowserConfig["thinkingTime"]>;
+};
+
+function shouldApplyThinkingTimeSelection(
+  config: Pick<ResolvedBrowserConfig, "researchMode" | "thinkingTime">,
+): config is BrowserConfigWithThinkingTime {
+  // Deep Research uses the same effort picker, so research mode must not
+  // suppress an explicitly configured thinking-time selection.
+  return config.thinkingTime !== undefined;
+}
 
 type ChatGptUiWarningType = "temporary_unavailable" | "auth_or_challenge";
 
@@ -517,6 +538,27 @@ function hasBrowserErrorCode(error: unknown, code: string): boolean {
   );
 }
 
+function assertUniqueAttachmentBasenames(
+  attachments: BrowserAttachment[],
+  options: { stage: string; subject: string },
+): void {
+  const collisions = findAttachmentBasenameCollisions(attachments);
+  if (collisions.length === 0) return;
+
+  const collisionDetails = buildAttachmentBasenameCollisionDetails(
+    collisions,
+    (attachment) => attachment.displayPath || attachment.path,
+  );
+  throw new BrowserAutomationError(
+    formatAttachmentBasenameCollisionMessage(options.subject, collisionDetails.collisions),
+    {
+      stage: options.stage,
+      code: "attachment-basename-collision",
+      ...collisionDetails,
+    },
+  );
+}
+
 async function saveOptionalArtifact<T>(
   operation: () => Promise<T | null>,
   logger: BrowserLogger,
@@ -798,6 +840,10 @@ async function runSubmissionWithRecovery({
 
       const isPromptTooLarge = hasBrowserErrorCode(error, "prompt-too-large");
       if (fallbackSubmission && isPromptTooLarge && !usedFallbackSubmission) {
+        assertUniqueAttachmentBasenames(fallbackSubmission.attachments, {
+          stage: "upload-fallback",
+          subject: "The inline prompt was too large, but its upload fallback",
+        });
         usedFallbackSubmission = true;
         logger("[browser] Inline prompt too large; retrying with file uploads.");
         await prepareFallbackSubmission();
@@ -963,12 +1009,17 @@ function handleModelSelectionFailure(options: {
 }
 
 export async function runBrowserMode(options: BrowserRunOptions): Promise<BrowserRunResult> {
+  const attachments: BrowserAttachment[] = options.attachments ?? [];
+  assertUniqueAttachmentBasenames(attachments, {
+    stage: "upload",
+    subject: "Browser upload",
+  });
+
   const promptText = options.prompt?.trim();
   if (!promptText) {
     throw new Error("Prompt text is required when using browser mode.");
   }
 
-  const attachments: BrowserAttachment[] = options.attachments ?? [];
   const fallbackSubmission = options.fallbackSubmission;
 
   let config = resolveBrowserConfig(options.config);
@@ -1341,7 +1392,11 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     }
     await Promise.all(domainEnablers);
     if (!config.headless && config.hideWindow) {
-      await positionChromeWindowOffscreen(client, logger);
+      await positionChromeWindowOffscreen(client, userDataDir, logger);
+    } else if (!config.headless) {
+      // Persistent profiles can retain bounds from a prior hidden run. Visible
+      // local runs must actively restore the Oracle-owned Chrome window.
+      await positionChromeWindowOnscreen(client, userDataDir, logger);
     }
     // The send button is clicked with trusted CDP input events at viewport
     // coordinates, which ChatGPT silently drops when the window is hidden or
@@ -1601,23 +1656,23 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       );
     }
     const deepResearch = config.researchMode === "deep";
-    // Handle thinking time selection if specified. Deep Research owns its own effort flow.
-    const thinkingTime = config.thinkingTime;
-    if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel =
-        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
+    if (shouldApplyThinkingTimeSelection(config)) {
+      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
       await raceWithDisconnect(
-        withRetries(() => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel), {
-          retries: 2,
-          delayMs: 300,
-          onRetry: (attempt, error) => {
-            if (options.verbose) {
-              logger(
-                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-              );
-            }
+        withRetries(
+          () => ensureThinkingTime(Runtime, config.thinkingTime, logger, thinkingTargetModel),
+          {
+            retries: 2,
+            delayMs: 300,
+            onRetry: (attempt, error) => {
+              if (options.verbose) {
+                logger(
+                  `[retry] Thinking time (${config.thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                );
+              }
+            },
           },
-        }),
+        ),
       );
     }
     const profileLockTimeoutMs = manualLogin ? (config.profileLockTimeoutMs ?? 0) : 0;
@@ -1714,6 +1769,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const providerState: Record<string, unknown> = {
         runtime: Runtime,
         input: Input,
+        page: Page,
         logger,
         timeoutMs: config.timeoutMs,
         inputTimeoutMs: config.inputTimeoutMs ?? undefined,
@@ -3219,20 +3275,17 @@ async function runRemoteBrowserMode(
       );
     }
     const deepResearch = config.researchMode === "deep";
-    // Handle thinking time selection if specified. Deep Research owns its own effort flow.
-    const thinkingTime = config.thinkingTime;
-    if (thinkingTime && !deepResearch) {
-      const thinkingTargetModel =
-        modelStrategy === "select" && modelSelectionEvidence?.verified ? config.desiredModel : null;
+    if (shouldApplyThinkingTimeSelection(config)) {
+      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
       await withRetries(
-        () => ensureThinkingTime(Runtime, thinkingTime, logger, thinkingTargetModel),
+        () => ensureThinkingTime(Runtime, config.thinkingTime, logger, thinkingTargetModel),
         {
           retries: 2,
           delayMs: 300,
           onRetry: (attempt, error) => {
             if (options.verbose) {
               logger(
-                `[retry] Thinking time (${thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                `[retry] Thinking time (${config.thinkingTime}) attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
               );
             }
           },
@@ -3302,6 +3355,7 @@ async function runRemoteBrowserMode(
       const providerState: Record<string, unknown> = {
         runtime: Runtime,
         input: Input,
+        page: Page,
         logger,
         timeoutMs: config.timeoutMs,
         inputTimeoutMs: config.inputTimeoutMs ?? undefined,
@@ -4028,6 +4082,7 @@ export const __test__ = {
   normalizeAuthenticatedModelSelectionError,
   resolveManualLoginWaitMs,
   runIdleReloadLoop,
+  shouldApplyThinkingTimeSelection,
   shouldCleanupBlankTabsAfterLastLease,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
@@ -4262,8 +4317,7 @@ async function runIdleReloadLoop(deps: IdleReloadDeps) {
       // (including first appearing: null fingerprint → real content). Extend instead of
       // reloading so a slow but live stream is never interrupted.
       const currentKey = await readProgressKeySafe();
-      const contentProgressed =
-        typeof currentKey === "string" && currentKey !== windowStartKey;
+      const contentProgressed = typeof currentKey === "string" && currentKey !== windowStartKey;
       windowStartKey = typeof currentKey === "string" ? currentKey : windowStartKey;
       if (contentProgressed) {
         deps.logger(

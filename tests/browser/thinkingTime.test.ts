@@ -80,6 +80,7 @@ describe("browser thinking-time selection expression", () => {
     expect(expression).toContain("\\u4e00-\\u9fff");
     expect(expression).toContain("'极高'");
     expect(expression).toContain("'推論レベル'");
+    expect(expression).toContain("'思考量'");
   });
 
   it("infers target model kind with token matching", () => {
@@ -2776,6 +2777,16 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     private matchesSelector(selector: string): boolean {
       const role = this.attrs.role ?? "";
       const testid = this.attrs["data-testid"] ?? "";
+      if (selector === '[data-model-selection-view="true"]') {
+        return this.attrs["data-model-selection-view"] === "true";
+      }
+      if (selector === "[data-model-reasoning-effort-slider]") {
+        return this.attrs["data-model-reasoning-effort-slider"] !== undefined;
+      }
+      if (selector.includes("composer-model-picker-slider-simple-view")) {
+        return testid === "composer-model-picker-slider-simple-view";
+      }
+      if (selector === '[role="slider"]') return role === "slider";
       if (selector.includes('[role="menuitem"][aria-haspopup="menu"]')) {
         return role === "menuitem" && this.attrs["aria-haspopup"] === "menu";
       }
@@ -2942,6 +2953,7 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     };
     return {
       documentStub,
+      pickerContent,
       advancedToggle,
       effortOpener,
       modelOpener,
@@ -2983,6 +2995,146 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     );
   }
 
+  function buildDirectSlider(
+    currentIndex: number,
+    labels = ["Instant", "Medium", "High", "Extra High", "Pro"],
+  ) {
+    const dom = buildDom(labels[currentIndex]!);
+    const announcement = new Node(`${labels[currentIndex]}, ${currentIndex + 1} of 5.`);
+    const thumb = new Node("", {
+      role: "slider",
+      "aria-hidden": "true",
+      "aria-valuemin": "0",
+      "aria-valuemax": "4",
+      "aria-valuenow": String(currentIndex),
+    });
+    const slider = new Node("", { "data-model-reasoning-effort-slider": "" }, [thumb]);
+    const control = new Node(
+      "",
+      {
+        role: "menuitem",
+        "aria-label": "Power",
+        "aria-describedby": "slider-announcement",
+      },
+      [slider],
+    );
+    slider.closest = () => control;
+    const keys: string[] = [];
+    control.dispatchEvent = (event: unknown) => {
+      const key = (event as { key?: string }).key;
+      if (key !== "ArrowLeft" && key !== "ArrowRight") return true;
+      keys.push(key);
+      currentIndex = Math.max(0, Math.min(4, currentIndex + (key === "ArrowRight" ? 1 : -1)));
+      thumb.setAttribute("aria-valuenow", String(currentIndex));
+      announcement.textContent = `${labels[currentIndex]}, ${currentIndex + 1} of 5.`;
+      return true;
+    };
+    const simple = new Node(
+      "",
+      { "data-testid": "composer-model-picker-slider-simple-view", "data-active": "true" },
+      [control],
+    );
+    const directView = new Node("", { "data-model-selection-view": "true" }, [simple]);
+    dom.pickerContent.children.splice(0, dom.pickerContent.children.length, directView);
+    dom.documentStub.getElementById = (id: string) =>
+      id === "slider-announcement" ? announcement : null;
+    return { ...dom, thumb, announcement, control, simple, keys };
+  }
+
+  it("selects and verifies Pro on the direct slider without an Advanced row", async () => {
+    const dom = buildDirectSlider(2);
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.keys).toEqual(["ArrowRight", "ArrowRight"]);
+    expect(dom.modelOpener.clicks).toBe(0);
+  });
+
+  it("accepts a directly verified Pro slider without sending any keys", async () => {
+    const dom = buildDirectSlider(4);
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "already-selected",
+      label: "Pro",
+    });
+    expect(dom.keys).toEqual([]);
+  });
+
+  it.each([
+    ["light", "Instant", 4],
+    ["standard", "Medium", 3],
+    ["extended", "High", 2],
+    ["extra-high", "Extra High", 1],
+  ])(
+    "selects %s on the direct slider without mistaking Pro for a lower tier",
+    async (level, label, count) => {
+      const dom = buildDirectSlider(4);
+      await expect(run(dom.documentStub, String(level))).resolves.toEqual({
+        status: "switched",
+        label,
+      });
+      expect(dom.keys).toEqual(Array(count).fill("ArrowLeft"));
+    },
+  );
+
+  it("does not infer Pro from the maximum numeric position", async () => {
+    const dom = buildDirectSlider(4, ["Instant", "Medium", "High", "Extra High", "Extra High"]);
+    expect((await run(dom.documentStub, "pro")).status).not.toMatch(
+      /^(switched|already-selected)$/,
+    );
+    expect(dom.keys).toEqual([]);
+  });
+
+  it.each([
+    ["light", "즉시"],
+    ["standard", "중간"],
+    ["extended", "높음"],
+    ["extra-high", "매우 높음"],
+    ["pro", "Pro"],
+  ])("selects Korean %s through the direct slider", async (level, label) => {
+    const dom = buildDirectSlider(level === "pro" ? 2 : 4, [
+      "즉시",
+      "중간",
+      "높음",
+      "매우 높음",
+      "Pro",
+    ]);
+    await expect(run(dom.documentStub, level)).resolves.toEqual({ status: "switched", label });
+    expect(dom.keys.length).toBeGreaterThan(0);
+    expect(dom.modelOpener.clicks).toBe(0);
+  });
+
+  it("fails closed when the slider ignores keyboard input", async () => {
+    const dom = buildDirectSlider(3);
+    dom.control.dispatchEvent = () => true;
+    expect((await run(dom.documentStub, "pro")).status).toBe("selection-unverified");
+  });
+
+  it("rejects numeric movement with a stale tier announcement", async () => {
+    const dom = buildDirectSlider(3);
+    dom.control.dispatchEvent = () => {
+      dom.thumb.setAttribute("aria-valuenow", "4");
+      return true;
+    };
+    expect((await run(dom.documentStub, "pro")).status).toBe("selection-unverified");
+  });
+
+  it("does not change an unsupported slider range or unknown tier", async () => {
+    const dom = buildDirectSlider(3);
+    dom.thumb.setAttribute("aria-valuemax", "5");
+    expect((await run(dom.documentStub, "pro")).status).toBe("selection-unverified");
+    expect(dom.keys).toEqual([]);
+  });
+
+  it("ignores an inactive slider view", async () => {
+    const dom = buildDirectSlider(3);
+    dom.simple.setAttribute("data-active", "false");
+    expect((await run(dom.documentStub, "pro")).status).not.toMatch(
+      /^(switched|already-selected)$/,
+    );
+    expect(dom.keys).toEqual([]);
+  });
+
   it("selects Pro through the Effort submenu", async () => {
     const dom = buildDom("High");
     await expect(run(dom.documentStub, "pro")).resolves.toEqual({
@@ -3013,6 +3165,23 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     expect(dom.getSelectedTier()).toBe("Pro");
   });
 
+  it("selects Pro through the renamed Japanese effort label", async () => {
+    const dom = buildDom("High");
+    dom.advancedToggle.textContent = "詳細設定";
+    dom.effortOpener.textContent = "思考量High";
+    ["最速", "中程度", "高い", "非常に高い", "Pro"].forEach((label, index) => {
+      dom.tierRows[index]!.textContent = label;
+    });
+
+    const result = await run(dom.documentStub, "pro");
+    expect(dom.effortOpener.clicks).toBeGreaterThan(0);
+    expect(result).toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.getSelectedTier()).toBe("Pro");
+  });
+
   it("selects Japanese Extra High without matching High", async () => {
     const dom = buildDom("High");
     dom.advancedToggle.textContent = "詳細設定";
@@ -3033,6 +3202,50 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     const dom = buildDom("High");
     await run(dom.documentStub, "pro");
     expect(dom.advancedToggle.clicks).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["light", "즉시", 0],
+    ["standard", "중간", 1],
+    ["extended", "높음", 2],
+    ["extra-high", "매우 높음", 3],
+    ["pro", "Pro", 4],
+  ])(
+    "selects Korean %s without confusing neighboring tiers",
+    async (level, label, selectedIndex) => {
+      const dom = buildDom("높음");
+      dom.advancedToggle.textContent = "고급";
+      dom.advancedToggle.setAttribute("aria-label", "고급");
+      dom.modelOpener.textContent = "모델GPT-5.6 Sol";
+      dom.effortOpener.textContent = "추론 수준Pro";
+      ["즉시", "중간", "높음", "매우 높음", "Pro"].forEach((text, index) => {
+        dom.tierRows[index]!.textContent = text;
+      });
+      // Extra High preceding High catches a suffix matcher that would pick it first.
+      if (level === "extended") {
+        dom.tierRows[2]!.textContent = "매우 높음";
+        dom.tierRows[3]!.textContent = "높음";
+        selectedIndex = 3;
+      }
+      const result = await run(dom.documentStub, String(level));
+      expect(result).toEqual({ status: "switched", label });
+      dom.tierRows.forEach((row, index) => expect(row.clicks > 0).toBe(index === selectedIndex));
+      expect(dom.modelOpener.clicks).toBe(0);
+    },
+  );
+
+  it("normalizes decomposed Hangul in a Korean effort opener", async () => {
+    const dom = buildDom("High");
+    dom.advancedToggle.textContent = "고급".normalize("NFD");
+    dom.advancedToggle.setAttribute("aria-label", "고급".normalize("NFD"));
+    dom.effortOpener.textContent = "추론 수준Pro".normalize("NFD");
+    ["즉시", "중간", "높음", "매우 높음", "Pro"].forEach((text, index) => {
+      dom.tierRows[index]!.textContent = text.normalize("NFD");
+    });
+    await expect(run(dom.documentStub, "pro")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
   });
 
   it("reports Pro as already selected without clicking again", async () => {

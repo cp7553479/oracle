@@ -5,7 +5,7 @@
 ### Changed
 
 - CLI: agent-facing log output was audited line by line for signal. Removed bookkeeping noise (profile-lock/slot acquire-release churn, stale DevToolsActivePort cleanup detail, focus-emulation and cookie-skip notes, zero-count download scans, "Cleanup complete" telemetry, duplicate conversation-URL phase lines); demoted diagnostics to `--verbose` (shared-Chrome wait, stale-state clearing, prompt-ready repeats, UI-dismissal events); rewrote remaining lines to state only what callers need (`Signed in to ChatGPT`, `Prompt queued (N chars)`, `Thinking effort:`, `Model verified: requested -> resolved`); fixed the footer model/mode separator (`GPT-5.6 Sol (browser)`).
-- Browser: "Too many requests" is no longer detected or handled at all. Rate-limit notices on the ChatGPT page are ignored silently — no once-per-run log line, no 15s warning-poll watch during the assistant wait, and no rate-limit-specific check before submit/response/image waits — so a run never blocks, retries, cools down, or prints because of them. Other blocking warnings (authentication/challenge, temporary unavailability) and ordinary operation timeouts keep their existing behavior.
+- Browser: "Too many requests" is no longer detected or handled at all. Rate-limit notices on the ChatGPT page are ignored silently — no once-per-run log line, no 15s warning-poll watch during the assistant wait, and no rate-limit-specific check before submit/response/image waits — so a run never blocks, retries, cools down, or prints because of them. Other blocking warnings (authentication/challenge, temporary unavailability) and ordinary operation timeouts keep their existing behavior. Upstream's `chatgpt-throttled` model-selection probe (steipete/oracle#395) is intentionally not carried over.
 - CLI: force `--engine browser --browser-manual-login` onto every run at the command entry (overrides any explicit `--engine api`; `ORACLE_ALLOW_API_ENGINE=1` is a test-only escape hatch).
 - Browser: force `--browser-manual-login` on for every browser run (CLI, MCP, and reattach paths) so all sessions reuse the persistent signed-in automation profile; the flag is now redundant but still accepted. `--browser-manual-login-profile-dir` still selects the profile directory.
 - Browser: close the Oracle-owned tab when a run ends, including failures and Ctrl+C (SIGINT now runs the same tab-close/slot-release cleanup as SIGTERM), so serialized runs don't accumulate stale tabs. `--browser-keep-browser` and preserved-error recovery (Cloudflare check, in-flight reattach capture) still keep the tab; Ctrl+C with `--browser-keep-browser` keeps the shared Chrome process alive for debugging.
@@ -13,7 +13,30 @@
 
 ### Removed
 
-- Browser: the `--copy-profile` throwaway-profile mode and its `src/browser/profileCopy.ts` implementation, including the copied-profile signal cleanup, Cloudflare/capture special-casing, and reattach exclusions.
+- Browser: the `--copy-profile` throwaway-profile mode and its `src/browser/profileCopy.ts` implementation, including the copied-profile signal cleanup, Cloudflare/capture special-casing, and reattach exclusions. Upstream's restored copy-profile launcher Keychain handling is intentionally not carried over.
+
+## Unreleased (upstream)
+
+### Fixed
+
+- Browser: retain per-file attachment evidence through local/remote upload and send checks, including filename-less images; activate and stabilize the send target without replaying a dispatched prompt. Fixes #418. Thanks @hubofvalley!
+- Remote: allocate unique upload basenames for primary and fallback attachments that collide after sanitization, preserving original display paths and every payload. Fixes #387. Thanks @postoso!
+- Browser: attach to running Chrome when `DevToolsActivePort` metadata is absent, with IPv6 support and bounded endpoint retries that include response-body reads. Fixes #414. Thanks @devYRPauli!
+- Browser: recognize collision-renamed attachment chips, including short filenames, while keeping Unicode filename boundaries and visible extensions distinct across upload and send checks. Fixes #393. Thanks @devYRPauli!
+- Browser: select and verify thinking effort in ChatGPT's direct-slider picker without an Advanced submenu, keeping explicit Pro requests fail-closed. Fixes #422.
+- Browser: preserve Hangul and recognize Korean model/effort picker labels, distinguishing High from Extra High and keeping Pro verification strict. Fixes #423.
+- Browser: restore locally launched macOS Chrome windows to their prior placement for visible runs only when Oracle recorded the window before a `--browser-hide-window` run; unmarked windows remain untouched.
+- Browser: archive completed ChatGPT conversations when the interface is Japanese by recognizing the current `その他`, `アーカイブ`, and `アーカイブを解除する` controls.
+- Browser: apply the configured input timeout to prompt preparation so stalled local file assembly fails clearly before launching Chrome. Fixes #381.
+- Browser: honor thinking time in Deep Research mode. Fixes #404.
+- Browser: reap dead session records when controllerPid is gone. Fixes #413.
+
+### Changed
+
+- Dependencies: update provider SDKs, browser tooling, terminal utilities, development tools, pnpm, and transitive overrides while retaining the two-day release-age policy; refresh the Pages pnpm action pin.
+
+- **Breaking** — Remote: accept only conversation-scoped fields from remote clients. The service overrode six known-dangerous `browserConfig` fields and passed the rest of `BrowserSessionConfig` through to `runBrowserMode` verbatim. The remainder is not inert: `chromePath` names an executable the host spawns, `remoteChrome` a debugger to attach to, `copyProfileSource` a directory to copy a signed-in profile out of, `debugPort` one to expose, and `attachRunning`/`browserTabRef` select an existing ChatGPT tab — with an empty or "current" ref resolving to the first ChatGPT tab in the browser. That makes a bridge token a permission to run code on the host rather than to ask ChatGPT a question. A client may now describe the conversation it wants — URL, model, effort, archive mode, resume target, time budgets — and nothing about the machine. A caller that was setting host-scoped fields is now ignored on them rather than obeyed.
+- Remote: stop advertising addresses the service is not listening on. `oracle serve --host 127.0.0.1` printed the host's LAN and tailnet addresses in its startup banner while bound to loopback only. That banner is how an operator decides whether a port needs a tunnel or a firewall rule, and for browser automation behind a bearer token, erring toward "more exposed than it is" is the wrong direction.
 
 ## 0.18.0 — 2026-08-14
 
@@ -38,6 +61,7 @@
 ### Fixed
 
 - Browser: detect a disabled ChatGPT effort tier (e.g. an exhausted Pro allotment) before clicking it, and report the account's own reset notice instead of a misleading "selection unverified" failure. Thanks @enieuwy!
+
 ## 0.17.3 — 2026-08-13
 
 **Highlight:** browser-mode answers and recovery are reliable again — no more

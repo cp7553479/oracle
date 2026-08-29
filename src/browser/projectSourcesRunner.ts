@@ -7,6 +7,7 @@ import {
   connectWithNewTab,
   launchChrome,
   positionChromeWindowOffscreen,
+  positionChromeWindowOnscreen,
   registerTerminationHooks,
 } from "./chromeLifecycle.js";
 import { resolveBrowserConfig } from "./config.js";
@@ -189,7 +190,9 @@ export async function runBrowserProjectSources(
     }
     await Promise.all(domainEnablers);
     if (!config.headless && config.hideWindow) {
-      await positionChromeWindowOffscreen(client, logger);
+      await positionChromeWindowOffscreen(client, userDataDir, logger);
+    } else if (!config.headless) {
+      await positionChromeWindowOnscreen(client, userDataDir, logger);
     }
     removeDialogHandler = installJavaScriptDialogAutoDismissal(Page, logger);
     if (!manualLogin) {
