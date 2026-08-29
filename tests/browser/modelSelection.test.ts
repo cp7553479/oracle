@@ -2003,3 +2003,64 @@ describe("ensureModelSelection composer-pill wait", () => {
     ).rejects.toThrow(/Unable to locate the ChatGPT model selector button/);
   });
 });
+
+describe("ensureModelSelection notice-dialog dismissal", () => {
+  const noopLogger = (() => {}) as unknown as Parameters<typeof ensureModelSelection>[2];
+
+  const makeSequencedRuntime = (script: Array<Record<string, unknown>>) => {
+    let call = 0;
+    const evaluate = vi.fn(async ({ expression }: { expression: string }) => {
+      const value = script[call];
+      (evaluate as unknown as { expressions: string[] }).expressions ||= [];
+      (evaluate as unknown as { expressions: string[] }).expressions.push(expression);
+      call += 1;
+      return { result: { value } };
+    });
+    return { evaluate } as unknown as Parameters<typeof ensureModelSelection>[0] & {
+      evaluate: ReturnType<typeof vi.fn>;
+    };
+  };
+
+  it("dismisses a covering notice dialog and rescans instead of failing", async () => {
+    const Runtime = makeSequencedRuntime([
+      { status: "option-not-found", hint: { availableOptions: ["Got it"] } },
+      { dismissed: true, action: "confirm" },
+      { status: "switched", label: "GPT-5.6 Sol" },
+    ]);
+
+    const evidence = await ensureModelSelection(Runtime, "GPT-5.6 Sol", noopLogger);
+
+    expect(evidence.status).toBe("switched");
+    expect(evidence.resolvedLabel).toBe("GPT-5.6 Sol");
+    expect(Runtime.evaluate).toHaveBeenCalledTimes(3);
+    const expressions = (Runtime.evaluate as unknown as { expressions: string[] }).expressions;
+    expect(expressions[1]).toContain("got it");
+  });
+
+  it("still fails with option-not-found when no dialog can be dismissed", async () => {
+    const Runtime = makeSequencedRuntime([
+      { status: "option-not-found", hint: { availableOptions: ["GPT-5.5"] } },
+      { dismissed: false },
+    ]);
+
+    await expect(ensureModelSelection(Runtime, "GPT-5.6 Sol", noopLogger)).rejects.toThrow(
+      /Unable to find model option matching "GPT-5.6 Sol"/,
+    );
+    expect(Runtime.evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it("dismisses and rescans when the picker button never appears", async () => {
+    const Runtime = makeSequencedRuntime([
+      { status: "button-missing" },
+      { dismissed: true, action: "confirm" },
+      { status: "switched", label: "GPT-5.6 Sol" },
+    ]);
+
+    const evidence = await ensureModelSelection(Runtime, "GPT-5.6 Sol", noopLogger, "select", {
+      buttonWaitMs: 0,
+    });
+
+    expect(evidence.status).toBe("switched");
+    expect(Runtime.evaluate).toHaveBeenCalledTimes(3);
+  });
+});

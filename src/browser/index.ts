@@ -1703,6 +1703,9 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         stage: "submit-prompt",
         waitTarget: "pre-submit UI warning check",
       });
+      // Best-effort: clear a transient notice dialog (e.g. a single-"Got it"
+      // request-speed notice) so it cannot swallow the send click.
+      await dismissBlockingUi(Runtime, logger).catch(() => undefined);
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),
@@ -3305,6 +3308,9 @@ async function runRemoteBrowserMode(
         stage: "submit-prompt",
         waitTarget: "pre-submit UI warning check",
       });
+      // Best-effort: clear a transient notice dialog (e.g. a single-"Got it"
+      // request-speed notice) so it cannot swallow the send click.
+      await dismissBlockingUi(Runtime, logger).catch(() => undefined);
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),

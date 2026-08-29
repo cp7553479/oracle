@@ -7,6 +7,7 @@ import {
   MODEL_BUTTON_SELECTOR,
 } from "../constants.js";
 import { logDomFailure } from "../domDebug.js";
+import { dismissBlockingUi } from "./navigation.js";
 import { buildClickDispatcher } from "./domEvents.js";
 import { delay } from "../utils.js";
 
@@ -36,7 +37,7 @@ export async function ensureModelSelection(
   desiredModel: string,
   logger: BrowserLogger,
   strategy: BrowserModelStrategy = "select",
-  options: { buttonWaitMs?: number; buttonPollMs?: number } = {},
+  options: { buttonWaitMs?: number; buttonPollMs?: number; rescannedAfterDismiss?: boolean } = {},
 ): Promise<BrowserModelSelectionEvidence> {
   const buttonWaitMs = options.buttonWaitMs ?? MODEL_BUTTON_WAIT_MS;
   const buttonPollMs = options.buttonPollMs ?? MODEL_BUTTON_POLL_MS;
@@ -86,6 +87,15 @@ export async function ensureModelSelection(
       };
     }
     case "option-not-found": {
+      // A transient notice dialog (for example the single-"Got it" request-speed
+      // notice) can sit over the picker and pollute the scan. Dismiss it and
+      // rescan once before failing; a dismissed dialog makes the retry a no-op.
+      if (!options.rescannedAfterDismiss && (await dismissBlockingUi(Runtime, logger))) {
+        return ensureModelSelection(Runtime, desiredModel, logger, strategy, {
+          ...options,
+          rescannedAfterDismiss: true,
+        });
+      }
       await logDomFailure(Runtime, logger, "model-switcher-option");
       const isTemporary = result.hint?.temporaryChat ?? false;
       const available = (result.hint?.availableOptions ?? []).filter(Boolean);
@@ -99,6 +109,12 @@ export async function ensureModelSelection(
       );
     }
     default: {
+      if (!options.rescannedAfterDismiss && (await dismissBlockingUi(Runtime, logger))) {
+        return ensureModelSelection(Runtime, desiredModel, logger, strategy, {
+          ...options,
+          rescannedAfterDismiss: true,
+        });
+      }
       await logDomFailure(Runtime, logger, "model-switcher-button");
       throw new Error(
         "Unable to locate the ChatGPT model selector button. If the desired model is already selected in the browser, retry with --browser-model-strategy current; otherwise retry with --browser-model-strategy ignore to skip model selection.",
