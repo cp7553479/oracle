@@ -11,6 +11,10 @@
 - Browser: close the Oracle-owned tab when a run ends, including failures and Ctrl+C (SIGINT now runs the same tab-close/slot-release cleanup as SIGTERM), so serialized runs don't accumulate stale tabs. `--browser-keep-browser` and preserved-error recovery (Cloudflare check, in-flight reattach capture) still keep the tab; Ctrl+C with `--browser-keep-browser` keeps the shared Chrome process alive for debugging.
 - Browser: the 5-minute idle reload now measures time since the last NEW assistant content instead of an absolute window deadline — a still-streaming answer keeps extending the wait (like thinking-active periods) and is never interrupted by a reload.
 
+### Fixed
+
+- Browser: ignore unrelated onboarding dialogs when verifying model-picker selections, so a visible “Got it” coachmark no longer prevents GPT-5.6 Sol from being recognized. Genuine configuration dialogs are identified by the model-label token in a multi-value `aria-labelledby` or by the `Model options` radio group.
+
 ### Removed
 
 - Browser: the `--copy-profile` throwaway-profile mode and its `src/browser/profileCopy.ts` implementation, including the copied-profile signal cleanup, Cloudflare/capture special-casing, and reattach exclusions. Upstream's restored copy-profile launcher Keychain handling is intentionally not carried over.

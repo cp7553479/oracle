@@ -241,6 +241,11 @@ function buildModelSelectionExpression(
         .trim();
     };
     const hasToken = (value, token) => normalizeText(value).split(' ').includes(token);
+    const hasAriaLabelledByToken = (node, token) =>
+      (node?.getAttribute?.('aria-labelledby') ?? '')
+        .split(/\\s+/)
+        .filter(Boolean)
+        .includes(token);
     // Normalize every candidate token to keep fuzzy matching deterministic.
     const normalizedTarget = normalizeText(PRIMARY_LABEL);
     const normalizedTokens = Array.from(new Set([normalizedTarget, ...LABEL_TOKENS]))
@@ -445,10 +450,19 @@ function buildModelSelectionExpression(
       if (normalized.includes('5 0') || normalized.includes('gpt50')) return '5-0';
       return null;
     };
-    const getConfigurationDialog = () => document.querySelector('[role="dialog"]');
+    const isModelConfigurationDialog = (dialog) =>
+      Boolean(
+        dialog?.querySelector?.(
+          '[role="combobox"][aria-labelledby~="model-selection-label"]',
+        ) || dialog?.querySelector?.('[aria-label="Model options"] [role="radio"]'),
+      );
+    const getConfigurationDialog = () =>
+      Array.from(document.querySelectorAll('[role="dialog"]')).find(
+        isModelConfigurationDialog,
+      ) ?? null;
     const getConfiguredVersionLabel = () =>
       (getConfigurationDialog()
-        ?.querySelector?.('[role="combobox"][aria-labelledby="model-selection-label"]')
+        ?.querySelector?.('[role="combobox"][aria-labelledby~="model-selection-label"]')
         ?.textContent ?? '').trim();
     const getConfiguredVariantLabel = () => {
       const label =
@@ -803,7 +817,7 @@ function buildModelSelectionExpression(
       );
       const candidateIsVersionCombobox =
         node?.getAttribute?.('role') === 'combobox' &&
-        node?.getAttribute?.('aria-labelledby') === 'model-selection-label';
+        hasAriaLabelledByToken(node, 'model-selection-label');
       if (candidateIsVersionCombobox && candidateTextVersion === desiredVersion) {
         return 0;
       }
@@ -1125,7 +1139,7 @@ function buildModelSelectionExpression(
       (testid ?? '').toLowerCase().includes('submenu') ||
       (testid ?? '').toLowerCase() === 'model-configure-modal' ||
       (node?.getAttribute?.('role') === 'combobox' &&
-        node?.getAttribute?.('aria-labelledby') === 'model-selection-label') ||
+        hasAriaLabelledByToken(node, 'model-selection-label')) ||
       node?.getAttribute?.('aria-haspopup') === 'menu' ||
       node?.getAttribute?.('data-has-submenu') !== null;
     const canTrustSelectedOption = (node, normalizedText, testid) => {

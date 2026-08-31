@@ -11,6 +11,102 @@ const expectContains = (arr: string[], value: string) => {
   expect(arr).toContain(value);
 };
 
+type FakeSelectorNode = {
+  getAttribute(name: string): string | null;
+  readonly selectorChildren: readonly FakeSelectorNode[];
+};
+
+const splitFakeSelector = (selector: string): string[] => {
+  const parts: string[] = [];
+  let current = "";
+  let bracketDepth = 0;
+  let quote: '"' | "'" | null = null;
+  for (const character of selector.trim()) {
+    if (quote) {
+      current += character;
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (/\s/.test(character) && bracketDepth === 0) {
+      if (current) parts.push(current);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current) parts.push(current);
+  return parts;
+};
+
+const matchesFakeSelectorPart = (node: FakeSelectorNode, selectorPart: string): boolean => {
+  const attributes = Array.from(selectorPart.matchAll(/\[([^\]=~\s]+)(~=|=)"([^"]*)"\]/g));
+  if (attributes.length === 0) return false;
+  return attributes.every(([, name, operator, expected]) => {
+    const actual = node.getAttribute(name);
+    if (actual === null) return false;
+    return operator === "~=" ? actual.split(/\s+/).includes(expected) : actual === expected;
+  });
+};
+
+const queryFakeSelector = (root: FakeSelectorNode, selector: string): FakeSelectorNode | null => {
+  const parts = splitFakeSelector(selector);
+  if (parts.length === 0) return null;
+  const visit = (
+    node: FakeSelectorNode,
+    ancestors: readonly FakeSelectorNode[],
+  ): FakeSelectorNode | null => {
+    if (matchesFakeSelectorPart(node, parts.at(-1) ?? "")) {
+      let ancestorIndex = ancestors.length - 1;
+      let partIndex = parts.length - 2;
+      while (partIndex >= 0) {
+        while (
+          ancestorIndex >= 0 &&
+          !matchesFakeSelectorPart(ancestors[ancestorIndex], parts[partIndex])
+        ) {
+          ancestorIndex -= 1;
+        }
+        if (ancestorIndex < 0) break;
+        ancestorIndex -= 1;
+        partIndex -= 1;
+      }
+      if (partIndex < 0) return node;
+    }
+    for (const child of node.selectorChildren) {
+      const match = visit(child, [...ancestors, node]);
+      if (match) return match;
+    }
+    return null;
+  };
+  for (const child of root.selectorChildren) {
+    const match = visit(child, [root]);
+    if (match) return match;
+  }
+  return null;
+};
+
+class StaticFakeElement implements FakeSelectorNode {
+  constructor(
+    public readonly textContent: string,
+    private readonly attributes: Readonly<Record<string, string>> = {},
+    public readonly selectorChildren: readonly StaticFakeElement[] = [],
+  ) {}
+
+  getAttribute(name: string): string | null {
+    return this.attributes[name] ?? null;
+  }
+
+  querySelector(selector: string): FakeSelectorNode | null {
+    return queryFakeSelector(this, selector);
+  }
+}
+
 const evaluateImmediateModelSelectionExpression = (
   targetModel: string,
   buttonLabel: string,
@@ -77,8 +173,25 @@ const evaluateImmediateModelSelectionExpression = (
 
 const evaluateMenuModelSelectionExpression = async (
   targetModel: string,
-  option: { label: string; testId?: string } | Array<{ label: string; testId?: string }>,
+  option:
+    | {
+        label: string;
+        testId?: string;
+        selected?: boolean;
+        role?: string;
+        ariaLabelledBy?: string;
+        ariaExpanded?: string;
+      }
+    | Array<{
+        label: string;
+        testId?: string;
+        selected?: boolean;
+        role?: string;
+        ariaLabelledBy?: string;
+        ariaExpanded?: string;
+      }>,
   extraMenus: unknown[] = [],
+  dialogs: unknown[] = [],
 ): Promise<unknown> => {
   class FakeEventTarget {
     dispatchEvent(_event: unknown): boolean {
@@ -142,9 +255,20 @@ const evaluateMenuModelSelectionExpression = async (
   const options = Array.isArray(option) ? option : [option];
   const modelOptions = options.map(
     (item) =>
-      new FakeElement(item.label, item.testId ? { "data-testid": item.testId } : {}, [], () => {
-        modelButton.textContent = item.label;
-      }),
+      new FakeElement(
+        item.label,
+        {
+          ...(item.testId ? { "data-testid": item.testId } : {}),
+          ...(item.selected ? { "aria-selected": "true" } : {}),
+          ...(item.role ? { role: item.role } : {}),
+          ...(item.ariaLabelledBy ? { "aria-labelledby": item.ariaLabelledBy } : {}),
+          ...(item.ariaExpanded ? { "aria-expanded": item.ariaExpanded } : {}),
+        },
+        [],
+        () => {
+          modelButton.textContent = item.label;
+        },
+      ),
   );
   const menu = new FakeElement(
     options.map((item) => item.label).join(" "),
@@ -154,6 +278,9 @@ const evaluateMenuModelSelectionExpression = async (
   const menus = [...extraMenus, menu];
   const documentStub = {
     querySelector: (selector: string) => {
+      if (selector === '[role="dialog"]') {
+        return dialogs.at(0) ?? null;
+      }
       if (selector.includes("model-switcher-dropdown-button")) {
         return modelButton;
       }
@@ -163,6 +290,9 @@ const evaluateMenuModelSelectionExpression = async (
       return null;
     },
     querySelectorAll: (selector: string) => {
+      if (selector === '[role="dialog"]') {
+        return dialogs;
+      }
       if (selector.includes('role="menu"') || selector.includes("data-radix")) {
         return menus;
       }
@@ -780,6 +910,7 @@ const evaluateAdvancedModelPickerExpression = async ({
 const evaluateConfiguredModelSelectionExpression = async (
   targetModel: string,
   initialVariant = "Thinking",
+  includeCoachmark = false,
 ): Promise<unknown> => {
   class FakeEventTarget {
     dispatchEvent(_event: unknown): boolean {
@@ -816,6 +947,10 @@ const evaluateConfiguredModelSelectionExpression = async (
       return typeof value === "function" ? value() : (value ?? null);
     }
 
+    get selectorChildren(): readonly FakeElement[] {
+      return this.children;
+    }
+
     querySelector(selector: string): FakeElement | null {
       if (selector.includes("model-switcher-")) {
         return (
@@ -824,21 +959,8 @@ const evaluateConfiguredModelSelectionExpression = async (
           ) ?? null
         );
       }
-      if (selector.includes("model-selection-label")) {
-        return (
-          this.children.find(
-            (child) => child.getAttribute("aria-labelledby") === "model-selection-label",
-          ) ?? null
-        );
-      }
-      if (selector.includes("Model options") && selector.includes('aria-checked="true"')) {
-        return (
-          this.children.find(
-            (child) =>
-              child.getAttribute("role") === "radio" &&
-              child.getAttribute("aria-checked") === "true",
-          ) ?? null
-        );
+      if (selector.includes("model-selection-label") || selector.includes("Model options")) {
+        return queryFakeSelector(this, selector) as FakeElement | null;
       }
       if (selector.includes("close-button")) {
         return (
@@ -850,7 +972,13 @@ const evaluateConfiguredModelSelectionExpression = async (
     }
 
     querySelectorAll(_selector: string): FakeElement[] {
-      return [...this.children];
+      const descendants: FakeElement[] = [];
+      const visit = (node: FakeElement) => {
+        descendants.push(node);
+        node.selectorChildren.forEach(visit);
+      };
+      this.children.forEach(visit);
+      return descendants;
     }
 
     closest(_selector: string): FakeElement | null {
@@ -897,7 +1025,7 @@ const evaluateConfiguredModelSelectionExpression = async (
     selectedVersion,
     {
       role: "combobox",
-      "aria-labelledby": "model-selection-label",
+      "aria-labelledby": "configuration-title model-selection-label configuration-help",
       "aria-expanded": () => String(versionListOpen),
     },
     [],
@@ -920,12 +1048,18 @@ const evaluateConfiguredModelSelectionExpression = async (
   const instantRadio = variantRadio("Instant", "For everyday chats");
   const thinkingRadio = variantRadio("Thinking", "For complex questions");
   const proRadio = variantRadio("Pro", "Research-grade intelligence");
-  const configurationDialog = new FakeElement("Intelligence Model Thinking", { role: "dialog" }, [
-    closeButton,
-    versionCombobox,
+  const modelOptions = new FakeElement("Instant Thinking Pro", { "aria-label": "Model options" }, [
     instantRadio,
     thinkingRadio,
     proRadio,
+  ]);
+  const configurationDialog = new FakeElement("Intelligence Model Thinking", { role: "dialog" }, [
+    closeButton,
+    versionCombobox,
+    modelOptions,
+  ]);
+  const coachmarkDialog = new FakeElement("Got it", { role: "dialog" }, [
+    new FakeElement("Got it", { role: "button" }),
   ]);
   const versionOption = (version: string) =>
     new FakeElement(
@@ -951,13 +1085,17 @@ const evaluateConfiguredModelSelectionExpression = async (
   ]);
 
   const expression = buildModelSelectionExpressionForTest(targetModel);
+  const visibleDialogs = () => [
+    ...(includeCoachmark ? [coachmarkDialog] : []),
+    ...(configurationOpen ? [configurationDialog] : []),
+  ];
   const documentStub = {
     querySelector: (selector: string) => {
       if (selector.includes("close-button")) {
         return configurationOpen ? closeButton : null;
       }
       if (selector === '[role="dialog"]') {
-        return configurationOpen ? configurationDialog : null;
+        return visibleDialogs().at(0) ?? null;
       }
       if (selector.includes("model-switcher-dropdown-button")) {
         return modelButton;
@@ -965,6 +1103,9 @@ const evaluateConfiguredModelSelectionExpression = async (
       return null;
     },
     querySelectorAll: (selector: string) => {
+      if (selector === '[role="dialog"]') {
+        return visibleDialogs();
+      }
       if (selector.includes("button.__composer-pill")) {
         return [];
       }
@@ -1631,6 +1772,103 @@ describe("browser model selection matchers", () => {
     expect(expression).not.toContain("switched-best-effort");
   });
 
+  it("does not let an unrelated Got it dialog block trust in a selected model row", async () => {
+    const coachmarkDialog = {
+      textContent: "Got it",
+      querySelector: () => null,
+    };
+
+    await expect(
+      evaluateMenuModelSelectionExpression(
+        "GPT-5.6 Sol",
+        { label: "GPT-5.6 Sol", selected: true },
+        [],
+        [coachmarkDialog],
+      ),
+    ).resolves.toEqual({ status: "already-selected", label: "GPT-5.6 Sol" });
+  });
+
+  it("treats a multi-token model combobox as a submenu instead of a final model row", async () => {
+    await expect(
+      evaluateMenuModelSelectionExpression("Thinking 5.4", [
+        {
+          label: "5.5",
+          role: "combobox",
+          ariaLabelledBy: "configuration-title model-selection-label configuration-help",
+          ariaExpanded: "false",
+        },
+        { label: "Thinking GPT-5.4", role: "option" },
+      ]),
+    ).resolves.toEqual({ status: "switched", label: "Thinking GPT-5.4" });
+  });
+
+  it("recognizes a configuration dialog from a multi-token model combobox label", async () => {
+    const versionCombobox = new StaticFakeElement("5.5", {
+      role: "combobox",
+      "aria-labelledby": "configuration-title model-selection-label configuration-help",
+    });
+    const configurationDialog = new StaticFakeElement("Intelligence Model", { role: "dialog" }, [
+      versionCombobox,
+    ]);
+
+    expect(
+      configurationDialog.querySelector(
+        '[role="combobox"][aria-labelledby="model-selection-label"]',
+      ),
+    ).toBeNull();
+    expect(
+      configurationDialog.querySelector(
+        '[role="combobox"][aria-labelledby~="model-selection-label"]',
+      ),
+    ).toBe(versionCombobox);
+    await expect(
+      evaluateMenuModelSelectionExpression(
+        "GPT-5.6 Sol",
+        { label: "GPT-5.6 Sol", selected: true },
+        [],
+        [configurationDialog],
+      ),
+    ).resolves.toEqual({ status: "switched", label: "GPT-5.6 Sol" });
+  });
+
+  it("recognizes a configuration dialog from the Model options radio group only", async () => {
+    const thinkingRadio = new StaticFakeElement("Thinking", {
+      role: "radio",
+      "aria-checked": "true",
+    });
+    const modelOptions = new StaticFakeElement("Thinking", { "aria-label": "Model options" }, [
+      thinkingRadio,
+    ]);
+    const configurationDialog = new StaticFakeElement("Intelligence Model", { role: "dialog" }, [
+      modelOptions,
+    ]);
+    const unrelatedRadioGroup = new StaticFakeElement(
+      "Thinking",
+      { "aria-label": "Notification options" },
+      [thinkingRadio],
+    );
+
+    expect(configurationDialog.querySelector('[aria-label="Model options"] [role="radio"]')).toBe(
+      thinkingRadio,
+    );
+    expect(
+      unrelatedRadioGroup.querySelector('[aria-label="Model options"] [role="radio"]'),
+    ).toBeNull();
+    expect(
+      configurationDialog.querySelector(
+        '[role="combobox"][aria-labelledby~="model-selection-label"]',
+      ),
+    ).toBeNull();
+    await expect(
+      evaluateMenuModelSelectionExpression(
+        "GPT-5.6 Sol",
+        { label: "GPT-5.6 Sol", selected: true },
+        [],
+        [configurationDialog],
+      ),
+    ).resolves.toEqual({ status: "switched", label: "GPT-5.6 Sol" });
+  });
+
   it("fails loudly if post-selection state resolves to Thinking instead of Pro", () => {
     expect(() => assertResolvedModelSelectionForTest("gpt-5.5-pro", "Thinking 5.5 Heavy")).toThrow(
       /requires GPT-5.5 Pro/,
@@ -1910,6 +2148,15 @@ describe("browser model selection matchers", () => {
 
   it("uses Configure to select and verify the pinned GPT-5.6 Sol variant", async () => {
     await expect(evaluateConfiguredModelSelectionExpression("GPT-5.6 Sol")).resolves.toEqual({
+      status: "switched",
+      label: "Thinking 5.6 Sol",
+    });
+  });
+
+  it("recognizes the model configuration dialog after an unrelated coachmark", async () => {
+    await expect(
+      evaluateConfiguredModelSelectionExpression("GPT-5.6 Sol", "Thinking", true),
+    ).resolves.toEqual({
       status: "switched",
       label: "Thinking 5.6 Sol",
     });
