@@ -193,6 +193,32 @@ function shouldKeepLocalBrowserOpen(options: {
   return options.effectiveKeepBrowser || options.preserveBrowserOnError;
 }
 
+async function terminateOwnedLocalChromeAfterRun(
+  options: {
+    chrome: Pick<LaunchedChrome, "kill">;
+    userDataDir: string;
+    logger: BrowserLogger;
+    recordedChromeAlreadyTerminated: boolean;
+  },
+  deps: {
+    terminateRecordedChrome: typeof terminateRecordedChromeForProfile;
+  } = {
+    terminateRecordedChrome: terminateRecordedChromeForProfile,
+  },
+): Promise<void> {
+  if (!options.recordedChromeAlreadyTerminated) {
+    try {
+      await options.chrome.kill();
+    } catch {
+      // The verified recorded-PID fallback below still runs.
+    }
+  }
+  // chrome-launcher can resolve kill() before a manually logged-in Chrome has
+  // actually exited. Recheck the profile-owned PID and send a verified fallback
+  // termination so ordinary pre-submit/browser errors cannot orphan Chrome.
+  await deps.terminateRecordedChrome(options.userDataDir, options.logger).catch(() => undefined);
+}
+
 export function shouldPreserveBrowserOnErrorForTest(error: unknown, headless: boolean): boolean {
   return shouldPreserveBrowserOnError(error, headless);
 }
@@ -2563,13 +2589,12 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     removeTerminationHooks?.();
     if (!keepBrowserOpen) {
       if (!connectionClosedUnexpectedly) {
-        try {
-          if (!terminatedRecordedChrome) {
-            await chrome.kill();
-          }
-        } catch {
-          // ignore kill failures
-        }
+        await terminateOwnedLocalChromeAfterRun({
+          chrome,
+          userDataDir,
+          logger,
+          recordedChromeAlreadyTerminated: terminatedRecordedChrome,
+        });
       }
       if (manualLogin) {
         const shouldCleanup = await shouldCleanupManualLoginProfileState(
@@ -3947,6 +3972,7 @@ export const __test__ = {
   shouldCleanupBlankTabsAfterLastLease,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
+  terminateOwnedLocalChromeAfterRun,
   waitForAssistantResponseWithReload,
 };
 export { syncCookies } from "./cookies.js";

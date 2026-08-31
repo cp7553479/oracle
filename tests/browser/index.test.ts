@@ -89,6 +89,43 @@ describe("authenticated model-selection errors", () => {
 });
 
 describe("browser run target cleanup", () => {
+  test("falls back to the verified profile pid after chrome-launcher cleanup", async () => {
+    const kill = vi.fn(async () => undefined);
+    const terminateRecordedChrome = vi.fn(async () => true);
+    const logger = (_message: string) => undefined;
+
+    await __test__.terminateOwnedLocalChromeAfterRun(
+      {
+        chrome: { kill },
+        userDataDir: "/tmp/oracle-manual-profile",
+        logger,
+        recordedChromeAlreadyTerminated: false,
+      },
+      { terminateRecordedChrome },
+    );
+
+    expect(kill).toHaveBeenCalledOnce();
+    expect(terminateRecordedChrome).toHaveBeenCalledWith("/tmp/oracle-manual-profile", logger);
+  });
+
+  test("does not repeat launcher cleanup after a recorded Chrome termination", async () => {
+    const kill = vi.fn(async () => undefined);
+    const terminateRecordedChrome = vi.fn(async () => false);
+
+    await __test__.terminateOwnedLocalChromeAfterRun(
+      {
+        chrome: { kill },
+        userDataDir: "/tmp/oracle-manual-profile",
+        logger: (_message: string) => undefined,
+        recordedChromeAlreadyTerminated: true,
+      },
+      { terminateRecordedChrome },
+    );
+
+    expect(kill).not.toHaveBeenCalled();
+    expect(terminateRecordedChrome).toHaveBeenCalledOnce();
+  });
+
   test("never retains a copied profile after a preserved browser error", () => {
     expect(
       __test__.shouldKeepLocalBrowserOpen({

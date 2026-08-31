@@ -19,6 +19,7 @@
 - Browser: archive completed ChatGPT conversations when the interface is Japanese by recognizing the current `その他`, `アーカイブ`, and `アーカイブを解除する` controls.
 - Browser: apply the configured input timeout to prompt preparation so stalled local file assembly fails clearly before launching Chrome. Fixes #381.
 - Browser: silently dismiss a covering `Got it` notice and rescan the model picker once; if selection still fails, continue with ChatGPT's current model instead of treating the notice or picker failure as fatal.
+- Browser: verify profile-owned Chrome termination after ordinary browser failures so a resolved launcher cleanup cannot leave an orphaned manual-login browser behind.
 
 ### Changed
 
