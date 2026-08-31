@@ -33,7 +33,7 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
     expect(shouldPreserveBrowserOnErrorForTest(error, true)).toBe(false);
   });
 
-  test("does not preserve the browser for headful assistant capture errors", () => {
+  test("preserves the browser for headful assistant capture errors", () => {
     const timeout = new BrowserAutomationError("assistant timed out", {
       stage: "assistant-timeout",
     });
@@ -41,10 +41,10 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
       stage: "assistant-recheck",
     });
 
-    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(false);
-    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(false);
-    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBeNull();
-    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBeNull();
+    expect(shouldPreserveBrowserOnErrorForTest(timeout, false)).toBe(true);
+    expect(shouldPreserveBrowserOnErrorForTest(recheck, false)).toBe(true);
+    expect(classifyPreservedBrowserErrorForTest(timeout, false)).toBe("reattachable-capture");
+    expect(classifyPreservedBrowserErrorForTest(recheck, false)).toBe("reattachable-capture");
   });
 
   test("does not preserve assistant capture errors in headless mode", () => {
@@ -89,6 +89,16 @@ describe("authenticated model-selection errors", () => {
 });
 
 describe("browser run target cleanup", () => {
+  test("never retains a copied profile after a preserved browser error", () => {
+    expect(
+      __test__.shouldKeepLocalBrowserOpen({
+        effectiveKeepBrowser: false,
+        preserveBrowserOnError: true,
+        usingCopiedProfile: true,
+      }),
+    ).toBe(false);
+  });
+
   test("keeps existing retention semantics for ordinary profiles", () => {
     expect(
       __test__.shouldKeepLocalBrowserOpen({
@@ -130,7 +140,7 @@ describe("browser run target cleanup", () => {
     ).toBe(true);
   });
 
-  test("does not close attached targets and closes owned error-run tabs", () => {
+  test("does not close attached or incomplete targets", () => {
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "complete",
@@ -139,14 +149,14 @@ describe("browser run target cleanup", () => {
         closeOwnedTabOnComplete: true,
       }),
     ).toBe(false);
-    // Fork semantics: the owned tab is closed when the run ends, even on failure.
     expect(
       __test__.shouldCloseOwnedRunTargetAfterRun({
         runStatus: "attempted",
         ownsTarget: true,
         keepBrowser: false,
+        closeOwnedTabOnComplete: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("schedules final blank cleanup for retained manual-login Chrome", () => {
@@ -200,101 +210,6 @@ describe("browser run target cleanup", () => {
         chromePort: 9222,
       }),
     ).toBe(false);
-  });
-
-  test("does not close attached targets on error", () => {
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: false,
-        keepBrowser: false,
-        closeOwnedTargetOnError: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("never closes an attached target after an answer capture error", () => {
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: false,
-        keepBrowser: false,
-        closeOwnedTargetOnError: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("keeps the owned error-run tab for deliberate retention cases", () => {
-    // --browser-keep-browser debugging keeps the tab available for inspection.
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: true,
-        keepBrowser: true,
-      }),
-    ).toBe(false);
-    // Preserved-error recovery (Cloudflare check, in-flight reattach capture).
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: true,
-        keepBrowser: false,
-        preserveBrowserOnError: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("closes the owned error-run tab when the caller requests it explicitly", () => {
-    expect(
-      __test__.shouldCloseOwnedRunTargetAfterRun({
-        runStatus: "attempted",
-        ownsTarget: true,
-        keepBrowser: true,
-        closeOwnedTargetOnError: true,
-      }),
-    ).toBe(true);
-  });
-});
-
-describe("model-selection fallback", () => {
-  test("keeps the current model when a non-Pro selection fails", () => {
-    const logger = vi.fn();
-    const evidence = __test__.handleModelSelectionFailure({
-      error: new Error("picker option missing"),
-      desiredModel: "GPT-5.6 Sol",
-      strategy: "select",
-      logger: logger as never,
-    });
-
-    expect(evidence).toMatchObject({
-      requestedModel: "GPT-5.6 Sol",
-      resolvedLabel: null,
-      status: "unavailable",
-      verified: false,
-    });
-    expect(logger).toHaveBeenCalledWith(expect.stringContaining("keeping ChatGPT's current model"));
-  });
-
-  test("keeps explicit Pro selection fail-closed", () => {
-    expect(() =>
-      __test__.handleModelSelectionFailure({
-        error: new Error("picker option missing"),
-        desiredModel: "Pro",
-        strategy: "select",
-        logger: vi.fn() as never,
-      }),
-    ).toThrow("picker option missing");
-  });
-
-  test("allows current strategy to keep an already active Pro model", () => {
-    expect(
-      __test__.handleModelSelectionFailure({
-        error: new Error("picker unavailable"),
-        desiredModel: "Pro",
-        strategy: "current",
-        logger: vi.fn() as never,
-      }),
-    ).toMatchObject({ status: "unavailable", verified: false });
   });
 });
 
@@ -359,20 +274,10 @@ describe("thinking time selection policy", () => {
     expect(__test__.shouldApplyThinkingTimeSelection(config)).toBe(true);
   });
 
-  test("applies the fork default effort in Deep Research (fork always resolves a default)", () => {
+  test("does not select an effort when none was requested", () => {
     const config = resolveBrowserConfig({ researchMode: "deep" });
 
-    expect(config.thinkingTime).toBe("extended");
-    expect(__test__.shouldApplyThinkingTimeSelection(config)).toBe(true);
-  });
-
-  test("skips selection only when thinking time is absent after resolution", () => {
-    expect(
-      __test__.shouldApplyThinkingTimeSelection({
-        researchMode: "deep",
-        thinkingTime: undefined,
-      }),
-    ).toBe(false);
+    expect(__test__.shouldApplyThinkingTimeSelection(config)).toBe(false);
   });
 });
 
@@ -418,20 +323,20 @@ describe("formatBrowserTurnTranscript", () => {
 });
 
 describe("ChatGPT UI warning detection", () => {
-  test("ignores request-speed warnings entirely", () => {
+  test("classifies request-speed warnings as rate limits", () => {
     expect(
       __test__.classifyChatGptUiWarningText(
         "You are sending too many requests too quickly. Please try again later.",
       ),
-    ).toBeNull();
+    ).toBe("rate_limit");
   });
 
-  test("ignores visually mangled request-speed modal text", () => {
+  test("classifies visually mangled request-speed modal text as rate limits", () => {
     expect(
       __test__.classifyChatGptUiWarningText(
         "Too many reque t. You’re making reque t too quickly. We’ve temporarily limited access to your conversations. Please wait a few minutes before trying again.",
       ),
-    ).toBeNull();
+    ).toBe("rate_limit");
   });
 
   test("classifies bare retry-later warnings as temporary unavailability", () => {
@@ -444,7 +349,7 @@ describe("ChatGPT UI warning detection", () => {
         result: {
           value: [
             {
-              text: "Something went wrong while generating a response.",
+              text: "You are sending too many requests too quickly. Please try again later.",
               source: "selector",
               role: "alert",
               ariaLive: "assertive",
@@ -461,8 +366,8 @@ describe("ChatGPT UI warning detection", () => {
 
     await expect(__test__.collectChatGptUiWarnings(Runtime as never)).resolves.toEqual([
       {
-        type: "temporary_unavailable",
-        message: "Something went wrong while generating a response.",
+        type: "rate_limit",
+        message: "You are sending too many requests too quickly. Please try again later.",
         source: "selector",
         role: "alert",
         ariaLive: "assertive",
@@ -508,7 +413,7 @@ describe("ChatGPT UI warning detection", () => {
     expect(JSON.stringify(warnings)).not.toContain("secret-session-value");
   });
 
-  test("keeps the ordinary timeout error for rate-limit-only notices without logging", async () => {
+  test("silently dismisses a rate-limit notice and keeps generic timeout handling", async () => {
     const Runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -533,12 +438,6 @@ describe("ChatGPT UI warning detection", () => {
       diagnostics: { domPath: "/tmp/assistant-timeout.dom.json" },
       cause: new Error("timeout"),
     });
-    await __test__.createAssistantTimeoutError({
-      Runtime: Runtime as never,
-      logger: logger as never,
-      runtime: { chromePort: 9222 },
-      cause: new Error("timeout again"),
-    });
 
     expect(error.message).toBe(
       "Assistant response timed out before completion; reattach later to capture the answer.",
@@ -548,18 +447,23 @@ describe("ChatGPT UI warning detection", () => {
       runtime: { chromePort: 9222 },
       diagnostics: { domPath: "/tmp/assistant-timeout.dom.json" },
     });
-    expect(error.details).not.toHaveProperty("code");
     expect(error.details).not.toHaveProperty("uiWarning");
     expect(logger).not.toHaveBeenCalled();
+    expect(Runtime.evaluate).toHaveBeenCalledTimes(2);
   });
 
-  test("still surfaces a simultaneous authentication warning beside a rate-limit notice", async () => {
+  test("keeps non-rate-limit UI warnings fatal", async () => {
     const Runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
           value: [
-            { text: "Too many requests. Please wait a few minutes", role: "alert" },
-            { text: "Verify you are human to continue", role: "dialog" },
+            {
+              text: "ChatGPT is temporarily unavailable.",
+              source: "selector",
+              role: "alert",
+              ariaLive: "assertive",
+              selector: '[role="alert"]',
+            },
           ],
         },
       }),
@@ -573,15 +477,14 @@ describe("ChatGPT UI warning detection", () => {
       cause: new Error("timeout"),
     });
 
-    expect(error.message).toContain("authentication/challenge warning");
     expect(error.details).toMatchObject({
+      stage: "assistant-timeout",
       code: "chatgpt-ui-warning",
-      uiWarning: { type: "auth_or_challenge", message: "Verify you are human to continue" },
+      uiWarning: { type: "temporary_unavailable" },
     });
     expect(logger).toHaveBeenCalledWith(
-      "[browser] ChatGPT UI warning detected (auth_or_challenge): Verify you are human to continue",
+      "[browser] ChatGPT UI warning detected (temporary_unavailable): ChatGPT is temporarily unavailable.",
     );
-    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("rate limit"));
   });
 
   test("keeps the generic timeout error when no blocking warning is visible", async () => {
@@ -1021,55 +924,27 @@ describe("runSubmissionWithRecoveryForTest", () => {
       }),
     ).rejects.toThrow(/prompt too large again/i);
   });
-
-  test("does not retry ChatGPT UI warning failures", async () => {
-    const warningError = new BrowserAutomationError(
-      "ChatGPT displayed a temporary-unavailable warning",
-      {
-        stage: "submit-prompt",
-        code: "chatgpt-ui-warning",
-        uiWarning: { type: "temporary_unavailable", message: "Something went wrong" },
-      },
-    );
-    const submit = vi.fn().mockRejectedValue(warningError);
-    const reloadPromptComposer = vi.fn().mockResolvedValue(undefined);
-    const logger = vi.fn<(message: string) => void>();
-
-    await expect(
-      runSubmissionWithRecoveryForTest({
-        prompt: "test",
-        attachments: [],
-        submit,
-        reloadPromptComposer,
-        prepareFallbackSubmission: vi.fn().mockResolvedValue(undefined),
-        logger,
-      }),
-    ).rejects.toBe(warningError);
-
-    expect(submit).toHaveBeenCalledTimes(1);
-    expect(reloadPromptComposer).not.toHaveBeenCalled();
-  });
 });
 
 describe("resolveRemoteTabLeaseProfileDirForTest", () => {
-  test("coordinates remote Chrome with the manual-login profile", () => {
+  test("coordinates remote Chrome through the forced manual-login profile", () => {
     const coordinated = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
+      manualLogin: true,
       manualLoginProfileDir: "/tmp/oracle-profile",
     });
     expect(resolveRemoteTabLeaseProfileDirForTest(coordinated)).toBe(
       path.resolve("/tmp/oracle-profile"),
     );
 
-    const withDefaultProfile = resolveBrowserConfig({
+    const forced = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
+      manualLogin: false,
+      manualLoginProfileDir: "/tmp/oracle-profile",
     });
-    expect(resolveRemoteTabLeaseProfileDirForTest(withDefaultProfile)).toBe(
-      path.join(os.homedir(), ".oracle", "browser-profile"),
+    expect(resolveRemoteTabLeaseProfileDirForTest(forced)).toBe(
+      path.resolve("/tmp/oracle-profile"),
     );
-
-    const localLaunch = resolveBrowserConfig({ manualLoginProfileDir: "/tmp/oracle-profile" });
-    expect(resolveRemoteTabLeaseProfileDirForTest(localLaunch)).toBeNull();
   });
 });
 
@@ -1087,24 +962,4 @@ describe("isLocalChromeHostForTest", () => {
       expect(isLocalChromeHostForTest(host)).toBe(false);
     },
   );
-});
-
-describe("assistant wait with rate-limit notices", () => {
-  test("does not poll the page or log anything for rate-limit notices", async () => {
-    const logger = vi.fn();
-    const Runtime = { evaluate: vi.fn() };
-
-    await expect(
-      __test__.waitForAssistantOrGeneratedImageResponse({
-        Runtime: Runtime as never,
-        waitForText: () => Promise.resolve({ text: "assistant answer", meta: {} }),
-        timeoutMs: 600_000,
-        imageOutputRequested: false,
-        logger: logger as never,
-      }),
-    ).resolves.toEqual({ text: "assistant answer", meta: {} });
-
-    expect(Runtime.evaluate).not.toHaveBeenCalled();
-    expect(logger).not.toHaveBeenCalled();
-  });
 });

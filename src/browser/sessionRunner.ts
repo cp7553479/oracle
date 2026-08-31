@@ -204,12 +204,12 @@ export async function runBrowserSessionExecution(
     desiredModel: browserConfig.desiredModel,
     modelStrategy: browserConfig.modelStrategy,
   });
-  const headerLine = `Launching browser mode (${launchModel}).`;
+  const headerLine = `Launching browser mode (${launchModel}) with ~${promptArtifacts.estimatedInputTokens.toLocaleString()} tokens.`;
   const automationLogger: BrowserLogger = ((message?: string) => {
     if (typeof message !== "string") return;
     const shouldAlwaysPrint =
       message.startsWith("[browser] ") &&
-      /archive|fallback|follow-up|retry|thinking|waiting for chatgpt|browser slot|browser control|browser guidance|model selection|model picker|launched chrome|signed in|conversation url/i.test(
+      /archive|fallback|follow-up|retry|thinking|waiting for chatgpt|browser slot|browser control|browser guidance|model selection|model picker/i.test(
         message,
       );
     if (!runOptions.verbose && !shouldAlwaysPrint) return;
@@ -221,11 +221,7 @@ export async function runBrowserSessionExecution(
   log(headerLine);
   log(chalk.dim("This run can take up to an hour (usually ~10 minutes)."));
   if (runOptions.verbose) {
-    log(
-      chalk.dim(
-        "Browser automation does not stream output; the result prints when the run completes.",
-      ),
-    );
+    log(chalk.dim("Chrome automation does not stream output; this may take a minute..."));
   }
   const persistRuntimeHint = deps.persistRuntimeHint ?? (() => {});
   const executionBrowserConfig = runOptions.browserResumeConversationUrl
@@ -271,9 +267,11 @@ export async function runBrowserSessionExecution(
   }
   const modelSelection =
     browserResult.modelSelection ?? buildUnavailableModelSelectionEvidence(browserConfig);
-  if (modelSelection) {
+  const silentlyUsedCurrentModel =
+    modelSelection?.status === "skipped" && modelSelection.strategy === "current";
+  if (modelSelection && !silentlyUsedCurrentModel) {
     log(
-      `[browser] Model verified: ${runOptions.model} -> ${modelSelection.resolvedLabel ?? modelSelection.requestedModel ?? "(unavailable)"}`,
+      `[browser] Model selection evidence: ${formatBrowserModelSelectionEvidence(modelSelection, runOptions.model)}`,
     );
   }
   const warnings = buildBrowserRunWarnings({
@@ -322,7 +320,7 @@ export async function runBrowserSessionExecution(
   })();
   const { line1, line2 } = formatFinishLine({
     elapsedMs: browserResult.tookMs,
-    model: `${resolveBrowserModelDisplayName({ model: runOptions.model, evidence: modelSelection })} (browser)`,
+    model: `${resolveBrowserModelDisplayName({ model: runOptions.model, evidence: modelSelection })}[browser]`,
     tokensPart,
     detailParts: [
       runOptions.file && runOptions.file.length > 0 ? `files=${runOptions.file.length}` : null,

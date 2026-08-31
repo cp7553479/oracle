@@ -40,13 +40,6 @@ export interface BrowserConfigDefaults {
   assistantRecheckDelayMs?: number;
   /** Time budget for the delayed recheck attempt. */
   assistantRecheckTimeoutMs?: number;
-  /**
-   * When the assistant response stalls for this long, reload the conversation and keep
-   * waiting instead of idling until the full timeout. 0 disables (legacy behavior).
-   */
-  idleReloadMs?: number;
-  /** Max conversation reloads triggered by idle stalls within one run. */
-  maxIdleReloads?: number;
   /** Wait for an existing shared Chrome to appear before launching a new one. */
   reuseChromeWaitMs?: number;
   /** Max time to wait for a shared manual-login profile lock (serializes parallel runs). */
@@ -294,8 +287,6 @@ function sanitizeProjectConfig(config: UserConfig): UserConfig {
       "attachmentTimeoutMs",
       "assistantRecheckDelayMs",
       "assistantRecheckTimeoutMs",
-      "idleReloadMs",
-      "maxIdleReloads",
       "reuseChromeWaitMs",
       "profileLockTimeoutMs",
       "maxConcurrentTabs",

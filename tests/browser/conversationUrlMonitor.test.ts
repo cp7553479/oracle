@@ -25,7 +25,7 @@ describe("createConversationUrlMonitor", () => {
 
     expect(persistUrl).toHaveBeenCalledWith("https://chatgpt.com/c/issue-284");
     expect(logger).toHaveBeenCalledWith(
-      "[browser] conversation url = https://chatgpt.com/c/issue-284",
+      "[browser] conversation url (post-submit) = https://chatgpt.com/c/issue-284",
     );
   });
 
@@ -76,31 +76,6 @@ describe("createConversationUrlMonitor", () => {
 
     expect(reads).toBe(3);
     expect(persistUrl).toHaveBeenCalledWith("https://chatgpt.com/c/recovered");
-  });
-
-  test("ignores a transient WEB URL and persists the canonical conversation URL", async () => {
-    const readUrl = vi
-      .fn<() => Promise<string>>()
-      .mockResolvedValueOnce("https://chatgpt.com/c/WEB:temporary-id")
-      .mockResolvedValue("https://chatgpt.com/c/6a5f70c1-17b8-83ec-8436-276c875dc5a3");
-    const persistUrl = vi.fn(async () => {});
-    let now = 0;
-    const monitor = createConversationUrlMonitor({
-      readUrl,
-      persistUrl,
-      logger: vi.fn() as BrowserLogger,
-      wait: async () => {
-        now += 250;
-      },
-      now: () => now,
-    });
-
-    await expect(monitor.update("post-submit", 1_000)).resolves.toBe(true);
-
-    expect(persistUrl).toHaveBeenCalledOnce();
-    expect(persistUrl).toHaveBeenCalledWith(
-      "https://chatgpt.com/c/6a5f70c1-17b8-83ec-8436-276c875dc5a3",
-    );
   });
 
   test("shares one in-flight poll between background callers", async () => {

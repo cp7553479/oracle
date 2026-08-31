@@ -239,9 +239,53 @@ describe("runBrowserSessionExecution", () => {
     );
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining(
-        "[browser] Model verified: gpt-5.2-pro -> Pro",
+        "[browser] Model selection evidence: requestedKey=gpt-5.2-pro; target=GPT-5.5 Pro; resolvedLabel=Pro",
       ),
     );
+  });
+
+  test("does not log a silent current-model fallback", async () => {
+    const log = vi.fn();
+    const result = await runBrowserSessionExecution(
+      {
+        runOptions: baseRunOptions,
+        browserConfig: { desiredModel: "GPT-5.5 Pro", modelStrategy: "select" },
+        cwd: "/repo",
+        log,
+      },
+      {
+        assemblePrompt: async () => ({
+          markdown: "prompt",
+          composerText: "prompt",
+          estimatedInputTokens: 42,
+          attachments: [],
+          inlineFileCount: 0,
+          tokenEstimateIncludesInlineFiles: false,
+          attachmentsPolicy: "auto",
+          attachmentMode: "inline",
+          fallback: null,
+        }),
+        executeBrowser: vi.fn(async () => ({
+          answerText: "ok",
+          answerMarkdown: "ok",
+          tookMs: 1000,
+          answerTokens: 12,
+          answerChars: 20,
+          modelSelection: {
+            requestedModel: "GPT-5.5 Pro",
+            resolvedLabel: null,
+            strategy: "current" as const,
+            status: "skipped" as const,
+            verified: false,
+            source: "config" as const,
+            capturedAt: "2026-08-31T00:00:00.000Z",
+          },
+        })),
+      },
+    );
+
+    expect(result.modelSelection).toMatchObject({ strategy: "current", status: "skipped" });
+    expect(log.mock.calls.flat().join("\n")).not.toContain("Model selection evidence");
   });
 
   test("prints model-picker diagnostics without verbose mode", async () => {
@@ -828,7 +872,7 @@ describe("runBrowserSessionExecution", () => {
       .map((c) => String(c[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
     expect(finishedLine).toBeDefined();
-    expect(finishedLine).toContain(" (browser)");
+    expect(finishedLine).toContain("[browser]");
     expect(finishedLine).not.toContain("tok(");
     expect(finishedLine).not.toContain("tokens (");
   });
@@ -868,7 +912,7 @@ describe("runBrowserSessionExecution", () => {
       .map((c) => String(c[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
     expect(finishedLine).toBeDefined();
-    expect(finishedLine).toContain(" (browser)");
+    expect(finishedLine).toContain("[browser]");
     expect(finishedLine).not.toContain("tok(");
     expect(finishedLine).not.toContain("tokens (");
   });
@@ -916,8 +960,8 @@ describe("runBrowserSessionExecution", () => {
     const finishedLine = log.mock.calls
       .map((call) => String(call[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
-    expect(finishedLine).toContain("Pro (browser)");
-    expect(finishedLine).not.toContain("gpt-5.5-pro (browser)");
+    expect(finishedLine).toContain("Pro[browser]");
+    expect(finishedLine).not.toContain("gpt-5.5-pro[browser]");
   });
 
   test("keeps the requested key in the live finish line when picker evidence is unverified", async () => {
@@ -963,7 +1007,7 @@ describe("runBrowserSessionExecution", () => {
     const finishedLine = log.mock.calls
       .map((call) => String(call[0]))
       .find((line) => line.includes("↑") && line.includes("↓") && line.includes("Δ"));
-    expect(finishedLine).toContain("gpt-5.5-pro (browser)");
+    expect(finishedLine).toContain("gpt-5.5-pro[browser]");
     expect(finishedLine).not.toContain("Thinking 5.5 Heavy[browser]");
   });
 

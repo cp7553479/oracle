@@ -2,7 +2,6 @@ import chalk from "chalk";
 import kleur from "kleur";
 import fs from "node:fs/promises";
 import type {
-  SessionArtifact,
   SessionMetadata,
   SessionTransportMetadata,
   SessionUserErrorMetadata,
@@ -137,11 +136,7 @@ async function writeReattachAnswer(
 async function saveReattachBrowserArtifacts(
   sessionId: string,
   metadata: SessionMetadata,
-  result: {
-    answerText: string;
-    answerMarkdown: string;
-    savedImages?: SessionArtifact[];
-  },
+  result: { answerText: string; answerMarkdown: string },
 ): Promise<SessionMetadata["artifacts"]> {
   const body = result.answerMarkdown || result.answerText;
   const conversationUrl = metadata.browser?.runtime?.tabUrl;
@@ -155,16 +150,15 @@ async function saveReattachBrowserArtifacts(
       }).catch(() => null)
     : null;
   const prompt = (await readStoredPrompt(sessionId)) ?? metadata.promptPreview ?? "";
-  const reattachedArtifacts = appendArtifacts(metadata.artifacts, result.savedImages ?? []);
   const transcriptArtifact = await saveBrowserTranscriptArtifact({
     sessionId,
     prompt,
     answerMarkdown: body,
     conversationUrl,
-    artifacts: appendArtifacts(reattachedArtifacts, [reportArtifact]),
+    artifacts: appendArtifacts(undefined, [reportArtifact]),
     logger,
   }).catch(() => null);
-  return appendArtifacts(reattachedArtifacts, [reportArtifact, transcriptArtifact]);
+  return appendArtifacts(metadata.artifacts, [reportArtifact, transcriptArtifact]);
 }
 
 export interface ShowStatusOptions {
@@ -343,11 +337,7 @@ export async function attachSession(
           }) as unknown as BrowserLogger,
           { verbose: true },
         ),
-        {
-          promptPreview: metadata.promptPreview,
-          generateImagePath: metadata.options?.generateImage,
-          sessionId,
-        },
+        { promptPreview: metadata.promptPreview },
       );
       const outputTokens = estimateTokenCount(result.answerMarkdown);
       const artifacts = await saveReattachBrowserArtifacts(sessionId, metadata, result);
@@ -1066,7 +1056,7 @@ export function formatCompletionSummary(
   }
   const modeLabel =
     (metadata.mode ?? metadata.options?.mode) === "browser"
-      ? `${resolveSessionBrowserModelDisplayName(metadata)} (browser)`
+      ? `${resolveSessionBrowserModelDisplayName(metadata)}[browser]`
       : (metadata.model ?? "n/a");
   const usage = metadata.usage;
   const cost = resolveSessionCost(metadata);

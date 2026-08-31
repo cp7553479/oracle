@@ -2,12 +2,12 @@ export {
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensureNotBlocked,
-  dismissBlockingUi,
   ensureLoggedIn,
   ensurePromptReady,
   ensureChatMode,
   waitForResumedConversationHydration,
   installJavaScriptDialogAutoDismissal,
+  dismissBlockingUi,
 } from "./actions/navigation.js";
 export { ensureModelSelection } from "./actions/modelSelection.js";
 export { submitPrompt, clearPromptComposer } from "./actions/promptComposer.js";
@@ -21,7 +21,6 @@ export {
 export {
   waitForAssistantResponse,
   readAssistantSnapshot,
-  normalizeAssistantSnapshot,
   captureAssistantMarkdown,
   buildAssistantExtractorForTest,
   buildAssistantSnapshotExpressionForTest,

@@ -31,7 +31,8 @@ describe("session lifecycle formatting", () => {
     expect(formatSessionLifecycleBlock(meta)).toEqual([
       "Session: sess-123",
       "Mode: api background",
-        "Detach: yes, polling",
+      "Models: 2 parallel",
+      "Detach: yes, polling",
       "Reattach: oracle session sess-123",
     ]);
     expect(formatSessionExecutionLabel(meta)).toBe("api/bg");

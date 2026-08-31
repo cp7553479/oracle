@@ -263,7 +263,7 @@ describe("sessionDisplay helpers", () => {
         },
       },
     });
-    expect(browserSummary).toContain("Pro (browser)");
+    expect(browserSummary).toContain("Pro[browser]");
     expect(browserSummary).not.toContain("GPT-5.6 Pro");
 
     const unverifiedSummary = formatCompletionSummary({
@@ -282,7 +282,7 @@ describe("sessionDisplay helpers", () => {
         },
       },
     });
-    expect(unverifiedSummary).toContain("gpt-5.5-pro (browser)");
-    expect(unverifiedSummary).not.toContain("Thinking 5.5 Heavy (browser)");
+    expect(unverifiedSummary).toContain("gpt-5.5-pro[browser]");
+    expect(unverifiedSummary).not.toContain("Thinking 5.5 Heavy[browser]");
   });
 });

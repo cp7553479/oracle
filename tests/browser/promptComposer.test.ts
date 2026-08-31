@@ -285,82 +285,6 @@ describe("promptComposer", () => {
     ).resolves.toBe(1);
   });
 
-  test("does not accept an optimistic user turn while ChatGPT is still on the root page", async () => {
-    vi.useFakeTimers();
-    try {
-      const probe = {
-        baseline: 0,
-        turnsCount: 1,
-        userMatched: true,
-        prefixMatched: false,
-        lastMatched: true,
-        hasNewTurn: true,
-        stopVisible: true,
-        assistantVisible: false,
-        composerCleared: true,
-        inConversation: false,
-        href: "https://chatgpt.com/",
-      };
-      const runtime = {
-        evaluate: vi.fn().mockResolvedValue({ result: { value: probe } }),
-      } as unknown as {
-        evaluate: (args: { expression: string; returnByValue?: boolean }) => Promise<unknown>;
-      };
-
-      const promise = promptComposer.verifyPromptCommitted(
-        runtime as never,
-        "new image request",
-        150,
-        undefined,
-        0,
-      );
-      const assertion = expect(promise).rejects.toThrow(/prompt did not appear/i);
-      await vi.advanceTimersByTimeAsync(250);
-      await assertion;
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("falls back to stable DOM submission evidence when no canonical URL appears", async () => {
-    vi.useFakeTimers();
-    try {
-      const probe = {
-        baseline: 0,
-        turnsCount: 1,
-        userMatched: true,
-        prefixMatched: false,
-        lastMatched: true,
-        hasNewTurn: true,
-        stopVisible: true,
-        assistantVisible: false,
-        composerCleared: true,
-        inConversation: false,
-        href: "https://chatgpt.com/",
-      };
-      const runtime = {
-        evaluate: vi.fn().mockResolvedValue({ result: { value: probe } }),
-      } as unknown as {
-        evaluate: (args: { expression: string; returnByValue?: boolean }) => Promise<unknown>;
-      };
-      const logger = vi.fn();
-
-      const promise = promptComposer.verifyPromptCommitted(
-        runtime as never,
-        "new image request",
-        3_000,
-        logger as never,
-        0,
-      );
-      const assertion = expect(promise).resolves.toBe(1);
-      await vi.advanceTimersByTimeAsync(2_100);
-      await assertion;
-      expect(logger).toHaveBeenCalledWith(expect.stringContaining("continuing via fallback"));
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   test("attachment sends time out instead of allowing Enter fallback", async () => {
     vi.useFakeTimers();
     try {
@@ -396,7 +320,7 @@ describe("promptComposer", () => {
     expect(promptComposer.sendButtonTimeoutMs(["oracle-attach-verify.txt"], 120_000)).toBe(120_000);
   });
 
-  test("marks prompt submitted after the send action", async () => {
+  test("marks prompt submitted before commit verification finishes", async () => {
     const onPromptSubmitted = vi.fn();
     const runtime = {
       evaluate: vi.fn(async ({ expression }: { expression: string }) => {
@@ -601,76 +525,12 @@ describe("promptComposer", () => {
     }
   });
 
-  test("keeps prompt submitted marked when commit verification fails", async () => {
-    vi.useFakeTimers();
-    try {
-      const onPromptSubmitted = vi.fn();
-      const runtime = {
-        evaluate: vi.fn(async ({ expression }: { expression: string }) => {
-          if (expression.includes("document.readyState")) {
-            return { result: { value: { ready: true, composer: true, fileInput: false } } };
-          }
-          if (expression.includes("focused: true")) {
-            return { result: { value: { focused: true } } };
-          }
-          if (expression.includes("editorText")) {
-            return {
-              result: { value: { editorText: "hello", fallbackValue: "", activeValue: "hello" } },
-            };
-          }
-          if (expression.includes("button.scrollIntoView")) {
-            return { result: { value: { status: "clicked" } } };
-          }
-          return {
-            result: {
-              value: {
-                baseline: 0,
-                turnsCount: 1,
-                userMatched: true,
-                lastMatched: true,
-                hasNewTurn: true,
-                stopVisible: false,
-                composerCleared: true,
-                inConversation: false,
-              },
-            },
-          };
-        }),
-      };
-      const input = { insertText: vi.fn(), dispatchKeyEvent: vi.fn() };
-      const logger = Object.assign(vi.fn(), { verbose: false });
-
-      const promise = submitPrompt(
-        {
-          runtime: runtime as never,
-          input: input as never,
-          baselineTurns: 0,
-          inputTimeoutMs: 150,
-          onPromptSubmitted,
-        },
-        "hello",
-        logger as never,
-      );
-      const assertion = expect(promise).rejects.toThrow(/prompt did not appear/i);
-      await vi.advanceTimersByTimeAsync(61_000);
-      await assertion;
-      expect(onPromptSubmitted).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   test("waits for a delayed trusted click without issuing a second send", async () => {
     vi.useFakeTimers();
     try {
-      // First two evaluates: send-button coords (measured twice for stability).
-      // Subsequent evaluates: sendTookEffect returns true (composer cleared / stop
-      // button visible), so the fallback click never fires.
-      const evaluate = vi
-        .fn()
-        .mockResolvedValueOnce({ result: { value: { status: "point", x: 10, y: 20 } } })
-        .mockResolvedValueOnce({ result: { value: { status: "point", x: 10, y: 20 } } })
-        .mockResolvedValue({ result: { value: true } });
+      const evaluate = vi.fn().mockResolvedValue({
+        result: { value: { status: "point", x: 10, y: 20 } },
+      });
       const input = {
         dispatchMouseEvent: vi.fn(async ({ type }: { type: string }) => {
           if (type === "mouseReleased") {
@@ -685,10 +545,10 @@ describe("promptComposer", () => {
         undefined,
         undefined,
       );
-      await vi.advanceTimersByTimeAsync(1_500);
+      await vi.advanceTimersByTimeAsync(1_250);
 
       await expect(result).resolves.toBe(true);
-      expect(evaluate).toHaveBeenCalledTimes(3);
+      expect(evaluate).toHaveBeenCalledTimes(2);
       expect(input.dispatchMouseEvent).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
@@ -701,12 +561,7 @@ describe("promptComposer", () => {
       const events: string[] = [];
       let activated = false;
       const runtime = {
-        evaluate: vi.fn(async ({ expression }: { expression: string }) => {
-          // The fork's post-click sendTookEffect probe reuses Runtime.evaluate;
-          // report an effective send so the fallback click never fires.
-          if (expression.includes("findSendButton")) {
-            return { result: { value: true } };
-          }
+        evaluate: vi.fn(async () => {
           events.push("measurePoint");
           return {
             result: {
@@ -768,10 +623,7 @@ describe("promptComposer", () => {
           .fn()
           .mockResolvedValueOnce({ result: { value: { status: "settling" } } })
           .mockResolvedValueOnce({ result: { value: { status: "point", x: 10, y: 20 } } })
-          .mockResolvedValueOnce({ result: { value: { status: "point", x: 30, y: 40 } } })
-          .mockResolvedValueOnce({ result: { value: { status: "point", x: 30, y: 40 } } })
-          // Fork's sendTookEffect probe: the send took effect, no fallback click.
-          .mockResolvedValue({ result: { value: true } }),
+          .mockResolvedValue({ result: { value: { status: "point", x: 30, y: 40 } } }),
       };
       const input = { dispatchMouseEvent: vi.fn() };
       const result = promptComposer.attemptSendButton(runtime as never, input as never);

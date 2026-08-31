@@ -235,19 +235,6 @@ describe("applyBrowserDefaultsFromConfig", () => {
     expect(options.browserManualLoginCookieSync).toBe(true);
   });
 
-  test("ignores config manualLogin:false when CLI flags are untouched", () => {
-    const options: BrowserDefaultsOptions = {};
-    const config: UserConfig = {
-      browser: {
-        manualLogin: false,
-      },
-    };
-
-    applyBrowserDefaultsFromConfig(options, config, (_key) => "default");
-
-    expect(options.browserManualLogin).toBeUndefined();
-  });
-
   test("applies attach-running defaults from config when CLI flags are untouched", () => {
     const options: BrowserDefaultsOptions = {};
     const config: UserConfig = {

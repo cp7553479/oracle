@@ -25,7 +25,6 @@ import {
   runBrowserSessionExecution,
   type BrowserSessionRunnerDeps,
 } from "../browser/sessionRunner.js";
-import { appendArtifacts } from "../browser/artifacts.js";
 import { renderMarkdownAnsi } from "./markdownRenderer.js";
 import { formatResponseMetadata, formatTransportMetadata } from "./sessionDisplay.js";
 import { markErrorLogged } from "./errorUtils.js";
@@ -523,7 +522,7 @@ export async function performSessionRun({
     const cloudflareChallenge =
       userError?.category === "browser-automation" &&
       (userError.details as { stage?: string } | undefined)?.stage === "cloudflare-challenge";
-    const browserCanReattach = true;
+    const browserCanReattach = !browserConfig?.copyProfileSource;
     let reattachGuidanceLogged = false;
     const logBrowserReattachGuidance = (
       runtime: BrowserRuntimeMetadata | null | undefined,
@@ -1218,8 +1217,6 @@ async function autoReattachUntilComplete({
       };
       const result = await resumeBrowserSession(runtime, reattachConfig, logger, {
         promptPreview: sessionMeta.promptPreview,
-        generateImagePath: runOptions.generateImage,
-        sessionId: sessionMeta.id,
       });
       captureSucceeded = true;
       const answerText = result.answerMarkdown || result.answerText || "";
@@ -1230,7 +1227,7 @@ async function autoReattachUntilComplete({
         answerMarkdown: answerText,
         conversationUrl: runtime.tabUrl,
         browserConfig,
-        existingArtifacts: appendArtifacts(sessionMeta.artifacts, result.savedImages ?? []),
+        existingArtifacts: sessionMeta.artifacts,
         logger,
       });
       const logWriter = sessionStore.createLogWriter(sessionMeta.id);

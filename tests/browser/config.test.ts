@@ -38,8 +38,6 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.profileLockTimeoutMs).toBe(300_000);
     expect(resolved.attachmentTimeoutMs).toBe(45_000);
     expect(resolved.maxConcurrentTabs).toBe(1);
-    expect(resolved.desiredModel).toBe("GPT-5.6 Sol");
-    expect(resolved.thinkingTime).toBe("extended");
     expect(resolved.researchMode).toBe("off");
     expect(resolved.archiveConversations).toBe("auto");
   });
@@ -85,7 +83,6 @@ describe("resolveBrowserConfig", () => {
 
     expect(resolved.url).toBe("https://chatgpt.com/?temporary-chat=true");
     expect(resolved.desiredModel).toBe("GPT-5.2 Pro");
-    expect(resolved.thinkingTime).toBeUndefined();
     expect(resolved.modelStrategy).toBe("select");
   });
 
@@ -94,18 +91,33 @@ describe("resolveBrowserConfig", () => {
 
     expect(
       resolveBrowserConfig({
+        manualLogin: true,
         manualLoginProfileDir: " /tmp/config-profile ",
       }).manualLoginProfileDir,
     ).toBe("/tmp/config-profile");
 
-    expect(resolveBrowserConfig({}).manualLoginProfileDir).toBe("/tmp/env-profile");
+    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
+      "/tmp/env-profile",
+    );
 
     process.env.ORACLE_BROWSER_PROFILE_DIR = "   ";
-    expect(resolveBrowserConfig({}).manualLoginProfileDir).toBe(
+    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
       path.join(os.homedir(), ".oracle", "browser-profile"),
     );
 
-    expect(resolveBrowserConfig({ manualLogin: false }).manualLogin).toBe(true);
+    expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBe(
+      path.join(os.homedir(), ".oracle", "browser-profile"),
+    );
+  });
+
+  test("forces manual login and clears copied-profile input from every caller", () => {
+    const resolved = resolveBrowserConfig({
+      manualLogin: false,
+      copyProfileSource: "/tmp/copied-profile-source",
+    });
+
+    expect(resolved.manualLogin).toBe(true);
+    expect(resolved.copyProfileSource).toBeNull();
   });
 
   test("resolves maxConcurrentTabs from config, env, and default", () => {

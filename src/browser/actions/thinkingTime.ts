@@ -75,7 +75,7 @@ function confirmedThinkingTarget(
   return level === "pro" ? "Pro" : strictModelKind === "pro" ? "Pro Extended" : capitalizedLevel;
 }
 
-const BROWSER_THINKING_LOG_PREFIX = "[browser] Thinking effort:";
+const BROWSER_THINKING_LOG_PREFIX = "[browser] Thinking time:";
 
 function formatBrowserThinkingLog(message: string): string {
   return `${BROWSER_THINKING_LOG_PREFIX} ${message.replace(/^Thinking time:\s*/, "")}`;
@@ -189,7 +189,7 @@ export async function ensureThinkingTime(
       }
       logger(
         formatBrowserThinkingLog(
-          `unknown outcome selecting ${capitalizedLevel}; keeping the effort already selected in ChatGPT.`,
+          `unknown outcome selecting ${capitalizedLevel}; continuing with ChatGPT default.`,
         ),
       );
       return;
@@ -234,25 +234,21 @@ export async function ensureThinkingTimeIfAvailable(
         if (logger.verbose) {
           logger(
             formatBrowserThinkingLog(
-              `${result.status.replaceAll("-", " ")}; keeping ChatGPT's current selection.`,
+              `${result.status.replaceAll("-", " ")}; continuing with default.`,
             ),
           );
         }
         return false;
       default:
         if (logger.verbose) {
-          logger(formatBrowserThinkingLog("unknown outcome; keeping ChatGPT's current selection."));
+          logger(formatBrowserThinkingLog("unknown outcome; continuing with default."));
         }
         return false;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (logger.verbose) {
-      logger(
-        formatBrowserThinkingLog(
-          `selection failed (${message}); keeping ChatGPT's current selection.`,
-        ),
-      );
+      logger(formatBrowserThinkingLog(`selection failed (${message}); continuing with default.`));
       await logDomFailure(Runtime, logger, "thinking-time");
     }
     return false;
@@ -954,7 +950,7 @@ function buildThinkingTimeExpression(
     ];
     const EFFORT_WORDS = [
       'effort', 'aufwand', '强度', '努力', '推論レベル', '思考量', '추론 수준',
-      'esfuerzo', 'esforco', 'esforzo', 'sforzo', 'inspanning', 'wysilek',
+      'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
     ];
     const containsAny = (label, words) => words.some((word) => label.includes(word));
     const findAdvancedToggle = (menu) => {

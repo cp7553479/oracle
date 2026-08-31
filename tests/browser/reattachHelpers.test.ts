@@ -1,18 +1,7 @@
 import { describe, expect, test } from "vitest";
-import {
-  alignPromptEchoPair,
-  buildPromptEchoMatcher,
-  extractConversationIdFromUrl,
-} from "../../src/browser/reattachHelpers.ts";
+import { alignPromptEchoPair, buildPromptEchoMatcher } from "../../src/browser/reattachHelpers.ts";
 
 describe("alignPromptEchoPair", () => {
-  test("rejects transient WEB conversation URLs", () => {
-    expect(extractConversationIdFromUrl("https://chatgpt.com/c/WEB:temporary-id")).toBeUndefined();
-    expect(
-      extractConversationIdFromUrl("https://chatgpt.com/c/6a5f70c1-17b8-83ec-8436-276c875dc5a3"),
-    ).toBe("6a5f70c1-17b8-83ec-8436-276c875dc5a3");
-  });
-
   test("aligns answer text when text is a prompt echo", () => {
     const matcher = buildPromptEchoMatcher("Echo prompt");
     expect(matcher).not.toBeNull();

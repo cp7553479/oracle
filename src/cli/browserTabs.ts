@@ -62,7 +62,7 @@ export interface BrowserHarvestOptions {
   recoverIfMissing?: boolean;
   /**
    * After a successful recovery harvest, close the relaunched Chrome.
-   * Default: false (leave the recovered tab visible for the user).
+   * Default: true.
    */
   closeAfterRecover?: boolean;
 }
@@ -79,7 +79,7 @@ export interface BrowserLiveTailOptions {
   recoverIfMissing?: boolean;
   /**
    * After completion, close the relaunched Chrome.
-   * Default: false (leave the recovered tab visible).
+   * Default: true.
    */
   closeAfterRecover?: boolean;
 }
@@ -315,7 +315,7 @@ export async function harvestSessionBrowserOutput(
     }
     return harvested;
   } finally {
-    finishRecoveredChrome(recoveredChrome, options.closeAfterRecover);
+    finishRecoveredChrome(recoveredChrome, options.closeAfterRecover ?? true);
   }
 }
 
@@ -429,6 +429,6 @@ export async function liveTailSessionBrowserOutput(
       await new Promise((resolve) => setTimeout(resolve, LIVE_POLL_MS));
     }
   } finally {
-    finishRecoveredChrome(recoveredChrome, options.closeAfterRecover);
+    finishRecoveredChrome(recoveredChrome, options.closeAfterRecover ?? true);
   }
 }

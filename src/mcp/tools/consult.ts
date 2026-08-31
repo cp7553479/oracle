@@ -27,7 +27,7 @@ async function readSessionLogTail(sessionId: string, maxBytes: number): Promise<
 }
 import { performSessionRun } from "../../cli/sessionRunner.js";
 import { runDryRunSummary } from "../../cli/dryRun.js";
-import { CHATGPT_URL, defaultBrowserThinkingTimeForModel } from "../../browser/constants.js";
+import { CHATGPT_URL } from "../../browser/constants.js";
 import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
@@ -341,24 +341,18 @@ export function buildConsultBrowserConfig({
 }): BrowserSessionConfig {
   const configuredBrowser = userConfig.browser ?? {};
   const envProfileDir = (env.ORACLE_BROWSER_PROFILE_DIR ?? "").trim();
+  const hasProfileDir = envProfileDir.length > 0;
   const preferredLabel = (browserModelLabel ?? inputModel)?.trim();
   const isChatGptModel = runModel.startsWith("gpt-") && !runModel.includes("codex");
   const desiredModelLabel = isChatGptModel
     ? mapModelToBrowserLabel(runModel)
     : resolveBrowserModelLabel(preferredLabel, runModel);
   const configuredUrl = configuredBrowser.chatgptUrl ?? configuredBrowser.url ?? CHATGPT_URL;
-  const manualLogin = true;
+  const manualLogin = hasProfileDir
+    ? true
+    : (configuredBrowser.manualLogin ?? process.platform === "win32");
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
   const modelStrategy = browserModelStrategy ?? configuredBrowser.modelStrategy;
-  const resolvedThinkingTime =
-    browserThinkingTime ??
-    configuredThinkingTime ??
-    resolveDefaultBrowserThinkingTime({
-      model: runModel,
-      requestedModel: inputModel,
-      modelStrategy,
-    }) ??
-    defaultBrowserThinkingTimeForModel(desiredModelLabel);
 
   return {
     ...configuredBrowser,
@@ -374,7 +368,14 @@ export function buildConsultBrowserConfig({
     manualLoginProfileDir: manualLogin
       ? ((envProfileDir || configuredBrowser.manualLoginProfileDir) ?? null)
       : null,
-    thinkingTime: resolvedThinkingTime,
+    thinkingTime:
+      browserThinkingTime ??
+      configuredThinkingTime ??
+      resolveDefaultBrowserThinkingTime({
+        model: runModel,
+        requestedModel: inputModel,
+        modelStrategy,
+      }),
     modelStrategy,
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,

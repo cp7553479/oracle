@@ -6,7 +6,6 @@ import {
   MENU_ITEM_SELECTOR,
   MODEL_BUTTON_SELECTOR,
 } from "../constants.js";
-import { logDomFailure } from "../domDebug.js";
 import { dismissBlockingUi } from "./navigation.js";
 import { buildClickDispatcher } from "./domEvents.js";
 import { delay } from "../utils.js";
@@ -57,11 +56,9 @@ export async function ensureModelSelection(
     }
     if (!announcedWait) {
       announcedWait = true;
-      if (logger.verbose) {
-        logger(
-          `[browser] Waiting up to ${Math.round(buttonWaitMs / 1000)}s for the model picker to render.`,
-        );
-      }
+      logger(
+        `Model picker button not mounted yet; waiting up to ${Math.round(buttonWaitMs / 1000)}s for the composer pill to render.`,
+      );
     }
     await delay(buttonPollMs);
   }
@@ -87,40 +84,46 @@ export async function ensureModelSelection(
       };
     }
     case "option-not-found": {
-      // A transient notice dialog (for example the single-"Got it" request-speed
-      // notice) can sit over the picker and pollute the scan. Dismiss it and
-      // rescan once before failing; a dismissed dialog makes the retry a no-op.
-      if (!options.rescannedAfterDismiss && (await dismissBlockingUi(Runtime, logger))) {
+      // A transient notice dialog (including ChatGPT's single-"Got it"
+      // request-speed notice) can cover the picker and pollute the option scan.
+      // Dismiss it silently and rescan once. If selection still fails, preserve
+      // the page's current model and let prompt submission continue.
+      if (
+        !options.rescannedAfterDismiss &&
+        (await dismissBlockingUi(Runtime, logger, { silent: true }))
+      ) {
         return ensureModelSelection(Runtime, desiredModel, logger, strategy, {
           ...options,
           rescannedAfterDismiss: true,
         });
       }
-      await logDomFailure(Runtime, logger, "model-switcher-option");
-      const isTemporary = result.hint?.temporaryChat ?? false;
-      const available = (result.hint?.availableOptions ?? []).filter(Boolean);
-      const availableHint = available.length > 0 ? ` Available: ${available.join(", ")}.` : "";
-      const tempHint =
-        isTemporary && /\bpro\b/i.test(desiredModel)
-          ? " You are in Temporary Chat mode; model labels may differ there. If the current Temporary Chat already shows the desired Pro mode, retry with --browser-model-strategy current; otherwise choose an available model or turn Temporary Chat off."
-          : "";
-      throw new Error(
-        `Unable to find model option matching "${desiredModel}" in the model switcher.${availableHint}${tempHint}`,
-      );
+      return buildCurrentModelFallbackEvidence(desiredModel);
     }
     default: {
-      if (!options.rescannedAfterDismiss && (await dismissBlockingUi(Runtime, logger))) {
+      if (
+        !options.rescannedAfterDismiss &&
+        (await dismissBlockingUi(Runtime, logger, { silent: true }))
+      ) {
         return ensureModelSelection(Runtime, desiredModel, logger, strategy, {
           ...options,
           rescannedAfterDismiss: true,
         });
       }
-      await logDomFailure(Runtime, logger, "model-switcher-button");
-      throw new Error(
-        "Unable to locate the ChatGPT model selector button. If the desired model is already selected in the browser, retry with --browser-model-strategy current; otherwise retry with --browser-model-strategy ignore to skip model selection.",
-      );
+      return buildCurrentModelFallbackEvidence(desiredModel);
     }
   }
+}
+
+function buildCurrentModelFallbackEvidence(desiredModel: string): BrowserModelSelectionEvidence {
+  return {
+    requestedModel: desiredModel,
+    resolvedLabel: null,
+    strategy: "current",
+    status: "skipped",
+    verified: false,
+    source: "config",
+    capturedAt: new Date().toISOString(),
+  };
 }
 
 function assertResolvedModelSelection(desiredModel: string, resolvedLabel: string): void {
@@ -241,11 +244,6 @@ function buildModelSelectionExpression(
         .trim();
     };
     const hasToken = (value, token) => normalizeText(value).split(' ').includes(token);
-    const hasAriaLabelledByToken = (node, token) =>
-      (node?.getAttribute?.('aria-labelledby') ?? '')
-        .split(/\\s+/)
-        .filter(Boolean)
-        .includes(token);
     // Normalize every candidate token to keep fuzzy matching deterministic.
     const normalizedTarget = normalizeText(PRIMARY_LABEL);
     const normalizedTokens = Array.from(new Set([normalizedTarget, ...LABEL_TOKENS]))
@@ -450,19 +448,10 @@ function buildModelSelectionExpression(
       if (normalized.includes('5 0') || normalized.includes('gpt50')) return '5-0';
       return null;
     };
-    const isModelConfigurationDialog = (dialog) =>
-      Boolean(
-        dialog?.querySelector?.(
-          '[role="combobox"][aria-labelledby~="model-selection-label"]',
-        ) || dialog?.querySelector?.('[aria-label="Model options"] [role="radio"]'),
-      );
-    const getConfigurationDialog = () =>
-      Array.from(document.querySelectorAll('[role="dialog"]')).find(
-        isModelConfigurationDialog,
-      ) ?? null;
+    const getConfigurationDialog = () => document.querySelector('[role="dialog"]');
     const getConfiguredVersionLabel = () =>
       (getConfigurationDialog()
-        ?.querySelector?.('[role="combobox"][aria-labelledby~="model-selection-label"]')
+        ?.querySelector?.('[role="combobox"][aria-labelledby="model-selection-label"]')
         ?.textContent ?? '').trim();
     const getConfiguredVariantLabel = () => {
       const label =
@@ -817,7 +806,7 @@ function buildModelSelectionExpression(
       );
       const candidateIsVersionCombobox =
         node?.getAttribute?.('role') === 'combobox' &&
-        hasAriaLabelledByToken(node, 'model-selection-label');
+        node?.getAttribute?.('aria-labelledby') === 'model-selection-label';
       if (candidateIsVersionCombobox && candidateTextVersion === desiredVersion) {
         return 0;
       }
@@ -1139,7 +1128,7 @@ function buildModelSelectionExpression(
       (testid ?? '').toLowerCase().includes('submenu') ||
       (testid ?? '').toLowerCase() === 'model-configure-modal' ||
       (node?.getAttribute?.('role') === 'combobox' &&
-        hasAriaLabelledByToken(node, 'model-selection-label')) ||
+        node?.getAttribute?.('aria-labelledby') === 'model-selection-label') ||
       node?.getAttribute?.('aria-haspopup') === 'menu' ||
       node?.getAttribute?.('data-has-submenu') !== null;
     const canTrustSelectedOption = (node, normalizedText, testid) => {

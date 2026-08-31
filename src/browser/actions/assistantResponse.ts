@@ -383,9 +383,7 @@ export async function waitForAssistantResponse(
   const elapsedMs = Date.now() - start;
   const remainingMs = Math.max(0, timeoutMs - elapsedMs);
   if (remainingMs > 0) {
-    if (logger.verbose) {
-      logger("[browser] Confirming the capture is terminal (not mid-stream)");
-    }
+    logger("Confirming the capture is terminal (not a mid-stream/preamble capture)");
     const completed = await pollAssistantCompletion(
       Runtime,
       remainingMs,
@@ -652,9 +650,7 @@ async function refreshAssistantSnapshot(
   const isLonger = latestLength > currentLength;
   const hasDifferentText = best.text.trim() !== current.text.trim();
   if (isLonger || hasBetterId || hasDifferentText) {
-    if (logger.verbose) {
-      logger("[browser] Refreshed assistant response via latest snapshot");
-    }
+    logger("Refreshed assistant response via latest snapshot");
     return best;
   }
   return null;
@@ -858,7 +854,7 @@ export function hasScopedCompletionProof(meta: { completionVisible?: boolean }):
 
 export const buildCompletionVisibilityExpressionForTest = buildCompletionVisibilityExpression;
 
-export function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
+function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
   text: string;
   html?: string;
   meta: {

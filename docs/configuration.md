@@ -40,12 +40,12 @@ JSON5 parsing, so trailing commas and comments are allowed.
     assistantRecheckTimeoutMs: 120000, // time budget for the recheck attempt (default: 2m)
     reuseChromeWaitMs: 10000, // wait for a shared Chrome profile to appear before launching (parallel runs)
     profileLockTimeoutMs: 300000, // wait for the manual-login profile lock before sending (parallel runs)
-    maxConcurrentTabs: 3, // soft limit for concurrent ChatGPT tabs using one manual-login profile (or set ORACLE_BROWSER_MAX_CONCURRENT_TABS)
+    maxConcurrentTabs: 1, // this fork forces one queued browser task at a time
     autoReattachDelayMs: 0, // delay before starting periodic auto-reattach attempts (0 = disabled)
     autoReattachIntervalMs: 0, // interval between auto-reattach attempts (0 = disabled)
     autoReattachTimeoutMs: 120000, // time budget per auto-reattach attempt (default: 2m)
     modelStrategy: "select", // select | current | ignore (ChatGPT only; ignored for Gemini web)
-    thinkingTime: "extended", // light | standard | extended | extra-high | pro | heavy
+    thinkingTime: "extended", // light | standard | extended | extra-high | pro | heavy (ChatGPT Thinking/Pro models)
     researchMode: "off", // off | deep (ChatGPT Deep Research; browser only)
     manualLogin: true, // forced in this fork; false is ignored
     manualLoginProfileDir: null, // override profile dir (or set ORACLE_BROWSER_PROFILE_DIR)
@@ -116,16 +116,16 @@ CLI flags and explicit override environment variables → effective config (proj
 - The effective config starts with `~/.oracle/config.json`, then layers project `.oracle/config.json` files from parent to child. `engine`, `model`, `search`, `filesReport`, `heartbeatSeconds`, `maxFileSizeBytes`, and `apiBaseUrl` in the effective config override auto-detected values unless explicitly set on the CLI or through a supported override environment variable.
 - Project `.oracle/config.json` files can override safe workflow defaults such as `engine`, `model`, `search`, `filesReport`, `heartbeatSeconds`, `maxFileSizeBytes`, `promptSuffix`, and allowed `browser.*` workflow settings.
 - Provider routing and machine-local fields (`apiBaseUrl`, `modelOverrides`, `azure`, remote browser host/token defaults, Chrome binary/profile paths, cookie DB paths, cookie-sync opt-ins, and session retention cleanup) are ignored in project configs and are read only from the user config, environment variables, or explicit CLI flags.
-- `ORACLE_ENGINE=api|browser` is a global override for engine selection (useful for MCP/Codex setups); it wins over `config.json`.
+- Upstream supports `ORACLE_ENGINE=api|browser`, but this fork's root CLI entry always overrides it to `browser`.
 - If `azure.endpoint` (or `--azure-endpoint`) is set, Oracle reads `AZURE_OPENAI_API_KEY` first and falls back to `OPENAI_API_KEY` for GPT models.
 - Remote browser defaults follow the same order: `--remote-host/--remote-token` win, then `browser.remoteHost` / `browser.remoteToken` in the config, then `ORACLE_REMOTE_HOST` / `ORACLE_REMOTE_TOKEN` if still unset.
-- `OPENAI_API_KEY` only influences engine selection when neither the CLI nor `config.json` specify an engine (API when present, otherwise browser). Every browser run uses manual-login mode.
+- `OPENAI_API_KEY` does not change this fork's root CLI routing; CLI runs remain browser/manual-login.
 - `modelOverrides` applies only to API runs and existing built-in model keys. It can replace the on-wire `apiModel`, reasoning effort, input limit, and per-token pricing; unspecified fields and the bundled tokenizer remain unchanged. Invalid override values are ignored. Project configs cannot set this field.
 - `ORACLE_NOTIFY*` env vars still layer on top of the config’s `notify` block.
 - `sessionRetentionHours` controls the default value for `--retain-hours`. When unset, `ORACLE_RETAIN_HOURS` (if present) becomes the fallback, and the CLI flag still wins over both.
 - `ORACLE_MAX_FILE_SIZE_BYTES` overrides `maxFileSizeBytes` when set. Oracle validates it as a positive integer number of bytes before reading any `--file` inputs.
 - `browser.chatgptUrl` accepts either the root ChatGPT URL (`https://chatgpt.com/`) or a folder/workspace URL (e.g., `https://chatgpt.com/g/.../project`); `browser.url` remains as a legacy alias.
-- Browser automation defaults can be set under `browser.*`, including `browser.manualLoginProfileDir`, `browser.attachRunning`, `browser.thinkingTime` (CLI override: `--browser-thinking-time`), and `browser.researchMode` (CLI override: `--browser-research`). Manual-login is always enabled; `browser.manualLogin=false` is ignored.
+- Browser automation defaults can be set under `browser.*`, including `browser.manualLoginProfileDir`, `browser.attachRunning`, `browser.thinkingTime` (CLI override: `--browser-thinking-time`), and `browser.researchMode` (CLI override: `--browser-research`). Manual login is forced; `browser.manualLogin=false` and copied-profile input are ignored.
 
 If the config is missing or invalid, Oracle falls back to defaults and prints a warning for parse errors.
 

@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import net from "node:net";
 import { resolveBrowserConfig } from "./config.js";
+import { copyChromeProfile } from "./profileCopy.js";
 import type {
   BrowserRunOptions,
   BrowserRunResult,
@@ -29,12 +30,12 @@ import {
   navigateToChatGPT,
   navigateToPromptReadyWithFallback,
   ensureNotBlocked,
-  dismissBlockingUi,
   ensureLoggedIn,
   ensurePromptReady,
   ensureChatMode,
   waitForResumedConversationHydration,
   installJavaScriptDialogAutoDismissal,
+  dismissBlockingUi,
   ensureModelSelection,
   clearPromptComposer,
   waitForAssistantResponse,
@@ -44,12 +45,11 @@ import {
   waitForAttachmentCompletion,
   waitForUserTurnAttachments,
   readAssistantSnapshot,
-  normalizeAssistantSnapshot,
 } from "./pageActions.js";
 import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
 import { ensureThinkingTime } from "./actions/thinkingTime.js";
-import { readThinkingActivity, startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
+import { startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
 import {
   activateDeepResearch,
   captureDeepResearchTargetKeys,
@@ -99,7 +99,6 @@ import {
 } from "./artifacts.js";
 import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import { collectChatGptFileArtifacts } from "./chatgptFiles.js";
-import { extractCanonicalConversationId, isCanonicalConversationUrl } from "./conversationUrl.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
 import { chatgptDomProvider } from "./providers/index.js";
 import { resolveAttachRunningConnection } from "./attachRunning.js";
@@ -165,7 +164,7 @@ function isReattachableCaptureError(error: unknown): error is BrowserAutomationE
   return stage === "assistant-timeout" || stage === "assistant-recheck";
 }
 
-type PreservedBrowserErrorKind = "cloudflare-challenge";
+type PreservedBrowserErrorKind = "cloudflare-challenge" | "reattachable-capture";
 
 function classifyPreservedBrowserError(
   error: unknown,
@@ -173,6 +172,7 @@ function classifyPreservedBrowserError(
 ): PreservedBrowserErrorKind | null {
   if (headless) return null;
   if (isCloudflareChallengeError(error)) return "cloudflare-challenge";
+  if (isReattachableCaptureError(error)) return "reattachable-capture";
   return null;
 }
 
@@ -187,7 +187,9 @@ function normalizeAuthenticatedModelSelectionError(error: unknown): Error {
 function shouldKeepLocalBrowserOpen(options: {
   effectiveKeepBrowser: boolean;
   preserveBrowserOnError: boolean;
+  usingCopiedProfile: boolean;
 }): boolean {
+  if (options.usingCopiedProfile) return false;
   return options.effectiveKeepBrowser || options.preserveBrowserOnError;
 }
 
@@ -224,23 +226,7 @@ function shouldApplyThinkingTimeSelection(
   return config.thinkingTime !== undefined;
 }
 
-type ChatGptUiWarningType = "temporary_unavailable" | "auth_or_challenge";
-
-// Request-speed notices ("Too many requests", "slow down", ...) are transient and
-// must be ignored entirely: never classified as a warning, never printed, never
-// allowed to block a run (they also overlap "try again later", so they have to be
-// excluded before the temporary-unavailability patterns run).
-function isRateLimitNoticeText(normalized: string): boolean {
-  return (
-    /\btoo many requests\b/.test(normalized) ||
-    /\bsending too many requests\b/.test(normalized) ||
-    /\btoo quickly\b/.test(normalized) ||
-    /\btemporarily limited access\b/.test(normalized) ||
-    /\bplease wait a few minutes\b/.test(normalized) ||
-    /\brate limit(?:ed)?\b/.test(normalized) ||
-    /\bslow down\b/.test(normalized)
-  );
-}
+type ChatGptUiWarningType = "rate_limit" | "temporary_unavailable" | "auth_or_challenge";
 
 type ChatGptUiWarning = {
   type: ChatGptUiWarningType;
@@ -256,8 +242,16 @@ const MAX_CHATGPT_UI_WARNINGS = 3;
 
 function classifyChatGptUiWarningText(text: string): ChatGptUiWarningType | null {
   const normalized = text.toLowerCase();
-  if (isRateLimitNoticeText(normalized)) {
-    return null;
+  if (
+    /\btoo many requests\b/.test(normalized) ||
+    /\bsending too many requests\b/.test(normalized) ||
+    /\btoo quickly\b/.test(normalized) ||
+    /\btemporarily limited access\b/.test(normalized) ||
+    /\bplease wait a few minutes\b/.test(normalized) ||
+    /\brate limit(?:ed)?\b/.test(normalized) ||
+    /\bslow down\b/.test(normalized)
+  ) {
+    return "rate_limit";
   }
   if (
     /\btemporarily unavailable\b/.test(normalized) ||
@@ -321,7 +315,7 @@ async function collectChatGptUiWarnings(
       awaitPromise: true,
       returnByValue: true,
       expression: `(() => {
-        const warningPattern = /try again later|temporarily unavailable|something went wrong|failed to generate|verify you are human|unusual activity|cloudflare|challenge|login required|sign in/i;
+        const warningPattern = /too many requests|sending too many requests|too quickly|temporarily limited access|please wait a few minutes|rate limit|rate limited|slow down|try again later|temporarily unavailable|something went wrong|failed to generate|verify you are human|unusual activity|cloudflare|challenge|login required|sign in/i;
         const selectors = [
           '[role="alert"]',
           '[role="status"]',
@@ -419,6 +413,8 @@ async function collectChatGptUiWarnings(
 
 function formatChatGptUiWarningType(type: ChatGptUiWarningType): string {
   switch (type) {
+    case "rate_limit":
+      return "rate-limit";
     case "temporary_unavailable":
       return "temporary-unavailable";
     case "auth_or_challenge":
@@ -435,14 +431,15 @@ async function createChatGptUiWarningError(params: {
   diagnostics?: unknown;
   cause?: unknown;
 }): Promise<BrowserAutomationError | null> {
-  const warnings = await collectChatGptUiWarnings(params.Runtime);
-  const uiWarning = warnings[0];
+  const [uiWarning] = await collectChatGptUiWarnings(params.Runtime);
   if (!uiWarning) return null;
 
-  const warningText = uiWarning.message
-    .replace(/\s*(Got it|OK|Okay|Dismiss|Understood|Close)\s*$/i, "")
-    .trim();
-  params.logger(`[browser] ChatGPT UI warning detected (${uiWarning.type}): ${warningText}`);
+  if (uiWarning.type === "rate_limit") {
+    await dismissBlockingUi(params.Runtime, params.logger, { silent: true }).catch(() => false);
+    return null;
+  }
+
+  params.logger(`[browser] ChatGPT UI warning detected (${uiWarning.type}): ${uiWarning.message}`);
   return new BrowserAutomationError(
     `ChatGPT displayed a ${formatChatGptUiWarningType(uiWarning.type)} warning while waiting for ${params.waitTarget}: ${uiWarning.message}`,
     {
@@ -510,6 +507,7 @@ async function enableFocusEmulation(
 ): Promise<void> {
   try {
     await client.Emulation.setFocusEmulationEnabled({ enabled: true });
+    logger(`[browser] Focus emulation enabled for ${label}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger(`[browser] Focus emulation unavailable: ${message}`);
@@ -572,11 +570,11 @@ async function saveOptionalArtifact<T>(
   }
 }
 
-export interface AssistantAnswer {
+type AssistantAnswer = {
   text: string;
   html?: string;
   meta: { turnId?: string | null; messageId?: string | null };
-}
+};
 
 async function waitForAssistantOrGeneratedImageResponse(params: {
   Runtime: ChromeClient["Runtime"];
@@ -591,7 +589,7 @@ async function waitForAssistantOrGeneratedImageResponse(params: {
     return params.waitForText();
   }
 
-  params.logger("[browser] Waiting for ChatGPT response (image generation).");
+  params.logger("[browser] Waiting for ChatGPT generated image response.");
   const response = await pollGeneratedImageOrTextAssistantResponse(
     params.Runtime,
     params.timeoutMs,
@@ -924,23 +922,12 @@ function shouldCloseOwnedRunTargetAfterRun(options: {
   ownsTarget: boolean;
   keepBrowser: boolean;
   closeOwnedTabOnComplete?: boolean;
-  closeOwnedTargetOnError?: boolean;
-  preserveBrowserOnError?: boolean;
 }): boolean {
-  if (!options.ownsTarget) {
-    return false;
-  }
-  if (options.runStatus === "complete") {
-    return Boolean(options.closeOwnedTabOnComplete) || !options.keepBrowser;
-  }
-  // Fork semantics: the owned tab is closed when the run ends even on failure, so
-  // serialized runs don't accumulate stale tabs. Deliberate retention still wins:
-  // --browser-keep-browser debugging and preserved-error recovery (Cloudflare check,
-  // in-flight reattach capture) keep the tab open.
-  if (options.closeOwnedTargetOnError) {
-    return true;
-  }
-  return !options.keepBrowser && !options.preserveBrowserOnError;
+  return (
+    options.runStatus === "complete" &&
+    options.ownsTarget &&
+    (Boolean(options.closeOwnedTabOnComplete) || !options.keepBrowser)
+  );
 }
 
 function shouldCleanupBlankTabsAfterLastLease(options: {
@@ -976,38 +963,6 @@ function buildSkippedModelSelectionEvidence(
   };
 }
 
-function buildUnavailableModelSelectionEvidence(
-  desiredModel: string | null | undefined,
-  strategy: BrowserModelSelectionEvidence["strategy"],
-): BrowserModelSelectionEvidence {
-  return {
-    requestedModel: desiredModel ?? null,
-    resolvedLabel: null,
-    strategy,
-    status: "unavailable",
-    verified: false,
-    source: "config",
-    capturedAt: new Date().toISOString(),
-  };
-}
-
-function handleModelSelectionFailure(options: {
-  error: unknown;
-  desiredModel: string;
-  strategy: BrowserModelSelectionEvidence["strategy"];
-  logger: BrowserLogger;
-  strictFailureHint?: string;
-}): BrowserModelSelectionEvidence {
-  const message = options.error instanceof Error ? options.error.message : String(options.error);
-  if (options.strategy === "select" && /\bpro\b/i.test(options.desiredModel)) {
-    throw new Error(`${message}${options.strictFailureHint ?? ""}`);
-  }
-  options.logger(
-    `[browser] Model selection failed for "${options.desiredModel}"; keeping ChatGPT's current model and continuing. ${message}`,
-  );
-  return buildUnavailableModelSelectionEvidence(options.desiredModel, options.strategy);
-}
-
 export async function runBrowserMode(options: BrowserRunOptions): Promise<BrowserRunResult> {
   const attachments: BrowserAttachment[] = options.attachments ?? [];
   assertUniqueAttachmentBasenames(attachments, {
@@ -1023,6 +978,13 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
   const fallbackSubmission = options.fallbackSubmission;
 
   let config = resolveBrowserConfig(options.config);
+  const usingCopiedProfile = Boolean(config.copyProfileSource);
+  if (usingCopiedProfile && (config.attachRunning || config.remoteChrome)) {
+    throw new BrowserAutomationError(
+      "--copy-profile requires a locally launched Chrome instance and cannot be combined with attach-running or remote Chrome.",
+      { stage: "profile-config" },
+    );
+  }
   const isResumingConversation = Boolean(config.resumeConversationUrl);
   const followUpPrompts = normalizeBrowserFollowUpPrompts(options.followUpPrompts);
   if (config.researchMode === "deep" && followUpPrompts.length > 0) {
@@ -1130,8 +1092,15 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
   }
 
   const manualLogin = Boolean(config.manualLogin);
-  // Manual-login starts from an already-signed-in profile, so it neither clears nor syncs cookies.
-  const profileIsPreSigned = manualLogin;
+  if (manualLogin && usingCopiedProfile) {
+    throw new BrowserAutomationError(
+      "--copy-profile cannot be combined with --browser-manual-login: choose either a throwaway copied profile or the persistent manual-login profile.",
+      { stage: "profile-config" },
+    );
+  }
+  // Manual-login and copy-profile both start from an already-signed-in profile,
+  // so neither clears nor syncs cookies.
+  const profileIsPreSigned = manualLogin || usingCopiedProfile;
   const manualProfileDir = config.manualLoginProfileDir
     ? path.resolve(config.manualLoginProfileDir)
     : defaultManualLoginProfileDir();
@@ -1147,14 +1116,24 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       userDataDir,
       keepBrowser: effectiveKeepBrowser,
     });
+  } else if (config.copyProfileSource) {
+    const copiedProfileDirectory = await copyChromeProfile(
+      config.copyProfileSource,
+      userDataDir,
+      config.chromeProfile,
+    );
+    config = { ...config, chromeProfile: copiedProfileDirectory };
+    logger(
+      `Seeded temporary Chrome profile ${copiedProfileDirectory} from ${config.copyProfileSource} (copy-profile mode; signed-in session reused without manual login)`,
+    );
   } else {
     logger(`Created temporary Chrome profile at ${userDataDir}`);
   }
 
   if (manualLogin) {
     tabLease = await acquireBrowserTabLease(userDataDir, {
-      maxConcurrentTabs: config.maxConcurrentTabs,
-      timeoutMs: config.timeoutMs,
+      maxConcurrentTabs: 1,
+      timeoutMs: 0,
       logger,
       sessionId: options.sessionId,
     });
@@ -1181,6 +1160,9 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       tabLease = null;
       await handle.release().catch(() => undefined);
     }
+    if (usingCopiedProfile) {
+      await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
+    }
     throw error;
   }
   const { chrome, reusedChrome } = acquiredChrome;
@@ -1191,10 +1173,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       chromePort: chrome.port,
     });
   }
-  let client: ChromeClient | null = null;
-  let isolatedTargetId: string | null = null;
-  let ownsTarget = true;
-  let runStatus: "attempted" | "complete" = "attempted";
   let removeTerminationHooks: (() => void) | null = null;
   try {
     removeTerminationHooks = registerTerminationHooks(
@@ -1206,92 +1184,22 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         isInFlight: () => runStatus !== "complete",
         emitRuntimeHint,
         preserveUserDataDir: manualLogin,
-        cleanupOnSigterm: manualLogin
-          ? async (signal) => {
-              await conversationUrlMonitor?.update("sigterm", 2_500).catch(() => false);
-              try {
-                const response = await client?.Runtime.evaluate({
-                  expression: "location.href",
-                  returnByValue: true,
-                });
-                const currentUrl =
-                  typeof response?.result?.value === "string" ? response.result.value.trim() : "";
-                if (
-                  currentUrl &&
-                  (isCanonicalConversationUrl(currentUrl) ||
-                    !lastUrl ||
-                    !isCanonicalConversationUrl(lastUrl))
-                ) {
-                  lastUrl = currentUrl;
-                }
-              } catch {
-                // Persist the most recent URL already captured by the monitor.
-              }
-              await emitRuntimeHint();
-              if (lastUrl) {
-                logger(`[browser] Saved browser URL before ${signal}: ${lastUrl}`);
-              }
-              try {
-                await client?.close();
-              } catch {
-                // Continue with target-level cleanup.
-              }
-              if (!ownsTarget) {
-                detachKeptChromeProcess(chrome);
-                logger("[browser] Signal cleanup skipped the explicitly attached browser target.");
-                return;
-              }
-              if (isolatedTargetId) {
-                await closeTab(chrome.port, isolatedTargetId, logger, chromeHost).catch(
-                  () => false,
-                );
-              }
-              let hasOtherLeases = false;
-              if (tabLease) {
-                const handle = tabLease;
-                hasOtherLeases = await hasOtherActiveBrowserTabLeases(userDataDir, handle.id).catch(
-                  () => true,
-                );
-                tabLease = null;
-                await handle.release().catch(() => undefined);
-              }
-              if (hasOtherLeases) {
-                detachKeptChromeProcess(chrome);
-                logger(
-                  "[browser] Other ChatGPT browser slots remain active; shared Chrome stays running.",
-                );
-                return;
-              }
-              // SIGINT is interactive: with --browser-keep-browser the shared Chrome must
-              // survive Ctrl+C (manual Cloudflare clearance, DOM inspection). SIGTERM keeps
-              // its historical terminate semantics.
-              if (signal === "SIGINT" && effectiveKeepBrowser) {
-                detachKeptChromeProcess(chrome);
-                logger(
-                  "[browser] --browser-keep-browser set; shared Chrome stays running after interrupt.",
-                );
-                return;
-              }
-              try {
-                await chrome.kill();
-              } catch {
-                // Best effort; the owned target was already closed above.
-              }
-              await cleanupStaleProfileState(userDataDir, logger, {
-                lockRemovalMode: "never",
-              }).catch(() => undefined);
-            }
-          : undefined,
+        // copy-profile is a throwaway copy of a signed-in profile; never leave it on disk.
+        forceProfileCleanup: usingCopiedProfile,
       },
     );
   } catch {
     // ignore failure; cleanup still happens below
   }
 
+  let client: ChromeClient | null = null;
+  let isolatedTargetId: string | null = null;
+  let ownsTarget = true;
   const startedAt = Date.now();
   let answerText = "";
   let answerMarkdown = "";
   let answerHtml = "";
+  let runStatus: "attempted" | "complete" = "attempted";
   let connectionClosedUnexpectedly = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
@@ -1321,7 +1229,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           fallbackToDefault: !strictTabIsolation,
           retries: devtoolsRetries,
           retryDelayMs: 500,
-          newWindow: true,
         });
         client = connection.client;
         isolatedTargetId = connection.targetId ?? null;
@@ -1447,11 +1354,11 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             ? "No inline cookies applied; continuing without session reuse"
             : "No Chrome cookies found; continuing without session reuse",
       );
-    } else if (logger.verbose) {
+    } else {
       logger(
         manualLogin
-          ? "[browser] Skipping Chrome cookie sync (manual-login profile)."
-          : "[browser] Skipping Chrome cookie copy (disabled by default; use --browser-cookie-sync to opt in).",
+          ? "Skipping Chrome cookie sync (--browser-manual-login enabled); reuse the opened profile after signing in."
+          : "Skipping Chrome cookie copy (disabled by default; use --browser-cookie-sync to opt in).",
       );
     }
     await clearStaleChatGptConversationCookies(Network, Target, logger, {
@@ -1563,7 +1470,9 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     if (chatMode === "switched") {
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
     }
-    logger(`Prompt queued (${promptText.length.toLocaleString()} chars)`);
+    logger(
+      `Prompt textarea ready (initial focus, ${promptText.length.toLocaleString()} chars queued)`,
+    );
     const captureRuntimeSnapshot = async () => {
       try {
         if (client?.Target?.getTargetInfo) {
@@ -1586,6 +1495,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
         // ignore
       }
       if (lastUrl) {
+        logger(`[browser] url = ${lastUrl}`);
       }
       if (chrome?.port) {
         const suffix = lastTargetId ? ` target=${lastTargetId}` : "";
@@ -1624,24 +1534,13 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           {
             retries: 2,
             delayMs: 300,
-            onRetry: (attempt, error) => {
-              if (options.verbose) {
-                logger(
-                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                );
-              }
-            },
           },
         ),
-      ).catch((error) => {
-        // Login has already been verified above. Preserve the picker failure instead of
-        // misdiagnosing an unavailable model as missing cookies.
-        throw normalizeAuthenticatedModelSelectionError(error);
-      });
+      ).catch(() => buildSkippedModelSelectionEvidence(config.desiredModel, "current"));
       await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-      if (logger.verbose) {
+      if (modelSelectionEvidence.status !== "skipped") {
         logger(
-          `[browser] Prompt textarea ready after model switch (${promptText.length.toLocaleString()} chars).`,
+          `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
         );
       }
     } else if (modelStrategy === "ignore" || isResumingConversation) {
@@ -1657,7 +1556,10 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     }
     const deepResearch = config.researchMode === "deep";
     if (shouldApplyThinkingTimeSelection(config)) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
+      const thinkingTargetModel =
+        modelStrategy === "select" && modelSelectionEvidence?.status !== "skipped"
+          ? config.desiredModel
+          : null;
       await raceWithDisconnect(
         withRetries(
           () => ensureThinkingTime(Runtime, config.thinkingTime, logger, thinkingTargetModel),
@@ -1694,18 +1596,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
-      // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
-      // before spending a send. Rate-limit notices are intentionally not detected.
-      await throwChatGptUiWarningIfPresent({
-        Runtime,
-        logger,
-        runtime: {},
-        stage: "submit-prompt",
-        waitTarget: "pre-submit UI warning check",
-      });
-      // Best-effort: clear a transient notice dialog (e.g. a single-"Got it"
-      // request-speed notice) so it cannot swallow the send click.
-      await dismissBlockingUi(Runtime, logger).catch(() => undefined);
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),
@@ -1761,11 +1651,9 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           }),
         );
         await raceWithDisconnect(ensurePromptReady(Runtime, config.inputTimeoutMs, logger));
-        if (logger.verbose) {
-          logger(
-            `[browser] Prompt textarea ready after Deep Research activation (${prompt.length.toLocaleString()} chars).`,
-          );
-        }
+        logger(
+          `Prompt textarea ready (after Deep Research activation, ${prompt.length.toLocaleString()} chars queued)`,
+        );
       }
       let baselineTurns = await readConversationTurnCount(Runtime, logger);
       // Learned: return baselineTurns so assistant polling can ignore earlier content.
@@ -2051,8 +1939,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
-                config.idleReloadMs,
-                config.maxIdleReloads,
               ),
             timeoutMs,
             logger,
@@ -2089,8 +1975,6 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
                   logger,
                   baselineTurns ?? undefined,
                   expectedConversationId(),
-                  config.idleReloadMs,
-                  config.maxIdleReloads,
                 ),
               timeoutMs: config.timeoutMs,
               logger,
@@ -2179,7 +2063,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
             onRetry: (attempt, error) => {
               if (options.verbose) {
                 logger(
-                  `[browser] Markdown capture retry ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                  `[retry] Markdown capture attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
                 );
               }
             },
@@ -2216,9 +2100,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
           trimmedMarkdown.length > 0 &&
           lengthDelta >= Math.max(12, Math.floor(trimmedMarkdown.length * 0.75));
         if ((missingCopy || likelyTruncatedCopy) && !finalIsEcho && finalText !== trimmedMarkdown) {
-          if (logger.verbose) {
-            logger("[browser] Refreshed assistant response via final DOM snapshot");
-          }
+          logger("Refreshed assistant response via final DOM snapshot");
           turnAnswerText = finalText;
           turnAnswerMarkdown = finalText;
         }
@@ -2462,6 +2344,16 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     connectionClosedUnexpectedly = connectionClosedUnexpectedly || socketClosed;
     const preservedErrorKind = classifyPreservedBrowserError(normalizedError, config.headless);
     if (preservedErrorKind === "cloudflare-challenge") {
+      if (usingCopiedProfile) {
+        logger(
+          "Cloudflare challenge detected; closing Chrome and removing the copied profile because copy-profile runs cannot be retained.",
+        );
+        throw new BrowserAutomationError(
+          "Cloudflare challenge detected. Copy-profile runs cannot be retained; complete the check in the source Chrome profile, then rerun.",
+          { stage: "cloudflare-challenge", reattachable: false },
+          normalizedError,
+        );
+      }
       preserveBrowserOnError = true;
       const runtime = {
         chromePid: chrome.pid,
@@ -2490,6 +2382,16 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       );
     }
     if (preservedErrorKind === "reattachable-capture") {
+      if (usingCopiedProfile) {
+        logger(
+          "Assistant capture incomplete; closing Chrome and removing the copied profile because copy-profile runs cannot be reattached.",
+        );
+        const details =
+          normalizedError instanceof BrowserAutomationError
+            ? { ...normalizedError.details, runtime: undefined, reattachable: false }
+            : { stage: "assistant-recheck", reattachable: false };
+        throw new BrowserAutomationError(normalizedError.message, details, normalizedError);
+      }
       preserveBrowserOnError = true;
       await emitRuntimeHint();
       logger("Assistant capture incomplete; leaving browser open for reattach.");
@@ -2551,20 +2453,19 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
     } catch {
       // ignore
     }
-    // Close the isolated tab once the run ends to prevent tab accumulation across
-    // repeated serialized runs — on success and on failure alike. Deliberate retention
-    // (--browser-keep-browser, preserved-error recovery) keeps the tab open; see
-    // shouldCloseOwnedRunTargetAfterRun.
+    // Close the isolated tab once the response has been fully captured to prevent
+    // tab accumulation across repeated runs. Keep the tab open on incomplete runs
+    // so reattach can recover the response.
     const shouldCloseOwnedRunTarget = shouldCloseOwnedRunTargetAfterRun({
       runStatus,
       ownsTarget,
       keepBrowser: effectiveKeepBrowser,
       closeOwnedTabOnComplete: options.closeOwnedTabOnComplete,
-      preserveBrowserOnError,
     });
     let keepBrowserOpen = shouldKeepLocalBrowserOpen({
       effectiveKeepBrowser,
       preserveBrowserOnError,
+      usingCopiedProfile,
     });
     let cleanupProfileLock: ProfileRunLock | null = null;
     let terminatedRecordedChrome = false;
@@ -2690,6 +2591,7 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       }
       if (!connectionClosedUnexpectedly) {
         const totalSeconds = (Date.now() - startedAt) / 1000;
+        logger(`Cleanup ${runStatus} • ${totalSeconds.toFixed(1)}s total`);
       }
     } else {
       detachKeptChromeProcess(chrome);
@@ -2954,11 +2856,7 @@ async function maybeReuseRunningChrome(
   let port = await readDevToolsPort(userDataDir);
   if (!port && waitForPortMs > 0) {
     const deadline = Date.now() + waitForPortMs;
-    if (logger.verbose) {
-      logger(
-        `[browser] Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`,
-      );
-    }
+    logger(`Waiting up to ${formatElapsed(waitForPortMs)} for shared Chrome to appear...`);
     while (!port && Date.now() < deadline) {
       await delay(250);
       port = await readDevToolsPort(userDataDir);
@@ -2969,11 +2867,9 @@ async function maybeReuseRunningChrome(
     const discovered = await findRunningChromeDebugTargetForProfile(userDataDir);
     if (!discovered) {
       if (pid) {
-        if (logger.verbose) {
-          logger(
-            `[browser] No reachable Chrome DevTools target for the profile; launching a new Chrome.`,
-          );
-        }
+        logger(
+          `No reachable Chrome DevTools target found for ${userDataDir}; clearing stale profile state before launching new Chrome.`,
+        );
         await cleanupStaleProfileState(userDataDir, logger, {
           lockRemovalMode: "if_oracle_pid_dead",
         });
@@ -3096,7 +2992,6 @@ async function runRemoteBrowserMode(
   let answerHtml = "";
   let connectionClosedUnexpectedly = false;
   let runStatus: "attempted" | "complete" = "attempted";
-  let closeOwnedTargetOnError = false;
   let stopThinkingMonitor: (() => void) | null = null;
   let removeDialogHandler: (() => void) | null = null;
   let connection: Awaited<ReturnType<typeof connectToRemoteChrome>> | null = null;
@@ -3110,8 +3005,8 @@ async function runRemoteBrowserMode(
     if (remoteLeaseProfileDir) {
       await mkdir(remoteLeaseProfileDir, { recursive: true });
       tabLease = await acquireBrowserTabLease(remoteLeaseProfileDir, {
-        maxConcurrentTabs: config.maxConcurrentTabs,
-        timeoutMs: config.timeoutMs,
+        maxConcurrentTabs: 1,
+        timeoutMs: 0,
         logger,
         sessionId: options.sessionId,
         chromeHost: host,
@@ -3221,7 +3116,9 @@ async function runRemoteBrowserMode(
     if (chatMode === "switched") {
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
     }
-    logger(`Prompt queued (${promptText.length.toLocaleString()} chars)`);
+    logger(
+      `Prompt textarea ready (initial focus, ${promptText.length.toLocaleString()} chars queued)`,
+    );
     try {
       const { result } = await Runtime.evaluate({
         expression: "location.href",
@@ -3237,33 +3134,17 @@ async function runRemoteBrowserMode(
 
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
     if (config.desiredModel && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
-      try {
-        modelSelectionEvidence = await withRetries(
-          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
-          {
-            retries: 2,
-            delayMs: 300,
-            onRetry: (attempt, error) => {
-              if (options.verbose) {
-                logger(
-                  `[retry] Model picker attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
-                );
-              }
-            },
-          },
-        );
-      } catch (error) {
-        modelSelectionEvidence = handleModelSelectionFailure({
-          error,
-          desiredModel: config.desiredModel,
-          strategy: modelStrategy,
-          logger,
-        });
-      }
+      modelSelectionEvidence = await withRetries(
+        () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+        {
+          retries: 2,
+          delayMs: 300,
+        },
+      ).catch(() => buildSkippedModelSelectionEvidence(config.desiredModel, "current"));
       await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-      if (logger.verbose) {
+      if (modelSelectionEvidence.status !== "skipped") {
         logger(
-          `[browser] Prompt textarea ready after model switch (${promptText.length.toLocaleString()} chars).`,
+          `Prompt textarea ready (after model switch, ${promptText.length.toLocaleString()} chars queued)`,
         );
       }
     } else if (modelStrategy === "ignore" || config.resumeConversationUrl) {
@@ -3279,7 +3160,10 @@ async function runRemoteBrowserMode(
     }
     const deepResearch = config.researchMode === "deep";
     if (shouldApplyThinkingTimeSelection(config)) {
-      const thinkingTargetModel = modelStrategy === "select" ? config.desiredModel : null;
+      const thinkingTargetModel =
+        modelStrategy === "select" && modelSelectionEvidence?.status !== "skipped"
+          ? config.desiredModel
+          : null;
       await withRetries(
         () => ensureThinkingTime(Runtime, config.thinkingTime, logger, thinkingTargetModel),
         {
@@ -3299,18 +3183,6 @@ async function runRemoteBrowserMode(
       const baselineSnapshot = await readAssistantSnapshot(Runtime).catch(() => null);
       const baselineAssistantText =
         typeof baselineSnapshot?.text === "string" ? baselineSnapshot.text.trim() : "";
-      // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
-      // before spending a send.
-      await throwChatGptUiWarningIfPresent({
-        Runtime,
-        logger,
-        runtime: {},
-        stage: "submit-prompt",
-        waitTarget: "pre-submit UI warning check",
-      });
-      // Best-effort: clear a transient notice dialog (e.g. a single-"Got it"
-      // request-speed notice) so it cannot swallow the send click.
-      await dismissBlockingUi(Runtime, logger).catch(() => undefined);
       const attachmentNames = submissionAttachments.map((a) => path.basename(a.path));
       const attachmentExpectations = submissionAttachments.map((a) => ({
         name: path.basename(a.path),
@@ -3351,11 +3223,9 @@ async function runRemoteBrowserMode(
           },
         });
         await ensurePromptReady(Runtime, config.inputTimeoutMs, logger);
-        if (logger.verbose) {
-          logger(
-            `[browser] Prompt textarea ready after Deep Research activation (${prompt.length.toLocaleString()} chars).`,
-          );
-        }
+        logger(
+          `Prompt textarea ready (after Deep Research activation, ${prompt.length.toLocaleString()} chars queued)`,
+        );
       }
       let baselineTurns = await readConversationTurnCount(Runtime, logger);
       const providerState: Record<string, unknown> = {
@@ -3601,8 +3471,6 @@ async function runRemoteBrowserMode(
               logger,
               baselineTurns ?? undefined,
               expectedConversationId(),
-              config.idleReloadMs,
-              config.maxIdleReloads,
             ),
           timeoutMs,
           logger,
@@ -3637,8 +3505,6 @@ async function runRemoteBrowserMode(
                 logger,
                 baselineTurns ?? undefined,
                 expectedConversationId(),
-                config.idleReloadMs,
-                config.maxIdleReloads,
               ),
             timeoutMs: config.timeoutMs,
             logger,
@@ -3726,7 +3592,7 @@ async function runRemoteBrowserMode(
           onRetry: (attempt, error) => {
             if (options.verbose) {
               logger(
-                `[browser] Markdown capture retry ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
+                `[retry] Markdown capture attempt ${attempt + 1}: ${error instanceof Error ? error.message : error}`,
               );
             }
           },
@@ -3757,9 +3623,7 @@ async function runRemoteBrowserMode(
         finalText !== turnPrompt.trim() &&
         finalText.length >= turnAnswerMarkdown.trim().length
       ) {
-        if (logger.verbose) {
-          logger("[browser] Refreshed assistant response via final DOM snapshot");
-        }
+        logger("Refreshed assistant response via final DOM snapshot");
         turnAnswerText = finalText;
         turnAnswerMarkdown = finalText;
       }
@@ -3969,13 +3833,6 @@ async function runRemoteBrowserMode(
     const socketClosed = connectionClosedUnexpectedly || isWebSocketClosureError(normalizedError);
     connectionClosedUnexpectedly = connectionClosedUnexpectedly || socketClosed;
 
-    if (isReattachableCaptureError(normalizedError)) {
-      closeOwnedTargetOnError = true;
-      logger(
-        "Assistant capture incomplete; closing the Oracle-owned remote browser tab automatically.",
-      );
-    }
-
     if (!socketClosed) {
       logger(`Failed to complete ChatGPT run: ${normalizedError.message}`);
       if ((config.debug || process.env.CHATGPT_DEVTOOLS_TRACE === "1") && normalizedError.stack) {
@@ -4029,7 +3886,6 @@ async function runRemoteBrowserMode(
       ownsTarget,
       keepBrowser: keepRemoteBrowser,
       closeOwnedTabOnComplete: options.closeOwnedTabOnComplete,
-      closeOwnedTargetOnError,
     });
     const closeOwnedRemoteTarget = async () => {
       if (!shouldCloseOwnedRemoteTarget || !remoteTargetId) {
@@ -4065,6 +3921,7 @@ async function runRemoteBrowserMode(
     }
     // Don't kill remote Chrome - it's not ours to manage
     const totalSeconds = (Date.now() - startedAt) / 1000;
+    logger(`Remote session complete • ${totalSeconds.toFixed(1)}s total`);
   }
 }
 
@@ -4080,19 +3937,16 @@ export const __test__ = {
   createAssistantTimeoutError,
   detachKeptChromeProcess,
   formatManualLoginSetupCommand,
-  handleModelSelectionFailure,
   isAssistantResponseTimeoutError,
   isManualLoginProfileInitialized,
   isImageOnlyUiChromeText,
   listIgnoredRemoteChromeFlags,
   normalizeAuthenticatedModelSelectionError,
   resolveManualLoginWaitMs,
-  runIdleReloadLoop,
   shouldApplyThinkingTimeSelection,
   shouldCleanupBlankTabsAfterLastLease,
   shouldCloseOwnedRunTargetAfterRun,
   shouldKeepLocalBrowserOpen,
-  waitForAssistantOrGeneratedImageResponse,
   waitForAssistantResponseWithReload,
 };
 export { syncCookies } from "./cookies.js";
@@ -4147,210 +4001,38 @@ async function waitForAssistantResponseWithReload(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
-  idleReloadMs = 0,
-  maxIdleReloads = 7,
 ) {
-  // Fail fast on blocking UI warnings (auth/challenge, temporary unavailability)
-  // before the response wait. Rate-limit notices are intentionally not detected.
-  await throwChatGptUiWarningIfPresent({
-    Runtime,
-    logger,
-    runtime: {},
-    stage: "assistant-response",
-    waitTarget: "pre-wait UI warning check",
-  }).catch(async (error) => {
-    await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-    throw error;
-  });
-  // When idle-reload is disabled, fall back to the original "reload once" behavior so the
-  // happy-path / legacy callers and tests are unchanged.
-  if (!idleReloadMs || idleReloadMs <= 0) {
-    try {
-      return await waitForAssistantResponse(
-        Runtime,
-        timeoutMs,
-        logger,
-        minTurnIndex,
-        expectedConversationId,
-      );
-    } catch (error) {
-      if (!shouldReloadAfterAssistantError(error)) {
-        throw error;
-      }
-      const conversationUrl = await readConversationUrl(Runtime);
-      if (!conversationUrl || !isConversationUrl(conversationUrl)) {
-        throw error;
-      }
-      logger("Assistant response stalled; reloading conversation and retrying once");
-      await Page.navigate({ url: conversationUrl });
-      await waitForResumedConversationHydration(Runtime, timeoutMs, logger, {
-        requirePriorTurns: true,
-        requirePromptReady: false,
-        expectedConversationUrl: conversationUrl,
-      });
-      return await waitForAssistantResponse(
-        Runtime,
-        timeoutMs,
-        logger,
-        minTurnIndex,
-        expectedConversationId,
-      );
+  try {
+    return await waitForAssistantResponse(
+      Runtime,
+      timeoutMs,
+      logger,
+      minTurnIndex,
+      expectedConversationId,
+    );
+  } catch (error) {
+    if (!shouldReloadAfterAssistantError(error)) {
+      throw error;
     }
+    const conversationUrl = await readConversationUrl(Runtime);
+    if (!conversationUrl || !isConversationUrl(conversationUrl)) {
+      throw error;
+    }
+    logger("Assistant response stalled; reloading conversation and retrying once");
+    await Page.navigate({ url: conversationUrl });
+    await waitForResumedConversationHydration(Runtime, timeoutMs, logger, {
+      requirePriorTurns: true,
+      requirePromptReady: false,
+      expectedConversationUrl: conversationUrl,
+    });
+    return await waitForAssistantResponse(
+      Runtime,
+      timeoutMs,
+      logger,
+      minTurnIndex,
+      expectedConversationId,
+    );
   }
-
-  // Idle-reload loop: slice the overall budget into idleReloadMs windows. Each window that
-  // ends without a confirmed answer triggers a conversation reload (up to maxIdleReloads).
-  // Thinking-active periods and still-growing answers extend the current window without
-  // consuming a reload slot, so long Pro reasoning runs are not interrupted.
-  return runIdleReloadLoop({
-    waitOnce: (sliceMs) =>
-      waitForAssistantResponse(Runtime, sliceMs, logger, minTurnIndex, expectedConversationId),
-    readConversationUrl: () => readConversationUrl(Runtime),
-    navigate: (url) => Page.navigate({ url }),
-    sleep: (ms) => delay(ms),
-    readThinking: () =>
-      readThinkingActivity(Runtime).catch(() => ({ active: false, strong: false })),
-    readProgressKey: async () => {
-      const snapshot = await readAssistantSnapshot(
-        Runtime,
-        minTurnIndex,
-        expectedConversationId,
-      ).catch(() => null);
-      const normalized = normalizeAssistantSnapshot(snapshot);
-      if (!normalized) {
-        return null;
-      }
-      return `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text.length}`;
-    },
-    isConversationUrl,
-    shouldReload: shouldReloadAfterAssistantError,
-    formatElapsed,
-    timeoutMs,
-    idleReloadMs,
-    maxIdleReloads,
-    logger,
-    checkUiWarnings: async () => {
-      await throwChatGptUiWarningIfPresent({
-        Runtime,
-        logger,
-        runtime: {},
-        stage: "assistant-response",
-        waitTarget: "idle-reload UI warning check",
-      }).catch(async (error) => {
-        await dismissBlockingUi(Runtime, logger).catch(() => undefined);
-        throw error;
-      });
-    },
-  });
-}
-
-interface IdleReloadDeps {
-  waitOnce: (sliceMs: number) => Promise<AssistantAnswer>;
-  readConversationUrl: () => Promise<string | null>;
-  navigate: (url: string) => Promise<unknown>;
-  sleep: (ms: number) => Promise<unknown>;
-  readThinking: () => Promise<{ active: boolean; strong: boolean }>;
-  // Fingerprint of the partial assistant answer (turn identity + text length). The idle
-  // window measures time since the LAST content change, so a still-streaming answer keeps
-  // extending the window instead of being cut off by an absolute slice deadline.
-  readProgressKey?: () => Promise<string | null>;
-  isConversationUrl: (url: string) => boolean;
-  shouldReload: (error: unknown) => boolean;
-  formatElapsed: (ms: number) => string;
-  timeoutMs: number;
-  idleReloadMs: number;
-  maxIdleReloads: number;
-  logger: BrowserLogger;
-  checkUiWarnings?: () => Promise<void>;
-}
-
-async function runIdleReloadLoop(deps: IdleReloadDeps) {
-  const overallDeadline = Date.now() + deps.timeoutMs;
-  const readProgressKeySafe = async (): Promise<string | null> => {
-    if (!deps.readProgressKey) {
-      return null;
-    }
-    return await deps.readProgressKey().catch(() => null);
-  };
-  let reloadsUsed = 0;
-  let windowStartKey = await readProgressKeySafe();
-  while (Date.now() < overallDeadline) {
-    const remaining = overallDeadline - Date.now();
-    const sliceMs = Math.min(deps.idleReloadMs, remaining);
-    // Check for blocking UI warnings before the next response-wait slice.
-    if (deps.checkUiWarnings) {
-      await deps.checkUiWarnings();
-    }
-    try {
-      return await deps.waitOnce(sliceMs);
-    } catch (error) {
-      const stillLeft = overallDeadline - Date.now();
-      const budgetLeft = stillLeft > 10_000;
-      const reloadableError = deps.shouldReload(error);
-
-      // Reloads exhausted: throw a hard BrowserAutomationError so the outer
-      // attemptAssistantRecheckOrRethrow path transparently rethrows (skips recheck),
-      // capping total wait time at the configured budget.
-      if (reloadableError && reloadsUsed >= deps.maxIdleReloads) {
-        throw new BrowserAutomationError(
-          `Assistant response stalled; exhausted ${deps.maxIdleReloads} idle reloads over ${deps.formatElapsed(
-            deps.timeoutMs,
-          )}. Reattach later to capture the answer.`,
-          { stage: "assistant-timeout", idleReloadsExhausted: true },
-          error,
-        );
-      }
-
-      // Either the budget ran out, the error is not reload-recoverable, or no URL is
-      // available — rethrow the original so callers see the underlying watchdog/timeout.
-      if (!budgetLeft || !reloadableError) {
-        throw error;
-      }
-
-      // Protect long Pro reasoning: if the page still shows active thinking, extend the
-      // current window instead of reloading. Do not consume a reload slot.
-      const thinking = await deps.readThinking();
-      if (thinking.active || thinking.strong) {
-        deps.logger(
-          `[browser] Assistant still thinking after ${deps.formatElapsed(
-            sliceMs,
-          )}; extending wait (reload deferred).`,
-        );
-        continue;
-      }
-
-      // Content still counts as "new" if the partial answer changed during the window
-      // (including first appearing: null fingerprint → real content). Extend instead of
-      // reloading so a slow but live stream is never interrupted.
-      const currentKey = await readProgressKeySafe();
-      const contentProgressed = typeof currentKey === "string" && currentKey !== windowStartKey;
-      windowStartKey = typeof currentKey === "string" ? currentKey : windowStartKey;
-      if (contentProgressed) {
-        deps.logger(
-          `[browser] Assistant response still growing after ${deps.formatElapsed(
-            sliceMs,
-          )}; extending wait (reload deferred).`,
-        );
-        continue;
-      }
-
-      const conversationUrl = await deps.readConversationUrl();
-      if (!conversationUrl || !deps.isConversationUrl(conversationUrl)) {
-        throw error;
-      }
-      reloadsUsed += 1;
-      deps.logger(
-        `[browser] No assistant progress for ${deps.formatElapsed(
-          deps.idleReloadMs,
-        )}; reloading conversation (${reloadsUsed}/${deps.maxIdleReloads}).`,
-      );
-      await deps.navigate(conversationUrl);
-      await deps.sleep(1000);
-    }
-  }
-  throw new Error(
-    "assistant-response watchdog timeout; overall deadline exceeded before completion",
-  );
 }
 
 function shouldReloadAfterAssistantError(error: unknown): boolean {

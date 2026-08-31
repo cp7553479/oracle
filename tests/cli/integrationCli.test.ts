@@ -15,7 +15,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const CLI_ENTRY = path.join(process.cwd(), "bin", "oracle-cli.ts");
-// Fork forces --engine browser at the CLI entry; let these API-engine tests run their paths.
+// The fork forces browser mode at the CLI entry. Upstream's API integration
+// cases use this test-only escape hatch so they can still cover their path.
 process.env.ORACLE_ALLOW_API_ENGINE = "1";
 const TSX_LOADER = pathToFileURL(
   path.join(process.cwd(), "node_modules", "tsx", "dist", "loader.mjs"),
@@ -105,6 +106,29 @@ function waitForChildOutput(child: CliChild, timeoutMs: number): Promise<void> {
 }
 
 describe("oracle CLI integration", () => {
+  test("forces browser/manual-login routing over an explicit API request", async () => {
+    const env: NodeJS.ProcessEnv = { ...process.env, OPENAI_API_KEY: "test-key" };
+    delete env.ORACLE_ALLOW_API_ENGINE;
+    const result = await execCli(
+      ["--engine", "api", "--dry-run", "json", "-p", "verify forced routing"],
+      { env },
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"engine": "browser"');
+    expect(result.stdout).toContain("Manual-login mode");
+  });
+
+  test("does not expose or accept the removed --copy-profile flag", async () => {
+    const help = await execCli(["--help"]);
+    expect(help.code).toBe(0);
+    expect(help.stdout).not.toContain("--copy-profile");
+
+    const rejected = await execCli(["--copy-profile", "/tmp/profile", "-p", "test"]);
+    expect(rejected.code).not.toBe(0);
+    expect(rejected.stderr).toContain("unknown option '--copy-profile'");
+  });
+
   test(
     "exits nonzero when a detached worker receives an unknown session id",
     async () => {

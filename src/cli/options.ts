@@ -303,7 +303,7 @@ export function resolveApiModel(modelValue: string): ModelName {
     return "gemini-3-pro";
   }
   if (normalized.includes("pro")) {
-    return "gpt-5.5-pro";
+    return DEFAULT_MODEL;
   }
   // Passthrough for custom/OpenRouter model IDs.
   return normalized as ModelName;
@@ -432,7 +432,7 @@ export function inferModelFromLabel(modelValue: string): ModelName {
     return "gpt-5.1-pro";
   }
   if (normalized.includes("pro")) {
-    return "gpt-5.5-pro";
+    return DEFAULT_MODEL;
   }
   if (normalized.includes("5.1") || normalized.includes("5_1")) {
     return "gpt-5.1";

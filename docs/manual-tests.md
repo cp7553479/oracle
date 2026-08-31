@@ -202,11 +202,6 @@ Confirm the logs report a verified GPT-5.5 model followed by `Thinking time: Pro
    `pnpm run oracle -- --engine browser --browser-manual-login --model gpt-5.5-pro --browser-thinking-time extended --browser-archive always --prompt "Reply exactly CHECK_ARCHIVE_OK."`
    Confirm the output contains `CHECK_ARCHIVE_OK`, `oracle session <id> --render` still shows the transcript, and ChatGPT shows the conversation under archived chats rather than the active sidebar. Also confirm a default `--browser-archive auto` run with Deep Research or follow-ups is not archived.
 
-9. **Stalled-response idle reload smoke**
-   With a short idle window to force the path, run
-   `pnpm run oracle -- --engine browser --browser-manual-login --model gpt-5.5 --browser-idle-reload 30s --browser-max-idle-reloads 3 --prompt "Reply exactly CHECK_IDLE_RELOAD_OK."`
-   against a stuck/frozen composer (or just a slow run). Confirm the log can print `[browser] No assistant progress for 30s; reloading conversation (1/3)` when the assistant stalls and the turn still completes with `CHECK_IDLE_RELOAD_OK`. Then run a Pro/extended-thinking prompt and confirm the log shows `[browser] ... still thinking ... extending wait (reload deferred)` instead of reloading during active thinking.
-
 Record session IDs and outcomes in the PR description (pass/fail, notable delays). This ensures reviewers can audit real runs.
 
 ### Remote Chrome smoke test (CDP)

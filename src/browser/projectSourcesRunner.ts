@@ -161,7 +161,6 @@ export async function runBrowserProjectSources(
       fallbackToDefault: !strictTabIsolation,
       retries: devtoolsRetries,
       retryDelayMs: 500,
-      newWindow: true,
     });
     client = connection.client;
     isolatedTargetId = connection.targetId ?? null;
@@ -472,9 +471,7 @@ async function maybeReuseProjectSourcesChrome(
   let port = await readDevToolsPort(userDataDir);
   if (!port && waitForPortMs > 0) {
     const deadline = Date.now() + waitForPortMs;
-    if (logger.verbose) {
-      logger(`[browser] Waiting up to ${Math.round(waitForPortMs / 1000)}s for shared Chrome to appear...`);
-    }
+    logger(`Waiting up to ${Math.round(waitForPortMs / 1000)}s for shared Chrome to appear...`);
     while (!port && Date.now() < deadline) {
       await delay(250);
       port = await readDevToolsPort(userDataDir);
@@ -485,11 +482,9 @@ async function maybeReuseProjectSourcesChrome(
     const discovered = await findRunningChromeDebugTargetForProfile(userDataDir);
     if (!discovered) {
       if (pid) {
-        if (logger.verbose) {
-          logger(
-            `[browser] No reachable Chrome DevTools target for the profile; launching a new Chrome.`,
-          );
-        }
+        logger(
+          `No reachable Chrome DevTools target found for ${userDataDir}; clearing stale profile state before launching new Chrome.`,
+        );
         await cleanupStaleProfileState(userDataDir, logger, {
           lockRemovalMode: "if_oracle_pid_dead",
         });

@@ -26,7 +26,6 @@ import type {
   ReasoningEffort,
   ReasoningMode,
   RunOracleOptions,
-  ThinkingTimeLevel,
 } from "../src/oracle/types.js";
 import { CHATGPT_URL } from "../src/browser/constants.js";
 import { applyHelpStyling } from "../src/cli/help.js";
@@ -151,6 +150,7 @@ interface CliOptions extends OptionValues {
   browserModelStrategy?: "select" | "current" | "ignore";
   browserManualLogin?: boolean;
   manualLogin?: boolean;
+  manualBrowserLogin?: boolean;
   browserManualLoginProfileDir?: string;
   browserThinkingTime?: "light" | "standard" | "extended" | "extra-high" | "pro" | "heavy";
   browserResearch?: "off" | "deep";
@@ -441,7 +441,7 @@ program
   .option("-s, --slug <words>", "Custom session slug (3-5 words).")
   .option(
     "-m, --model <model>",
-    "Model to target (gpt-5.5 API default; ChatGPT browser defaults to GPT-5.6 Sol with High/extended effort). GPT-5.6 aliases gpt-5.6 and gpt-5.6-sol work with the OpenAI API or ChatGPT browser. Browser mode rejects retired GPT-5.2 base/Instant/Thinking aliases; they remain API targets. Also supports explicit Pro aliases, Gemini, Claude, and custom API model IDs.",
+    "Model to target (gpt-5.5-pro default). GPT-5.6 aliases gpt-5.6 and gpt-5.6-sol work with the OpenAI API or ChatGPT browser. In browser mode, generic Pro aliases follow the current GPT-5.6 Sol target; use explicit gpt-5.5-pro to pin GPT-5.5. Retired GPT-5.2 base/Instant/Thinking aliases are API-only. Other API targets include gpt-5.1-codex, gpt-5.2, gpt-5.2-instant, Gemini, Claude, and custom model IDs.",
     normalizeModelOption,
   )
   .addOption(
@@ -471,7 +471,7 @@ program
   .addOption(
     new Option(
       "-e, --engine <mode>",
-      "Execution engine (api | browser). Browser engine: GPT models automate ChatGPT; Gemini models use a cookie-based client for gemini.google.com. If omitted, oracle picks api when OPENAI_API_KEY is set, otherwise browser.",
+      "Execution engine compatibility option. This fork always resolves root CLI runs to browser/manual-login.",
     ).choices(["api", "browser"]),
   )
   .addOption(
@@ -667,7 +667,7 @@ program
   .addOption(
     new Option(
       "--browser-timeout <ms|s|m>",
-      "Maximum time to wait for an answer (default 2400s / 40m).",
+      "Maximum time to wait for an answer (default 1200s / 20m).",
     ).hideHelp(),
   )
   .addOption(
@@ -692,19 +692,6 @@ program
     new Option(
       "--browser-recheck-timeout <ms|s|m|h>",
       "Time budget for the delayed recheck attempt (default 120s).",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--browser-idle-reload <ms|s|m|h>",
-      "Reload the conversation when the assistant stalls for this long and keep waiting, " +
-        "instead of idling until the full timeout (default 5m; 0 disables).",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--browser-max-idle-reloads <n>",
-      "Max conversation reloads triggered by idle stalls within one run (default 7).",
     ).hideHelp(),
   )
   .addOption(
@@ -791,17 +778,13 @@ program
       "Skip cookie copy; reuse a persistent automation profile and wait for manual ChatGPT login.",
     ).hideHelp(),
   )
+  .addOption(new Option("--manual-login", "Alias for --browser-manual-login.").hideHelp())
+  .addOption(new Option("--manual-browser-login", "Alias for --browser-manual-login.").hideHelp())
   .addOption(
     new Option(
       "--browser-manual-login-profile-dir <path>",
       "Persistent Chrome profile directory for manual-login browser runs.",
     ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--manual-login",
-      "Use a dedicated Chrome profile for manual login (always on; accepted for compatibility).",
-    ).default(true),
   )
   .addOption(new Option("--browser-headless", "Launch Chrome in headless mode.").hideHelp())
   .addOption(
@@ -1743,10 +1726,10 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     await launchTui({ version: VERSION, printIntro: false });
     return;
   }
-  // Fork behavior: every run is forced onto the browser engine with the persistent
-  // manual-login profile, as if `--engine browser --browser-manual-login` were passed.
-  // ORACLE_ALLOW_API_ENGINE=1 is a test-only escape hatch so API-engine integration
-  // tests can still exercise their paths.
+  // Fork policy: every root CLI run behaves as though these flags were appended
+  // last, so config, environment variables, and an explicit --engine api cannot
+  // bypass the persistent manual-login browser path. The escape hatch exists
+  // only so upstream's API integration tests can exercise their original path.
   if (process.env.ORACLE_ALLOW_API_ENGINE !== "1") {
     options.engine = "browser";
     options.browserManualLogin = true;
@@ -2127,15 +2110,6 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     program.getOptionValueSource?.(key as string) ?? undefined;
   const { applyBrowserDefaultsFromConfig } = await import("../src/cli/browserDefaults.js");
   applyBrowserDefaultsFromConfig(options, userConfig, getSource);
-  // --manual-login defaults to true so browser runs always use the persistent
-  // signed-in profile. Apply it to browserManualLogin unless the user provided
-  // an explicit --browser-manual-login / --no-browser-manual-login value.
-  if (
-    options.manualLogin !== undefined &&
-    getSource("browserManualLogin") === undefined
-  ) {
-    options.browserManualLogin = options.manualLogin;
-  }
   const attachmentTimeoutEnv = process.env.ORACLE_BROWSER_ATTACHMENT_TIMEOUT?.trim();
   if (
     attachmentTimeoutEnv &&
@@ -2922,14 +2896,6 @@ function printDebugHelp(cliName: string): void {
       "After timeout, wait then revisit the conversation to retry capture.",
     ],
     ["--browser-recheck-timeout <ms|s|m|h>", "Time budget for the delayed recheck attempt."],
-    [
-      "--browser-idle-reload <ms|s|m|h>",
-      "Reload the conversation when the assistant stalls for this long (default 5m; 0 disables).",
-    ],
-    [
-      "--browser-max-idle-reloads <n>",
-      "Max conversation reloads triggered by idle stalls within one run (default 7).",
-    ],
     [
       "--browser-reuse-wait <ms|s|m|h>",
       "Wait for a shared Chrome profile before launching (parallel runs).",

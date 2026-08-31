@@ -1,9 +1,15 @@
 # AGENTS.MD
 
+## Project specification
+
+- Before developing, modifying, refactoring, or optimizing code, read the root `SPEC.md` in full and treat it as the source of truth for this fork's current requirements.
+- If a user requirement changes, update `SPEC.md` in the same change. Keep it as a current-state specification: edit the affected requirement directly and do not add version history or change-log entries there.
+- Before adopting or refreshing upstream code, compare it against every requirement in `SPEC.md` and reapply any fork policy that upstream does not provide.
+
 Oracle-specific notes:
 
 - Browser manual-login is ALWAYS ON. Every browser run must reuse the persistent signed-in profile at `~/.oracle/browser-profile` (override only with `ORACLE_BROWSER_PROFILE_DIR` or `--browser-manual-login-profile-dir`). This is a hard requirement for all callers (hermes, openclaw, CLI, MCP): let the default apply, or pass `--manual-login` / `--browser-manual-login` explicitly. It is the fork default and intentionally diverges from upstream; do NOT revert it.
-- NEVER pass `--copy-profile`. It is the only flag that disables manual-login (code: `copyProfile ? false`) and triggers `rsync failed copying Chrome profile (exit 23)` plus unsigned-in profiles on this machine. The upstream cookie-sync default (copying the system Chrome user-data dir) is unreliable here. If a caller needs a different account, switch the manual-login profile dir, not `--copy-profile`.
+- `--copy-profile` is removed from this fork. The upstream throwaway-profile implementation remains unreachable internal code so upstream refreshes stay small; browser config resolution clears `copyProfileSource`. If a caller needs a different account, switch the manual-login profile dir.
 - Global `oracle` is `npm link`ed to this repo: the npm global bin resolves to `dist/bin/oracle-cli.js` here, so hermes/`openclaw` already run THIS project's code (verified via `oracle --help` showing the fork's `--manual-login` flag). Because the global entry runs the COMPILED `dist/`, you MUST `pnpm build` after editing `.ts`/`.tsx` source for changes to reach the global command (direct `node --import tsx bin/oracle-cli.ts` is fine for ad-hoc checks). Re-link is not needed after `pnpm build` since the symlink already points at the repo; rerun `oracle --version` / `oracle --help` to confirm.
 - ChatGPT project URLs: steipete@gmail.com -> https://chatgpt.com/g/g-p-691edc9fec088191b553a35093da1ea8-oracle/project; studpete@gmail.com -> https://chatgpt.com/g/g-p-69505ed97e3081918a275477a647a682/project. Prefer studpete URL if steipete project not found.
 - Pro browser runs: allow up to 10 minutes; never click "Answer now"; keep at least 1–2 Pro live tests (reattach must stay Pro); move other tests to faster models where safe.

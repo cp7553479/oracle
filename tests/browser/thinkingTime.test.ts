@@ -340,22 +340,6 @@ describe("browser thinking-time selection expression", () => {
     expect(logs.at(-1)).toContain("keeping the effort already selected in ChatGPT");
   });
 
-  it("keeps the current ChatGPT selection when best-effort Medium selection fails", async () => {
-    const runtime = {
-      evaluate: async () => ({
-        result: { value: { status: "option-not-found", modelKind: null } },
-      }),
-    };
-    const logs: string[] = [];
-    const logger = ((message: string) => logs.push(message)) as never;
-    (logger as { verbose?: boolean }).verbose = true;
-
-    await expect(
-      ensureThinkingTimeIfAvailable(runtime as never, "standard", logger, null),
-    ).resolves.toBe(false);
-    expect(logs.join(" ")).toContain("keeping ChatGPT's current selection");
-  });
-
   it("drives ChatGPT's new Intelligence effort picker for Pro Extended", () => {
     const expression = buildThinkingTimeExpressionForTest("extended", "gpt-5.5-pro");
     expect(expression).toContain("composer-intelligence-picker-content");

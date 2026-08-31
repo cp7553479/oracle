@@ -97,10 +97,10 @@ describe("maybeReuseRunningChrome", () => {
         for (const lock of lockFiles) {
           expect(existsSync(lock)).toBe(false);
         }
-        expect(logger).not.toHaveBeenCalledWith(
+        expect(logger).toHaveBeenCalledWith(
           expect.stringContaining("clearing stale profile state"),
         );
-        expect(logger).not.toHaveBeenCalledWith("Cleaned up stale Chrome profile locks");
+        expect(logger).toHaveBeenCalledWith("Cleaned up stale Chrome profile locks");
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
       }

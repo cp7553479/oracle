@@ -4,7 +4,6 @@ import { buildConversationTurnCountExpression } from "./conversationTurns.js";
 import { extractStableConversationIdFromUrl } from "./conversationUrl.js";
 import { delay } from "./utils.js";
 import { readAssistantSnapshot } from "./pageActions.js";
-import { extractCanonicalConversationId } from "./conversationUrl.js";
 
 export type TargetInfoLite = {
   id?: string;

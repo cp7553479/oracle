@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { delay } from "./utils.js";
 
-export type ProfileStateLogger = ((message: string) => void) & { verbose?: boolean };
+export type ProfileStateLogger = (message: string) => void;
 
 const DEVTOOLS_ACTIVE_PORT_FILENAME = "DevToolsActivePort";
 const DEVTOOLS_ACTIVE_PORT_RELATIVE_PATHS = [
@@ -242,6 +242,7 @@ export async function acquireProfileRunLock(
       };
       await mkdir(path.dirname(lockPath), { recursive: true });
       await writeFile(lockPath, JSON.stringify(payload), { encoding: "utf8", flag: "wx" });
+      options.logger?.(`Acquired Oracle profile lock at ${lockPath}`);
       return {
         path: lockPath,
         lockId,
@@ -296,6 +297,7 @@ export async function releaseProfileRunLock(
       return;
     }
     await rm(lockPath, { force: true });
+    logger?.(`Released Oracle profile lock ${lockPath}`);
   } catch {
     // best effort
   }
@@ -353,9 +355,7 @@ export async function shouldCleanupManualLoginProfileState(
     logger?.(`DevTools port ${port} still reachable; preserving manual-login profile state`);
     return false;
   }
-  if (logger?.verbose) {
-    logger?.(`[browser] DevTools port ${port} unreachable; clearing stale profile state`);
-  }
+  logger?.(`DevTools port ${port} unreachable (${probe.error}); clearing stale profile state`);
   return true;
 }
 
@@ -367,9 +367,7 @@ export async function cleanupStaleProfileState(
   for (const candidate of getDevToolsActivePortPaths(userDataDir)) {
     try {
       await rm(candidate, { force: true });
-      if (logger?.verbose) {
-        logger?.(`[browser] Removed stale DevToolsActivePort: ${candidate}`);
-      }
+      logger?.(`Removed stale DevToolsActivePort: ${candidate}`);
     } catch {
       // ignore cleanup errors
     }
@@ -405,7 +403,7 @@ export async function cleanupStaleProfileState(
   for (const lock of lockFiles) {
     await rm(lock, { force: true }).catch(() => undefined);
   }
-
+  logger?.("Cleaned up stale Chrome profile locks");
 }
 
 async function isChromeUsingUserDataDir(userDataDir: string): Promise<boolean> {

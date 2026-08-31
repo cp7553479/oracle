@@ -21,8 +21,6 @@ export interface BrowserDefaultsOptions {
   browserAttachmentTimeout?: string | number;
   browserRecheckDelay?: string | number;
   browserRecheckTimeout?: string | number;
-  browserIdleReload?: string | number;
-  browserMaxIdleReloads?: string | number;
   browserReuseWait?: string | number;
   browserProfileLockTimeout?: string | number;
   browserMaxConcurrentTabs?: string | number;
@@ -111,12 +109,6 @@ export function applyBrowserDefaultsFromConfig(
   if (isUnset("browserRecheckTimeout") && typeof browser.assistantRecheckTimeoutMs === "number") {
     options.browserRecheckTimeout = String(browser.assistantRecheckTimeoutMs);
   }
-  if (isUnset("browserIdleReload") && typeof browser.idleReloadMs === "number") {
-    options.browserIdleReload = String(browser.idleReloadMs);
-  }
-  if (isUnset("browserMaxIdleReloads") && typeof browser.maxIdleReloads === "number") {
-    options.browserMaxIdleReloads = String(browser.maxIdleReloads);
-  }
   if (isUnset("browserReuseWait") && typeof browser.reuseChromeWaitMs === "number") {
     options.browserReuseWait = String(browser.reuseChromeWaitMs);
   }
@@ -176,10 +168,9 @@ export function applyBrowserDefaultsFromConfig(
   if (
     !attachRunningRequested &&
     isUnset("browserManualLogin") &&
-    // Manual-login is always on in this fork; config can never disable it.
-    browser.manualLogin === true
+    browser.manualLogin !== undefined
   ) {
-    options.browserManualLogin = true;
+    options.browserManualLogin = browser.manualLogin;
   }
   if (
     !attachRunningRequested &&

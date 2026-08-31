@@ -52,16 +52,20 @@ describe("ensureModelSelection", () => {
     expect(logger).toHaveBeenCalledWith("Model picker: GPT-5.2 Pro");
   });
 
-  test("throws when option missing", async () => {
+  test("silently keeps the current model when an option is missing", async () => {
     const runtime = {
       evaluate: vi.fn().mockResolvedValue({ result: { value: { status: "option-not-found" } } }),
     } as unknown as ChromeClient["Runtime"];
-    await expect(ensureModelSelection(runtime, "GPT-5 Pro", logger)).rejects.toThrow(
-      /Unable to find model option matching/,
-    );
+    await expect(ensureModelSelection(runtime, "GPT-5 Pro", logger)).resolves.toMatchObject({
+      requestedModel: "GPT-5 Pro",
+      strategy: "current",
+      status: "skipped",
+      verified: false,
+    });
+    expect(logger).not.toHaveBeenCalled();
   });
 
-  test("includes temporary chat hint when requested Pro option is missing", async () => {
+  test("silently keeps the current model when a Pro option is missing in temporary chat", async () => {
     const runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -72,21 +76,29 @@ describe("ensureModelSelection", () => {
         },
       }),
     } as unknown as ChromeClient["Runtime"];
-    await expect(ensureModelSelection(runtime, "GPT-5.2 Pro", logger)).rejects.toThrow(
-      /model labels may differ/i,
-    );
+    await expect(ensureModelSelection(runtime, "GPT-5.2 Pro", logger)).resolves.toMatchObject({
+      requestedModel: "GPT-5.2 Pro",
+      strategy: "current",
+      status: "skipped",
+      verified: false,
+    });
+    expect(logger).not.toHaveBeenCalled();
   });
 
-  test("throws when button missing", async () => {
+  test("silently keeps the current model when the picker button is missing", async () => {
     const runtime = {
       evaluate: vi.fn().mockResolvedValue({ result: { value: { status: "button-missing" } } }),
     } as unknown as ChromeClient["Runtime"];
     // buttonWaitMs: 0 skips the composer-pill wait so this exercises the give-up path directly.
     await expect(
       ensureModelSelection(runtime, "Instant", logger, "select", { buttonWaitMs: 0 }),
-    ).rejects.toThrow(
-      /Unable to locate the ChatGPT model selector button.*--browser-model-strategy current.*--browser-model-strategy ignore/s,
-    );
+    ).resolves.toMatchObject({
+      requestedModel: "Instant",
+      strategy: "current",
+      status: "skipped",
+      verified: false,
+    });
+    expect(logger).not.toHaveBeenCalled();
   });
 });
 
@@ -1037,7 +1049,7 @@ describe("ensureLoggedIn", () => {
       }),
     } as unknown as ChromeClient["Runtime"];
     await expect(ensureLoggedIn(runtime, logger, { appliedCookies: 2 })).resolves.toBeUndefined();
-    expect(logger).toHaveBeenCalledWith(expect.stringContaining("[browser] Signed in to ChatGPT (login check passed)"));
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining("Login check passed"));
   });
 
   test("does not treat history items starting with login as login CTAs", async () => {

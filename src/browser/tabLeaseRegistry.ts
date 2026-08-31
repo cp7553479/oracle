@@ -5,6 +5,8 @@ import type { BrowserLogger } from "./types.js";
 import { isProcessAlive } from "./profileState.js";
 import { delay } from "./utils.js";
 
+// This fork intentionally serializes browser work. Additional callers retain
+// their lease request and wait in the existing file-backed queue.
 export const DEFAULT_MAX_CONCURRENT_CHATGPT_TABS = 1;
 const REGISTRY_FILENAME = "oracle-tab-leases.json";
 const REGISTRY_LOCK_DIRNAME = "oracle-tab-leases.lock";
@@ -108,6 +110,9 @@ export async function acquireBrowserTabLease(
     });
 
     if (acquired) {
+      options.logger?.(
+        `[browser] Acquired ChatGPT browser slot ${leaseId.slice(0, 8)} (${maxConcurrentTabs} max).`,
+      );
       return {
         id: leaseId,
         release: async (releaseOptions) =>
@@ -166,7 +171,7 @@ export async function releaseBrowserTabLease(
     await writeRegistry(profileDir, { version: 1, leases });
     await options.onRelease?.({ isLastLease: leases.length === 0 });
   }).catch(() => undefined);
-
+  logger?.(`[browser] Released ChatGPT browser slot ${leaseId.slice(0, 8)}.`);
 }
 
 export async function hasOtherActiveBrowserTabLeases(

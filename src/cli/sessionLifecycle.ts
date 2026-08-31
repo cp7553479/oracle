@@ -29,6 +29,7 @@ export function formatSessionLifecycleBlock(meta: SessionMetadata): string[] {
   if (!lifecycle) {
     return [];
   }
+  const modelCount = meta.models?.length ?? (meta.model ? 1 : 0);
   const detachValue = lifecycle.detached
     ? lifecycle.execution === "background"
       ? "yes, polling"
@@ -37,6 +38,7 @@ export function formatSessionLifecycleBlock(meta: SessionMetadata): string[] {
   const lines = [
     `Session: ${meta.id}`,
     `Mode: ${lifecycle.engine} ${lifecycle.execution}`,
+    `Models: ${modelCount > 1 ? `${modelCount} parallel` : String(modelCount || 1)}`,
     `Detach: ${detachValue}`,
     `Reattach: ${lifecycle.reattachCommand}`,
   ];

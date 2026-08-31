@@ -231,6 +231,7 @@ export async function submitPrompt(
     logger("Clicked send button");
   }
   await deps.onPromptSubmitted?.();
+
   const commitTimeoutMs = Math.max(60_000, deps.inputTimeoutMs ?? 0);
   // Learned: the send button can succeed but the turn doesn't appear immediately; verify commit via turns/stop button.
   return await verifyPromptCommitted(
@@ -647,15 +648,6 @@ async function attemptSendButton(
         continue;
       }
       await clickTrustedPoint(Runtime, Input, value.x, value.y);
-      // Trusted input events reach only a composited window, so a hidden or
-      // occluded one swallows the click without raising anything. If the send
-      // clearly did not take, fall back to the synthetic DOM click that worked
-      // before trusted clicks were introduced. The fallback re-checks for a
-      // still-enabled send button, so a slow-but-successful send cannot be
-      // submitted twice.
-      if (!(await sendTookEffect(Runtime))) {
-        await dispatchSendButtonClick(Runtime);
-      }
       return true;
     }
     if (status === "clicked") {
@@ -687,98 +679,6 @@ async function attemptSendButton(
     });
   }
   return false;
-}
-
-// Shared predicate: a send button we are allowed to click is both visible and enabled.
-// Kept in sync with the primary send script so the fallback cannot re-send a prompt
-// that already left the composer (a submitted send leaves no enabled send button).
-const SEND_BUTTON_PREDICATE_JS = `
-  const sendSelectors = ${JSON.stringify(SEND_BUTTON_SELECTORS)};
-  const isSendVisible = (node) => {
-    if (!(node instanceof HTMLElement)) return false;
-    const rect = node.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    const style = window.getComputedStyle(node);
-    return style.display !== 'none' && style.visibility !== 'hidden';
-  };
-  const isSendEnabled = (node) => {
-    const style = window.getComputedStyle(node);
-    return !(
-      node.hasAttribute('disabled') ||
-      node.getAttribute('aria-disabled') === 'true' ||
-      node.getAttribute('data-disabled') === 'true' ||
-      style.pointerEvents === 'none' ||
-      style.display === 'none'
-    );
-  };
-  const findSendButton = () => {
-    const candidates = [];
-    for (const selector of sendSelectors) {
-      candidates.push(...Array.from(document.querySelectorAll(selector)));
-    }
-    return candidates.find((node) => isSendVisible(node) && isSendEnabled(node)) || null;
-  };`;
-
-const SEND_EFFECT_TIMEOUT_MS = 1_500;
-const SEND_EFFECT_POLL_MS = 100;
-
-/**
- * Did the send actually leave the composer?
- *
- * Positive signals: the composer cleared, the send button is gone/disabled, a
- * stop button appeared, or an assistant turn is rendering. Any of these means
- * ChatGPT accepted the submission; none of them means the click was swallowed.
- */
-async function sendTookEffect(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
-  const expression = `(() => {
-    ${SEND_BUTTON_PREDICATE_JS}
-    const inputSelectors = ${JSON.stringify(INPUT_SELECTORS)};
-    const readValue = (node) => {
-      if (!node) return '';
-      if (node instanceof HTMLTextAreaElement) return node.value ?? '';
-      return node.innerText ?? '';
-    };
-    const inputs = inputSelectors
-      .map((selector) => document.querySelector(selector))
-      .filter((node) => Boolean(node));
-    const composerCleared =
-      inputs.length > 0 && inputs.every((node) => !String(readValue(node)).trim());
-    const sendButtonGone = findSendButton() === null;
-    const stopVisible = Boolean(document.querySelector(${JSON.stringify(STOP_BUTTON_SELECTOR)}));
-    const assistantVisible = Boolean(document.querySelector(${JSON.stringify(ASSISTANT_ROLE_SELECTOR)}));
-    return composerCleared || sendButtonGone || stopVisible || assistantVisible;
-  })()`;
-  const deadline = Date.now() + SEND_EFFECT_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-      if (result?.value === true) {
-        return true;
-      }
-    } catch {
-      // ignore; keep polling until the deadline
-    }
-    await delay(SEND_EFFECT_POLL_MS);
-  }
-  return false;
-}
-
-/** Synthetic DOM click on a still-enabled send button. Returns false when none is left to click. */
-async function dispatchSendButtonClick(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
-  const expression = `(() => {
-    ${buildClickDispatcher()}
-    ${SEND_BUTTON_PREDICATE_JS}
-    const button = findSendButton();
-    if (!button) return false;
-    dispatchClickSequence(button);
-    return true;
-  })()`;
-  try {
-    const { result } = await Runtime.evaluate({ expression, returnByValue: true });
-    return result?.value === true;
-  } catch {
-    return false;
-  }
 }
 
 async function activatePageForTrustedInput(
@@ -863,7 +763,6 @@ async function verifyPromptCommitted(
     }
   }
   const baselineLiteral = baseline ?? -1;
-  const domFallbackStabilityMs = 2_000;
   // Learned: ChatGPT can echo/format text; normalize markdown and use prefix matches to detect the sent prompt.
   const script = `(() => {
 		    const editor = document.querySelector(${primarySelectorLiteral});
@@ -920,11 +819,7 @@ async function verifyPromptCommitted(
         activeInputs.length === 0 ? null : activeInputs.every((node) => !String(readValue(node)).trim());
       const composerCleared = activeEmpty ?? !(String(editorValue).trim() || String(fallbackValue).trim());
       const href = typeof location === 'object' && location.href ? location.href : '';
-      const rawConversationId = href.match(/\\/c\\/([^/?#]+)/)?.[1] ?? '';
-      // ChatGPT can optimistically render the user turn before the backend has
-      // accepted it. Require a stable conversation URL; transient /c/WEB:...
-      // paths and the root page do not prove that the request was submitted.
-      const inConversation = /^[a-zA-Z0-9-]+$/.test(rawConversationId);
+      const inConversation = /\\/c\\//.test(href);
 		    return {
         baseline,
 	      userMatched,
@@ -944,7 +839,6 @@ async function verifyPromptCommitted(
   })()`;
 
   let lastProbe: CommitProbeState | undefined;
-  let domFallbackCandidateSince: number | null = null;
   while (Date.now() < deadline) {
     const { result } = await Runtime.evaluate({ expression: script, returnByValue: true });
     const info = result.value as CommitProbeState | undefined;
@@ -955,33 +849,15 @@ async function verifyPromptCommitted(
     const matchesPrompt = Boolean(info?.lastMatched || info?.userMatched || info?.prefixMatched);
     const baselineUnknown =
       typeof info?.baseline === "number" ? info.baseline < 0 : baselineLiteral < 0;
-    if (info?.inConversation && matchesPrompt && (baselineUnknown || info?.hasNewTurn)) {
+    if (matchesPrompt && (baselineUnknown || info?.hasNewTurn)) {
       return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
     }
-    const canonicalFallbackCommit =
-      info?.inConversation &&
+    const fallbackCommit =
       info?.composerCleared &&
       Boolean(info?.hasNewTurn) &&
       ((info?.stopVisible ?? false) || info?.assistantVisible || info?.inConversation);
-    if (canonicalFallbackCommit) {
+    if (fallbackCommit) {
       return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
-    }
-    const domFallbackCandidate =
-      !info?.inConversation &&
-      matchesPrompt &&
-      info?.composerCleared &&
-      Boolean(info?.hasNewTurn) &&
-      Boolean(info?.stopVisible || info?.assistantVisible);
-    if (domFallbackCandidate) {
-      domFallbackCandidateSince ??= Date.now();
-      if (Date.now() - domFallbackCandidateSince >= domFallbackStabilityMs) {
-        logger?.(
-          "[browser] Prompt submission: stable DOM evidence detected without a canonical conversation URL; continuing via fallback.",
-        );
-        return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
-      }
-    } else {
-      domFallbackCandidateSince = null;
     }
     await delay(100);
   }

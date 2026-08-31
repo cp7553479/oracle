@@ -16,7 +16,9 @@ export async function launchChrome(
 ) {
   const { connectHost, debugBindAddress, usePatchedLauncher } = resolveWslChromeLaunchRoute();
   const debugPort = config.debugPort ?? parseDebugPortEnv();
-  const launchedProfileDirectory = "Default";
+  const usingCopiedProfile = Boolean(config.copyProfileSource);
+  const launchedProfileDirectory =
+    usingCopiedProfile && config.chromeProfile ? config.chromeProfile : "Default";
   await prepareChromeWindowStateForHiddenLaunch({
     config,
     userDataDir,
@@ -28,7 +30,14 @@ export async function launchChrome(
     debugBindAddress,
     config.hideWindow ?? false,
   );
-  const launchOptions = resolveChromeLaunchOptions(chromeFlags);
+  // copy-profile reuses a copied signed-in profile whose cookies are
+  // Keychain-encrypted, so it must launch with the real Keychain (not mocked):
+  // strip the keychain-mocking flags from both chrome-launcher's defaults and
+  // Oracle's set, and ignore the defaults so they aren't re-added.
+  if (usingCopiedProfile && config.chromeProfile) {
+    chromeFlags.push(`--profile-directory=${config.chromeProfile}`);
+  }
+  const launchOptions = resolveChromeLaunchOptions(chromeFlags, usingCopiedProfile);
   const launcher = usePatchedLauncher
     ? await launchWithCustomHost({
         chromeFlags: launchOptions.chromeFlags,
@@ -48,7 +57,7 @@ export async function launchChrome(
       });
   const pidLabel = typeof launcher.pid === "number" ? ` (pid ${launcher.pid})` : "";
   const hostLabel = connectHost ? ` on ${connectHost}` : "";
-  logger(`[browser] Launched Chrome${pidLabel} on port ${launcher.port}${hostLabel}`);
+  logger(`Launched Chrome${pidLabel} on port ${launcher.port}${hostLabel}`);
   return Object.assign(launcher, { host: connectHost ?? "127.0.0.1" }) as LaunchedChrome & {
     host?: string;
   };
@@ -295,16 +304,10 @@ export function registerTerminationHooks(
     preserveUserDataDir?: boolean;
     /**
      * Always terminate Chrome and delete `userDataDir` on signal, even when the run is
-     * in-flight — for throwaway profiles that must not be left on disk. Overrides the
-     * in-flight "leave running" behavior.
+     * in-flight — for throwaway copied profiles (`--copy-profile`) that must not be left
+     * on disk. Overrides the in-flight "leave running" behavior.
      */
     forceProfileCleanup?: boolean;
-    /**
-     * Signal cleanup for callers that own an isolated browser target (SIGTERM and
-     * SIGINT). The caller closes only its target and decides whether the shared
-     * Chrome process can also be terminated after checking active leases.
-     */
-    cleanupOnSigterm?: (signal: NodeJS.Signals) => Promise<void>;
   },
 ): () => void {
   const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGQUIT"];
@@ -317,27 +320,20 @@ export function registerTerminationHooks(
     handling = true;
     const inFlight = opts?.isInFlight?.() ?? false;
     const forceCleanup = opts?.forceProfileCleanup ?? false;
-    // Fork semantics: Ctrl+C (SIGINT) must close the Oracle-owned tab and release the
-    // browser slot too, so interrupted runs don't leave tabs behind or stall the queue.
-    const cleanupOnSignal =
-      signal === "SIGTERM" || signal === "SIGINT" ? opts?.cleanupOnSigterm : undefined;
-    const leaveRunning = !cleanupOnSignal && (keepBrowser || inFlight) && !forceCleanup;
-    if (cleanupOnSignal) {
-      logger(`Received ${signal}; closing the Oracle-owned browser window.`);
-    } else if (leaveRunning) {
+    const leaveRunning = (keepBrowser || inFlight) && !forceCleanup;
+    if (leaveRunning) {
       logger(
         `Received ${signal}; leaving Chrome running${inFlight ? " (assistant response pending)" : ""}`,
+      );
+    } else if (forceCleanup && (keepBrowser || inFlight)) {
+      logger(
+        `Received ${signal}; terminating Chrome and removing the copied profile (copy-profile is not retained)`,
       );
     } else {
       logger(`Received ${signal}; terminating Chrome process`);
     }
     void (async () => {
-      if (cleanupOnSignal) {
-        await cleanupOnSignal(signal).catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          logger(`Failed to clean up the Oracle-owned browser window after ${signal}: ${message}`);
-        });
-      } else if (leaveRunning) {
+      if (leaveRunning) {
         // Ensure reattach hints are written before we exit.
         await opts?.emitRuntimeHint?.().catch(() => undefined);
         if (inFlight) {
@@ -371,16 +367,13 @@ export function registerTerminationHooks(
     });
   };
 
-  const signalHandlers = new Map<NodeJS.Signals, () => void>(
-    signals.map((signal) => [signal, () => handleSignal(signal)]),
-  );
-  for (const [signal, signalHandler] of signalHandlers) {
-    process.on(signal, signalHandler);
+  for (const signal of signals) {
+    process.on(signal, handleSignal);
   }
 
   return () => {
-    for (const [signal, signalHandler] of signalHandlers) {
-      process.removeListener(signal, signalHandler);
+    for (const signal of signals) {
+      process.removeListener(signal, handleSignal);
     }
   };
 }
@@ -414,24 +407,15 @@ export async function connectToRemoteChrome(
     });
   }
   if (targetUrl) {
-    const targetConnection = await connectToNewTarget(
-      host,
-      port,
-      targetUrl,
-      logger,
-      {
-        opened: () => `Opened dedicated remote Chrome window targeting ${targetUrl}`,
-        openFailed: (message) =>
-          `Failed to open dedicated remote Chrome window (${message}); falling back to first target.`,
-        attachFailed: (targetId, message) =>
-          `Failed to attach to dedicated remote Chrome window ${targetId} (${message}); falling back to first target.`,
-        closeFailed: (targetId, message) =>
-          `Failed to close unused remote Chrome window ${targetId}: ${message}`,
-      },
-      {
-        newWindow: true,
-      },
-    );
+    const targetConnection = await connectToNewTarget(host, port, targetUrl, logger, {
+      opened: () => `Opened dedicated remote Chrome tab targeting ${targetUrl}`,
+      openFailed: (message) =>
+        `Failed to open dedicated remote Chrome tab (${message}); falling back to first target.`,
+      attachFailed: (targetId, message) =>
+        `Failed to attach to dedicated remote Chrome tab ${targetId} (${message}); falling back to first target.`,
+      closeFailed: (targetId, message) =>
+        `Failed to close unused remote Chrome tab ${targetId}: ${message}`,
+    });
     if (targetConnection) {
       return {
         client: targetConnection.client,
@@ -539,6 +523,9 @@ export async function connectToRemoteChromeTarget(
       targetId: options.targetId,
       close: async () => {
         await client.close().catch(() => undefined);
+        if (options.closeTargetOnDispose && options.targetId) {
+          await CDP.Close({ host, port, id: options.targetId }).catch(() => undefined);
+        }
       },
     };
   }
@@ -555,12 +542,9 @@ export async function connectToRemoteChromeTarget(
     if (!targetId) {
       const created = await browser.Target.createTarget({
         url: options.targetUrl ?? "about:blank",
-        newWindow: true,
       });
       targetId = created.targetId;
-      logger(
-        `Opened dedicated remote Chrome window targeting ${options.targetUrl ?? "about:blank"}`,
-      );
+      logger(`Opened dedicated remote Chrome tab targeting ${options.targetUrl ?? "about:blank"}`);
     }
     const attached = await browser.Target.attachToTarget({ targetId, flatten: true });
     const client = createSessionBoundChromeClient(browser, attached.sessionId);
@@ -651,26 +635,23 @@ async function connectToNewTarget(
   url: string,
   logger: BrowserLogger,
   messages: TargetConnectMessages,
-  options?: { newWindow?: boolean },
 ): Promise<{ client: ChromeClient; targetId: string } | null> {
   try {
-    const targetId = options?.newWindow
-      ? await createTargetInNewWindow(host, port, url)
-      : ((await CDP.New({ host, port, url })) as { id: string }).id;
+    const target = await CDP.New({ host, port, url });
     try {
-      const client = await CDP({ host, port, target: targetId });
+      const client = await CDP({ host, port, target: target.id });
       if (messages.opened) {
-        logger(messages.opened(targetId));
+        logger(messages.opened(target.id));
       }
-      return { client, targetId };
+      return { client, targetId: target.id };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger(messages.attachFailed(targetId, message));
+      logger(messages.attachFailed(target.id, message));
       try {
-        await CDP.Close({ host, port, id: targetId });
+        await CDP.Close({ host, port, id: target.id });
       } catch (closeError) {
         const closeMessage = closeError instanceof Error ? closeError.message : String(closeError);
-        logger(messages.closeFailed(targetId, closeMessage));
+        logger(messages.closeFailed(target.id, closeMessage));
       }
     }
   } catch (error) {
@@ -678,28 +659,6 @@ async function connectToNewTarget(
     logger(messages.openFailed(message));
   }
   return null;
-}
-
-async function createTargetInNewWindow(host: string, port: number, url: string): Promise<string> {
-  const version = (await CDP.Version({ host, port })) as {
-    webSocketDebuggerUrl?: string;
-  };
-  if (!version.webSocketDebuggerUrl) {
-    throw new Error("Chrome did not expose a browser DevTools endpoint");
-  }
-  const browser = (await CDP({
-    target: version.webSocketDebuggerUrl,
-    local: true,
-  })) as ChromeClient;
-  try {
-    const created = await browser.Target.createTarget({
-      url,
-      newWindow: true,
-    });
-    return created.targetId;
-  } finally {
-    await browser.close().catch(() => undefined);
-  }
 }
 
 function createSessionBoundChromeClient(browser: ChromeClient, sessionId: string): ChromeClient {
@@ -775,42 +734,27 @@ export async function connectWithNewTab(
   logger: BrowserLogger,
   initialUrl?: string,
   host?: string,
-  options?: {
-    fallbackToDefault?: boolean;
-    retries?: number;
-    retryDelayMs?: number;
-    newWindow?: boolean;
-  },
+  options?: { fallbackToDefault?: boolean; retries?: number; retryDelayMs?: number },
 ): Promise<IsolatedTabConnection> {
   const effectiveHost = host ?? "127.0.0.1";
   const url = initialUrl ?? "about:blank";
   const fallbackToDefault = options?.fallbackToDefault ?? true;
-  const newWindow = options?.newWindow ?? false;
   const retries = Math.max(0, options?.retries ?? 0);
   const retryDelayMs = Math.max(0, options?.retryDelayMs ?? 250);
   const fallbackLabel = fallbackToDefault
     ? "falling back to default target."
     : "strict mode: not falling back.";
-  const targetKind = newWindow ? "window" : "tab";
 
   let attempt = 0;
   while (attempt <= retries) {
-    const targetConnection = await connectToNewTarget(
-      effectiveHost,
-      port,
-      url,
-      logger,
-      {
-        opened: () => `Opened browser ${targetKind}`,
-        openFailed: (message) =>
-          `Failed to open isolated browser ${targetKind} (${message}); ${fallbackLabel}`,
-        attachFailed: (targetId, message) =>
-          `Failed to attach to isolated browser ${targetKind} ${targetId} (${message}); ${fallbackLabel}`,
-        closeFailed: (targetId, message) =>
-          `Failed to close unused browser ${targetKind} ${targetId}: ${message}`,
-      },
-      { newWindow },
-    );
+    const targetConnection = await connectToNewTarget(effectiveHost, port, url, logger, {
+      opened: (targetId) => `Opened isolated browser tab (target=${targetId})`,
+      openFailed: (message) => `Failed to open isolated browser tab (${message}); ${fallbackLabel}`,
+      attachFailed: (targetId, message) =>
+        `Failed to attach to isolated browser tab ${targetId} (${message}); ${fallbackLabel}`,
+      closeFailed: (targetId, message) =>
+        `Failed to close unused browser tab ${targetId}: ${message}`,
+    });
     if (targetConnection) {
       return targetConnection;
     }
@@ -822,9 +766,7 @@ export async function connectWithNewTab(
   }
 
   if (!fallbackToDefault) {
-    throw new Error(
-      `Failed to open isolated browser ${targetKind}; refusing to attach to default target.`,
-    );
+    throw new Error("Failed to open isolated browser tab; refusing to attach to default target.");
   }
   const client = await connectToChrome(port, logger, effectiveHost);
   return { client };
@@ -851,7 +793,7 @@ export async function closeTab(
         continue;
       }
       if (!targets.some((target) => (target.targetId ?? target.id) === targetId)) {
-        logger(`Closed browser tab`);
+        logger(`Closed isolated browser tab (target=${targetId})`);
         return true;
       }
     }
@@ -864,7 +806,7 @@ export async function closeTab(
         targetId?: string;
       }>;
       if (!targets.some((target) => (target.targetId ?? target.id) === targetId)) {
-        logger(`Closed browser tab`);
+        logger(`Closed isolated browser tab (target=${targetId})`);
         return true;
       }
     } catch {
@@ -1063,18 +1005,26 @@ export function buildChromeFlagsForTest(
   return buildChromeFlags(headless, debugBindAddress, hideWindow);
 }
 
-function resolveChromeLaunchOptions(chromeFlags: string[]): {
-  chromeFlags: string[];
-  ignoreDefaultFlags: boolean;
-} {
-  return { chromeFlags, ignoreDefaultFlags: false };
+function resolveChromeLaunchOptions(
+  chromeFlags: string[],
+  usingCopiedProfile: boolean,
+): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
+  if (!usingCopiedProfile) {
+    return { chromeFlags, ignoreDefaultFlags: false };
+  }
+  return {
+    chromeFlags: [...Launcher.defaultFlags(), ...chromeFlags].filter(
+      (flag) => flag !== "--use-mock-keychain" && flag !== "--password-store=basic",
+    ),
+    ignoreDefaultFlags: true,
+  };
 }
 
-export function resolveChromeLaunchOptionsForTest(chromeFlags: string[]): {
-  chromeFlags: string[];
-  ignoreDefaultFlags: boolean;
-} {
-  return resolveChromeLaunchOptions(chromeFlags);
+export function resolveChromeLaunchOptionsForTest(
+  chromeFlags: string[],
+  usingCopiedProfile: boolean,
+): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
+  return resolveChromeLaunchOptions(chromeFlags, usingCopiedProfile);
 }
 
 function parseDebugPortEnv(): number | null {

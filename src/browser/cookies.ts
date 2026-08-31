@@ -214,8 +214,7 @@ function extractChatGptConversationId(url: string): string | undefined {
     if (domain !== "chatgpt.com" && domain !== "chat.openai.com") {
       return undefined;
     }
-    const rawId = parsed.pathname.match(/\/c\/([^/?#]+)/)?.[1];
-    return rawId && /^[a-zA-Z0-9-]+$/.test(rawId) ? rawId : undefined;
+    return parsed.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
   } catch {
     return undefined;
   }

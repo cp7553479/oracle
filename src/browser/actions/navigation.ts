@@ -80,6 +80,7 @@ export interface PromptReadyNavigationDeps {
 export async function dismissBlockingUi(
   Runtime: ChromeClient["Runtime"],
   logger: BrowserLogger,
+  options: { silent?: boolean } = { silent: true },
 ): Promise<boolean> {
   const outcome = await Runtime.evaluate({
     expression: `(() => {
@@ -133,7 +134,7 @@ export async function dismissBlockingUi(
   }).catch(() => null);
   const value = outcome?.result?.value as { dismissed?: boolean; action?: string } | undefined;
   if (value?.dismissed) {
-    if (logger.verbose) {
+    if (!options.silent) {
       logger(`[nav] dismissed blocking UI (${value.action ?? "unknown"})`);
     }
     return true;
@@ -413,7 +414,9 @@ export async function ensureLoggedIn(
   });
   const probe = normalizeLoginProbe(outcome.result?.value);
   if (probe.ok) {
-    logger("[browser] Signed in to ChatGPT (login check passed)");
+    logger(
+      `Login check passed (sessionStatus=${probe.status}, sessionAuthenticated=${Boolean(probe.sessionAuthenticated)}, backendStatus=${probe.backendStatus ?? "n/a"}, domLoginCta=${Boolean(probe.domLoginCta)}, appAuthenticated=${Boolean(probe.appAuthenticated)})`,
+    );
     return;
   }
 

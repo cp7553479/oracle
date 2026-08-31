@@ -47,13 +47,6 @@ export interface BrowserSessionConfig {
   assistantRecheckDelayMs?: number;
   /** Time budget for the delayed recheck attempt. */
   assistantRecheckTimeoutMs?: number;
-  /**
-   * When the assistant response stalls for this long, reload the conversation and keep
-   * waiting instead of idling until the full timeout. 0 disables (legacy behavior).
-   */
-  idleReloadMs?: number;
-  /** Max conversation reloads triggered by idle stalls within one run. */
-  maxIdleReloads?: number;
   /** Wait for an existing shared Chrome to appear before launching a new one. */
   reuseChromeWaitMs?: number;
   /** Max time to wait for a shared manual-login profile lock (serializes parallel runs). */
@@ -82,6 +75,8 @@ export interface BrowserSessionConfig {
   manualLogin?: boolean;
   manualLoginProfileDir?: string | null;
   manualLoginCookieSync?: boolean;
+  /** Copy this signed-in Chrome user-data dir to a throwaway profile and run against it (login-free). */
+  copyProfileSource?: string | null;
   /** Thinking time intensity: 'light', 'standard', 'extended', 'heavy' */
   thinkingTime?: ThinkingTimeLevel;
   /** Browser-only research mode. "deep" activates ChatGPT Deep Research. */

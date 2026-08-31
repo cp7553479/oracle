@@ -443,7 +443,7 @@ describe("collectGeneratedImageArtifacts", () => {
       evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
     } as unknown as ChromeClient["Runtime"];
     const warningError = new Error(
-      "ChatGPT displayed a temporary-unavailable warning while waiting for generated image artifacts.",
+      "ChatGPT displayed a rate-limit warning while waiting for generated image artifacts.",
     );
     const checkBlockingUiWarning = vi.fn().mockRejectedValue(warningError);
 
@@ -460,7 +460,7 @@ describe("collectGeneratedImageArtifacts", () => {
     expect(checkBlockingUiWarning).toHaveBeenCalledTimes(1);
   });
 
-  test("continues image polling after an informational warning check", async () => {
+  test("retries behavior button downloads after waiting for delayed image generation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-12T00:00:00Z"));
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-chatgpt-image-delayed-"));
@@ -495,7 +495,6 @@ describe("collectGeneratedImageArtifacts", () => {
     const client = {
       send: vi.fn().mockResolvedValue({}),
     } as unknown as ChromeClient;
-    const checkBlockingUiWarning = vi.fn().mockResolvedValue(undefined);
 
     try {
       const resultPromise = collectGeneratedImageArtifacts({
@@ -506,7 +505,6 @@ describe("collectGeneratedImageArtifacts", () => {
         generateImagePath: outputPath,
         answerText: "Working on it.",
         waitTimeoutMs: 15_000,
-        checkBlockingUiWarning,
       });
       let settled = false;
       void resultPromise.then(
@@ -535,7 +533,6 @@ describe("collectGeneratedImageArtifacts", () => {
         mimeType: "image/png",
         sourceUrl: "browser-download",
       });
-      expect(checkBlockingUiWarning).toHaveBeenCalled();
       await expect(fs.readFile(outputPath)).resolves.toEqual(png);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

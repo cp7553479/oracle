@@ -101,9 +101,8 @@ describe("harvestSessionBrowserOutput recovery fallback", () => {
     );
     expect(result.lastAssistantMarkdown).toBe(completedHarvest.lastAssistantMarkdown);
     expect(updateSession).toHaveBeenCalled();
-    // Default closeAfterRecover is false — Chrome stays alive for the user.
-    expect(fakeChrome.kill).not.toHaveBeenCalled();
-    expect(fakeChrome.process.unref).toHaveBeenCalledTimes(1);
+    expect(fakeChrome.kill).toHaveBeenCalledTimes(1);
+    expect(fakeChrome.process.unref).not.toHaveBeenCalled();
   });
 
   test("does not recover when recoverIfMissing is false; surfaces the original error", async () => {

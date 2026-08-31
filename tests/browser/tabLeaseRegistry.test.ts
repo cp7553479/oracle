@@ -67,6 +67,36 @@ describe("tabLeaseRegistry", () => {
     }
   });
 
+  test("keeps a single-slot caller queued indefinitely until the lease unlocks", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-tab-leases-"));
+    try {
+      const first = await acquireBrowserTabLease(dir, {
+        maxConcurrentTabs: 1,
+        timeoutMs: 0,
+        pollMs: 25,
+      });
+      let acquired = false;
+      const queuedPromise = acquireBrowserTabLease(dir, {
+        maxConcurrentTabs: 1,
+        timeoutMs: 0,
+        pollMs: 25,
+      }).then((lease) => {
+        acquired = true;
+        return lease;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(acquired).toBe(false);
+
+      await first.release();
+      const queued = await queuedPromise;
+      expect(acquired).toBe(true);
+      await queued.release();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("drops stale leases owned by dead pids", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-tab-leases-"));
     try {

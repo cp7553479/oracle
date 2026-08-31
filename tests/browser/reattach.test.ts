@@ -44,9 +44,6 @@ describe("resumeBrowserSession", () => {
       if (expression === "1+1") {
         return { result: { value: 2 } };
       }
-      if (expression.includes("querySelectorAll")) {
-        return { result: { value: 2 } };
-      }
       return { result: { value: null } };
     });
     const close = vi.fn(async () => {});
@@ -146,82 +143,6 @@ describe("resumeBrowserSession", () => {
     });
 
     expect(waitForAssistantResponse).toHaveBeenCalledWith(expect.anything(), 2000, logger, 3);
-  });
-
-  test("waits for and saves a requested generated image before completing reattach", async () => {
-    const runtime = {
-      chromePort: 51559,
-      chromeHost: "127.0.0.1",
-      chromeTargetId: "target-1",
-      tabUrl: "https://chatgpt.com/c/image-session",
-    };
-    const listTargets = vi.fn(
-      async () =>
-        [{ targetId: "target-1", type: "page", url: runtime.tabUrl }] satisfies FakeTarget[],
-    ) as unknown as () => Promise<FakeTarget[]>;
-    const evaluate = vi.fn(async ({ expression }: { expression: string }) => {
-      if (expression === "location.href") {
-        return { result: { value: runtime.tabUrl } };
-      }
-      if (expression === "1+1") {
-        return { result: { value: 2 } };
-      }
-      if (expression.includes("querySelectorAll")) {
-        return { result: { value: 2 } };
-      }
-      return { result: { value: null } };
-    });
-    const close = vi.fn(async () => {});
-    const connect = vi.fn(
-      async () =>
-        ({
-          Runtime: { enable: vi.fn(), evaluate },
-          DOM: { enable: vi.fn() },
-          Network: { enable: vi.fn() },
-          close,
-        }) satisfies FakeClient & { Network: { enable: () => void } },
-    ) as unknown as (options?: unknown) => Promise<ChromeClient>;
-    const waitForAssistantResponse = vi.fn(async () => ({
-      text: "Generating an image",
-      html: "",
-      meta: { messageId: "m1", turnId: "conversation-turn-1" },
-    }));
-    const captureAssistantMarkdown = vi.fn(async () => "Generating an image");
-    const savedImage = {
-      kind: "image" as const,
-      path: "/tmp/generated.png",
-      url: "https://chatgpt.com/backend-api/estuary/content?id=file_123",
-    };
-    const collectGeneratedImageArtifacts = vi.fn(async () => ({
-      generatedImages: [{ url: savedImage.url }],
-      savedImages: [savedImage],
-      imageCount: 1,
-      markdownSuffix: "\n\n*Generated 1 image.*",
-      answerText: "Image generated",
-    }));
-    const logger = vi.fn() as BrowserLogger;
-
-    const result = await resumeBrowserSession(runtime, { timeoutMs: 2000 }, logger, {
-      listTargets,
-      connect,
-      waitForAssistantResponse,
-      captureAssistantMarkdown,
-      collectGeneratedImageArtifacts,
-      generateImagePath: "/tmp/generated.png",
-      sessionId: "image-session",
-    });
-
-    expect(collectGeneratedImageArtifacts).toHaveBeenCalledWith(
-      expect.objectContaining({
-        generateImagePath: "/tmp/generated.png",
-        sessionId: "image-session",
-        answerText: "Generating an image",
-      }),
-    );
-    expect(result.answerText).toBe("Image generated");
-    expect(result.answerMarkdown).toContain("Generated 1 image");
-    expect(result.savedImages).toEqual([savedImage]);
-    expect(close).toHaveBeenCalledOnce();
   });
 
   test("uses Deep Research completion path when reattaching research sessions", async () => {
@@ -338,9 +259,6 @@ describe("resumeBrowserSession", () => {
       if (expression === "1+1") {
         return { result: { value: 2 } };
       }
-      if (expression.includes("querySelectorAll")) {
-        return { result: { value: 2 } };
-      }
       return { result: { value: null } };
     });
     const connect = vi.fn(
@@ -397,9 +315,6 @@ describe("resumeBrowserSession", () => {
         return { result: { value: runtime.tabUrl } };
       }
       if (expression === "1+1") {
-        return { result: { value: 2 } };
-      }
-      if (expression.includes("querySelectorAll")) {
         return { result: { value: 2 } };
       }
       return { result: { value: null } };
@@ -587,6 +502,7 @@ describe("manual-login cookie sync recovery", () => {
             manualLoginProfileDir: profileDir,
             cookieSync: true,
             manualLoginCookieSync: true,
+            keepBrowser: true,
           },
           logger,
           {

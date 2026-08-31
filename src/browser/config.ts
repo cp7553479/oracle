@@ -1,10 +1,8 @@
 import {
   CHATGPT_URL,
   DEEP_RESEARCH_DEFAULT_TIMEOUT_MS,
-  DEFAULT_BROWSER_THINKING_TIME,
   DEFAULT_MODEL_STRATEGY,
   DEFAULT_MODEL_TARGET,
-  defaultBrowserThinkingTimeForModel,
 } from "./constants.js";
 import { normalizeBrowserModelStrategy } from "./modelStrategy.js";
 import {
@@ -36,14 +34,12 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   browserTabRef: null,
   url: CHATGPT_URL,
   chatgptUrl: CHATGPT_URL,
-  timeoutMs: 2_400_000,
+  timeoutMs: 1_200_000,
   debugPort: null,
   inputTimeoutMs: 60_000,
   attachmentTimeoutMs: 45_000,
   assistantRecheckDelayMs: 0,
   assistantRecheckTimeoutMs: 120_000,
-  idleReloadMs: 5 * 60_000,
-  maxIdleReloads: 7,
   reuseChromeWaitMs: 10_000,
   profileLockTimeoutMs: 300_000,
   maxConcurrentTabs: DEFAULT_MAX_CONCURRENT_CHATGPT_TABS,
@@ -59,7 +55,6 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   keepBrowser: false,
   hideWindow: false,
   desiredModel: DEFAULT_MODEL_TARGET,
-  thinkingTime: DEFAULT_BROWSER_THINKING_TIME,
   modelStrategy: DEFAULT_MODEL_STRATEGY,
   debug: false,
   allowCookieErrors: false,
@@ -97,7 +92,9 @@ export function resolveBrowserConfig(
     normalizeBrowserModelStrategy(config?.modelStrategy) ??
     DEFAULT_BROWSER_CONFIG.modelStrategy ??
     DEFAULT_MODEL_STRATEGY;
-  // Manual login is mandatory: every browser run must use the persistent signed-in profile.
+  // Fork policy: every browser caller uses the persistent signed-in profile.
+  // copyProfileSource is cleared after the config spread below so MCP, remote,
+  // and stored-session inputs cannot revive the removed CLI path.
   const manualLogin = true;
   const resolvedProfileDir = resolveManualLoginProfileDir(
     config?.manualLoginProfileDir,
@@ -120,8 +117,6 @@ export function resolveBrowserConfig(
       config?.assistantRecheckDelayMs ?? DEFAULT_BROWSER_CONFIG.assistantRecheckDelayMs,
     assistantRecheckTimeoutMs:
       config?.assistantRecheckTimeoutMs ?? DEFAULT_BROWSER_CONFIG.assistantRecheckTimeoutMs,
-    idleReloadMs: config?.idleReloadMs ?? DEFAULT_BROWSER_CONFIG.idleReloadMs,
-    maxIdleReloads: config?.maxIdleReloads ?? DEFAULT_BROWSER_CONFIG.maxIdleReloads,
     reuseChromeWaitMs: config?.reuseChromeWaitMs ?? DEFAULT_BROWSER_CONFIG.reuseChromeWaitMs,
     profileLockTimeoutMs:
       config?.profileLockTimeoutMs ?? DEFAULT_BROWSER_CONFIG.profileLockTimeoutMs,
@@ -155,7 +150,7 @@ export function resolveBrowserConfig(
       config?.remoteChromeBrowserWSEndpoint ?? DEFAULT_BROWSER_CONFIG.remoteChromeBrowserWSEndpoint,
     remoteChromeProfileRoot:
       config?.remoteChromeProfileRoot ?? DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
-    thinkingTime: config?.thinkingTime ?? defaultBrowserThinkingTimeForModel(desiredModel),
+    thinkingTime: config?.thinkingTime,
     researchMode,
     archiveConversations,
     resumeConversationUrl:
@@ -164,6 +159,7 @@ export function resolveBrowserConfig(
     manualLoginProfileDir: manualLogin ? resolvedProfileDir : null,
     manualLoginCookieSync:
       config?.manualLoginCookieSync ?? DEFAULT_BROWSER_CONFIG.manualLoginCookieSync,
+    copyProfileSource: null,
   };
 }
 

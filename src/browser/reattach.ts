@@ -43,14 +43,12 @@ import {
 } from "./reattachHelpers.js";
 import { waitForDeepResearchCompletion } from "./actions/deepResearch.js";
 import { CHROME_COOKIE_SYNC_WARNING, shouldSyncBrowserCookies } from "./policies.js";
-import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 
 export interface ReattachDeps {
   listTargets?: () => Promise<TargetInfoLite[]>;
   connect?: (options?: unknown) => Promise<ChromeClient>;
   waitForAssistantResponse?: typeof waitForAssistantResponse;
   captureAssistantMarkdown?: typeof captureAssistantMarkdown;
-  collectGeneratedImageArtifacts?: typeof collectGeneratedImageArtifacts;
   waitForDeepResearchCompletion?: typeof waitForDeepResearchCompletion;
   waitForConversationHydration?: typeof waitForResumedConversationHydration;
   launchChrome?: typeof launchChrome;
@@ -61,14 +59,11 @@ export interface ReattachDeps {
     config: BrowserSessionConfig | undefined,
   ) => Promise<ReattachResult>;
   promptPreview?: string;
-  generateImagePath?: string;
-  sessionId?: string;
 }
 
 export interface ReattachResult {
   answerText: string;
   answerMarkdown: string;
-  savedImages?: import("./types.js").SavedBrowserImage[];
 }
 
 export async function resumeBrowserSession(
@@ -137,7 +132,7 @@ export async function resumeBrowserSession(
     closeAttachedConnection = () => connection.close();
 
     const client: ChromeClient = connection.client;
-    const { Runtime, DOM, Network, Page } = client;
+    const { Runtime, DOM, Page } = client;
     if (Runtime?.enable) {
       await Runtime.enable();
     }
@@ -146,9 +141,6 @@ export async function resumeBrowserSession(
     }
     if (Page && typeof Page.enable === "function") {
       await Page.enable();
-    }
-    if (Network && typeof Network.enable === "function") {
-      await Network.enable();
     }
 
     const ensureConversationOpen = async () => {
@@ -240,31 +232,9 @@ export async function resumeBrowserSession(
         "Reattach markdown capture timed out",
       )) ?? recovered.text;
     const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
-    const collectImages = deps.collectGeneratedImageArtifacts ?? collectGeneratedImageArtifacts;
-    const imageArtifacts = deps.generateImagePath
-      ? await collectImages({
-          Browser: client.Browser,
-          Client: client,
-          Page,
-          Runtime,
-          Network,
-          logger,
-          minTurnIndex,
-          sessionId: deps.sessionId,
-          generateImagePath: deps.generateImagePath,
-          answerText: aligned.answerText,
-          waitTimeoutMs: timeoutMs,
-        })
-      : null;
 
     await closeAttached();
-    return {
-      answerText: imageArtifacts?.answerText || aligned.answerText,
-      answerMarkdown:
-        aligned.answerMarkdown +
-        (imageArtifacts?.markdownSuffix ? imageArtifacts.markdownSuffix : ""),
-      savedImages: imageArtifacts?.savedImages,
-    };
+    return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
   } catch (error) {
     await closeAttached();
     const message = error instanceof Error ? error.message : String(error);
@@ -317,7 +287,9 @@ async function resumeBrowserSessionViaNewChrome(
   logger: BrowserLogger,
   deps: ReattachDeps,
 ): Promise<ReattachResult> {
-  const resolved = resolveBrowserConfig(config ?? {});
+  // Reattach harvests an existing answer and must close the browser it reopens,
+  // even when the original run requested --browser-keep-browser.
+  const resolved = resolveBrowserConfig({ ...config, keepBrowser: false });
   const manualLogin = Boolean(resolved.manualLogin);
   const userDataDir = manualLogin
     ? (resolved.manualLoginProfileDir ?? path.join(os.homedir(), ".oracle", "browser-profile"))
@@ -363,9 +335,6 @@ async function resumeBrowserSessionViaNewChrome(
   }
   if (DOM && typeof DOM.enable === "function") {
     await DOM.enable();
-  }
-  if (Network && typeof Network.enable === "function") {
-    await Network.enable();
   }
   if (!resolved.headless && resolved.hideWindow) {
     await positionChromeWindowOffscreen(client, userDataDir, logger);
@@ -480,30 +449,7 @@ async function resumeBrowserSessionViaNewChrome(
     );
     const markdown = (await captureMarkdown(Runtime, recovered.meta, logger)) ?? recovered.text;
     const aligned = alignPromptEchoMarkdown(recovered.text, markdown, promptEcho, logger);
-    const collectImages = deps.collectGeneratedImageArtifacts ?? collectGeneratedImageArtifacts;
-    const imageArtifacts = deps.generateImagePath
-      ? await collectImages({
-          Browser: client.Browser,
-          Client: client,
-          Page,
-          Runtime,
-          Network,
-          logger,
-          minTurnIndex,
-          sessionId: deps.sessionId,
-          generateImagePath: deps.generateImagePath,
-          answerText: aligned.answerText,
-          waitTimeoutMs: timeoutMs,
-        })
-      : null;
-
-    return {
-      answerText: imageArtifacts?.answerText || aligned.answerText,
-      answerMarkdown:
-        aligned.answerMarkdown +
-        (imageArtifacts?.markdownSuffix ? imageArtifacts.markdownSuffix : ""),
-      savedImages: imageArtifacts?.savedImages,
-    };
+    return { answerText: aligned.answerText, answerMarkdown: aligned.answerMarkdown };
   } finally {
     await cleanup();
   }

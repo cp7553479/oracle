@@ -1,18 +1,8 @@
-import type { ThinkingTimeLevel } from "../oracle/types.js";
 import type { BrowserModelStrategy } from "./types.js";
 
 export const CHATGPT_URL = "https://chatgpt.com/";
-export const DEFAULT_MODEL_TARGET = "GPT-5.6 Sol";
-export const DEFAULT_BROWSER_THINKING_TIME: ThinkingTimeLevel = "extended";
+export const DEFAULT_MODEL_TARGET = "Pro";
 export const DEFAULT_MODEL_STRATEGY: BrowserModelStrategy = "select";
-
-export function defaultBrowserThinkingTimeForModel(
-  value: string | null | undefined,
-): ThinkingTimeLevel | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "gpt-5.6 sol") return DEFAULT_BROWSER_THINKING_TIME;
-  return undefined;
-}
 export const COOKIE_URLS = [
   "https://chatgpt.com",
   "https://chat.openai.com",

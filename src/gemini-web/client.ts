@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import https from "node:https";
 import path from "node:path";
 import {
   buildGeminiWebModelHeader,
@@ -44,6 +45,7 @@ const GEMINI_STREAM_GENERATE_URL =
   "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate";
 const GEMINI_UPLOAD_URL = "https://content-push.googleapis.com/upload";
 const GEMINI_UPLOAD_PUSH_ID = "feeds/mcudyrk2a4khkz";
+const GEMINI_APP_MAX_HEADER_SIZE = 128 * 1024;
 const GEMINI_UPLOAD_MIME_TYPES: Record<string, string> = {
   ".bmp": "image/bmp",
   ".gif": "image/gif",
@@ -98,20 +100,83 @@ function buildCookieHeader(cookieMap: Record<string, string>): string {
     .join("; ");
 }
 
+function isHeadersOverflowError(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { code?: unknown; cause?: unknown };
+    if (record.code === "UND_ERR_HEADERS_OVERFLOW") return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+function fetchTextWithLargeHeaders(
+  url: string,
+  headers: Record<string, string>,
+  signal?: AbortSignal,
+  redirectsRemaining = 5,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        headers,
+        maxHeaderSize: GEMINI_APP_MAX_HEADER_SIZE,
+        signal,
+      },
+      (response) => {
+        const statusCode = response.statusCode ?? 0;
+        const location = response.headers.location;
+        if (statusCode >= 300 && statusCode < 400 && location) {
+          response.resume();
+          if (redirectsRemaining <= 0) {
+            reject(new Error("Too many redirects while loading gemini.google.com/app."));
+            return;
+          }
+          const redirectUrl = new URL(location, url).toString();
+          void fetchTextWithLargeHeaders(redirectUrl, headers, signal, redirectsRemaining - 1).then(
+            resolve,
+            reject,
+          );
+          return;
+        }
+
+        response.setEncoding("utf8");
+        let body = "";
+        response.on("data", (chunk: string) => {
+          body += chunk;
+        });
+        response.on("end", () => resolve(body));
+        response.on("error", reject);
+      },
+    );
+    request.on("error", reject);
+  });
+}
+
 export async function fetchGeminiAccessToken(
   cookieMap: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<string> {
   const cookieHeader = buildCookieHeader(cookieMap);
-  const res = await fetch(GEMINI_APP_URL, {
-    redirect: "follow",
-    signal,
-    headers: {
-      cookie: cookieHeader,
-      "user-agent": USER_AGENT,
-    },
-  });
-  const html = await res.text();
+  const headers = {
+    cookie: cookieHeader,
+    "user-agent": USER_AGENT,
+  };
+  let html: string;
+  try {
+    const res = await fetch(GEMINI_APP_URL, {
+      redirect: "follow",
+      signal,
+      headers,
+    });
+    html = await res.text();
+  } catch (error) {
+    if (!isHeadersOverflowError(error)) throw error;
+    html = await fetchTextWithLargeHeaders(GEMINI_APP_URL, headers, signal);
+  }
 
   const tokens = ["SNlM0e", "thykhd"] as const;
   for (const key of tokens) {

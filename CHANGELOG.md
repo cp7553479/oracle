@@ -1,28 +1,14 @@
 # Changelog
 
-## Unreleased (fork)
+## Unreleased
 
-### Changed
+### Fork policy
 
-- CLI: agent-facing log output was audited line by line for signal. Removed bookkeeping noise (profile-lock/slot acquire-release churn, stale DevToolsActivePort cleanup detail, focus-emulation and cookie-skip notes, zero-count download scans, "Cleanup complete" telemetry, duplicate conversation-URL phase lines); demoted diagnostics to `--verbose` (shared-Chrome wait, stale-state clearing, prompt-ready repeats, UI-dismissal events); rewrote remaining lines to state only what callers need (`Signed in to ChatGPT`, `Prompt queued (N chars)`, `Thinking effort:`, `Model verified: requested -> resolved`); fixed the footer model/mode separator (`GPT-5.6 Sol (browser)`).
-- Browser: "Too many requests" is no longer detected or handled at all. Rate-limit notices on the ChatGPT page are ignored silently — no once-per-run log line, no 15s warning-poll watch during the assistant wait, and no rate-limit-specific check before submit/response/image waits — so a run never blocks, retries, cools down, or prints because of them. When such a transient notice dialog (single "Got it" button) physically covers the page — for example sitting over the model picker — Oracle now dismisses it like any other notice and keeps going, instead of failing model selection with a misleading `Available: Got it` error. Other blocking warnings (authentication/challenge, temporary unavailability) and ordinary operation timeouts keep their existing behavior. Upstream's `chatgpt-throttled` model-selection probe (steipete/oracle#395) is intentionally not carried over.
-- CLI: force `--engine browser --browser-manual-login` onto every run at the command entry (overrides any explicit `--engine api`; `ORACLE_ALLOW_API_ENGINE=1` is a test-only escape hatch).
-- Browser: force `--browser-manual-login` on for every browser run (CLI, MCP, and reattach paths) so all sessions reuse the persistent signed-in automation profile; the flag is now redundant but still accepted. `--browser-manual-login-profile-dir` still selects the profile directory.
-- Browser: close the Oracle-owned tab when a run ends, including failures and Ctrl+C (SIGINT now runs the same tab-close/slot-release cleanup as SIGTERM), so serialized runs don't accumulate stale tabs. `--browser-keep-browser` and preserved-error recovery (Cloudflare check, in-flight reattach capture) still keep the tab; Ctrl+C with `--browser-keep-browser` keeps the shared Chrome process alive for debugging.
-- Browser: the 5-minute idle reload now measures time since the last NEW assistant content instead of an absolute window deadline — a still-streaming answer keeps extending the wait (like thinking-active periods) and is never interrupted by a reload.
+- Sync core CLI, browser, tests, docs, and bundled skill to upstream `bbc1b3b0`, then keep only the local execution policy: root CLI runs force the browser engine and persistent manual-login profile; `--copy-profile` is removed and copied-profile config is ignored; browser tasks use a single indefinitely waiting queue slot; completed reattach harvesting closes its browser target or reopened browser.
 
 ### Fixed
 
-- Browser: ignore unrelated onboarding dialogs when verifying model-picker selections, so a visible “Got it” coachmark no longer prevents GPT-5.6 Sol from being recognized. Genuine configuration dialogs are identified by the model-label token in a multi-value `aria-labelledby` or by the `Model options` radio group.
-
-### Removed
-
-- Browser: the `--copy-profile` throwaway-profile mode and its `src/browser/profileCopy.ts` implementation, including the copied-profile signal cleanup, Cloudflare/capture special-casing, and reattach exclusions. Upstream's restored copy-profile launcher Keychain handling is intentionally not carried over.
-
-## Unreleased (upstream)
-
-### Fixed
-
+- Gemini: retry the initial app-page token load with Node HTTPS and a larger response-header allowance when built-in `fetch` rejects Gemini's current CSP headers with `UND_ERR_HEADERS_OVERFLOW`.
 - Browser: retain per-file attachment evidence through local/remote upload and send checks, including filename-less images; activate and stabilize the send target without replaying a dispatched prompt. Fixes #418. Thanks @hubofvalley!
 - Remote: allocate unique upload basenames for primary and fallback attachments that collide after sanitization, preserving original display paths and every payload. Fixes #387. Thanks @postoso!
 - Browser: attach to running Chrome when `DevToolsActivePort` metadata is absent, with IPv6 support and bounded endpoint retries that include response-body reads. Fixes #414. Thanks @devYRPauli!
@@ -32,8 +18,7 @@
 - Browser: restore locally launched macOS Chrome windows to their prior placement for visible runs only when Oracle recorded the window before a `--browser-hide-window` run; unmarked windows remain untouched.
 - Browser: archive completed ChatGPT conversations when the interface is Japanese by recognizing the current `その他`, `アーカイブ`, and `アーカイブを解除する` controls.
 - Browser: apply the configured input timeout to prompt preparation so stalled local file assembly fails clearly before launching Chrome. Fixes #381.
-- Browser: honor thinking time in Deep Research mode. Fixes #404.
-- Browser: reap dead session records when controllerPid is gone. Fixes #413.
+- Browser: silently dismiss a covering `Got it` notice and rescan the model picker once; if selection still fails, continue with ChatGPT's current model instead of treating the notice or picker failure as fatal.
 
 ### Changed
 
@@ -48,19 +33,6 @@
 
 - Browser: stop copying cookies from a live Chrome profile by default because ChatGPT token rotation can invalidate the user's interactive session. Use the persistent `--browser-manual-login` profile (recommended), inline cookies, or explicitly restore the old behavior with `--browser-cookie-sync` / `browser.cookieSync=true`. Fixes #367.
 - Browser: route the generic current-Pro aliases (`gpt-5-pro`, `gpt-5.1-pro`, `gpt-5.2-pro`, and `gpt-5.4-pro`) to GPT-5.6 Sol with Pro effort. Use the explicit `gpt-5.5-pro` model to keep the historical GPT-5.5 target; an explicit thinking-time setting still overrides the alias default. Fixes #373. Thanks @pdurlej!
-
-### Added
-
-- Browser: auto-reload the ChatGPT conversation every 5 minutes (up to 7 reloads, 40 min total) when the assistant response stalls, so transient freezes recover without losing the in-flight turn. Thinking-active periods are excluded to avoid interrupting long Pro reasoning. Configure with `--browser-idle-reload` / `--browser-max-idle-reloads`.
-
-### Changed
-
-- Docs: remove registry-based `npx` commands from the bundled Oracle skill.
-- Browser: force every browser request through manual-login mode (CLI, MCP, Project Sources, remote serve, and browser config resolution); remove the manual-login opt-out flags and make config `browser.manualLogin: false` a no-op. `--copy-profile` remains as the only manual-login escape hatch and now fails fast with bounded rsync stderr when the profile copy breaks.
-- Browser: raise default response timeout from 20m to 40m to accommodate the new idle-reload budget.
-- Browser: open each local ChatGPT run in its own Chrome window, including concurrent runs that share the same manual-login profile. Completed runs close only their Oracle-owned window target, while active sibling runs remain untouched.
-- Browser: temporarily close the current Oracle-owned window on SIGTERM instead of retaining it for reattach; shared Chrome remains alive when sibling Oracle runs still hold active browser slots.
-- Browser: persist the canonical conversation URL before SIGTERM, reopen that exact URL on reattach, and keep image-generation reattach alive until the requested image artifact is saved.
 
 ### Fixed
 
@@ -146,12 +118,6 @@ select the right model _and_ the Pro effort tier.
 
 - Browser: ignore transient `/c/WEB:<request-id>` routes until ChatGPT exposes the durable conversation URL, preventing completed GPT-5.6 and Pro answers from hanging until timeout under a mismatched response scope. Fixes #333. Thanks @dbachko and @kesslerio!
 - Browser: recover completed answers after a recoverable DevTools disconnect by confirming target liveness and attempting bounded reattachment, while preserving fail-closed handling for unavailable targets. Fixes #326. Thanks @piyushbag!
-- Browser: stop raising `baselineTurns` from the post-commit turn count. When the submission commit is confirmed via DOM fallback (stop button/assistant already visible), the mounting assistant turn inflates the count and `minTurnIndex` then filters every assistant snapshot until the overall timeout — the answer stays visible in the page while Oracle waits forever. The baseline is now seeded only when the pre-submission read failed, matching upstream. Also port upstream's bounded "Answer now" placeholder predicate (#369) so real Pro answers that merely end with skip-ahead chrome are harvested instead of discarded.
-- Browser: sync ChatGPT model/effort selection with the current unified Intelligence picker and default to `GPT-5.6 Sol` with High/extended effort. Keep upstream's explicit `gpt-5.5-instant` model alias without adding a separate default effort, while `--browser-thinking-time` overrides the Sol default. Add localized whole-word matching, distinct Extra High and Pro tiers, and evidence-backed model labels. If non-Pro model selection fails, continue with ChatGPT's current model and apply the requested effort best-effort; explicit Pro requests still fail closed.
-- Browser: ignore transient `/c/WEB:...` creation URLs so completed answers are captured and their tabs close immediately instead of waiting for a timeout.
-- Browser: prefer a stable ChatGPT conversation URL when confirming prompt submission, while falling back to sustained user-turn, cleared-composer, and generation-state DOM evidence when no canonical URL appears.
-- Browser: automatically close Oracle-owned ChatGPT tabs when answer capture times out or recheck fails, while preserving Cloudflare challenge tabs and explicitly attached tabs.
-- Browser: close the recovered ChatGPT target after reattaching through an existing browser WebSocket, instead of only detaching the DevTools session and leaving the tab open.
 - CLI: avoid inheriting `browser.thinkingTime` from config when `--browser-model-strategy current` is explicit, while preserving an explicit `--browser-thinking-time` override. Thanks @jung0han!
 - Browser/Serve: keep the authenticated manual-login Chrome process alive while closing each successfully captured service-owned run tab, preventing renderer and memory accumulation across repeated remote consultations without changing explicit `--browser-keep-browser`, attached-tab, or incomplete-run recovery behavior. Thanks @rtl-ai!
 
