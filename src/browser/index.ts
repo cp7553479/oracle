@@ -487,18 +487,6 @@ async function createChatGptUiWarningError(params: {
   );
 }
 
-async function throwChatGptUiWarningIfPresent(params: {
-  Runtime: ChromeClient["Runtime"];
-  logger: BrowserLogger;
-  runtime: unknown;
-  stage: string;
-  waitTarget: string;
-  diagnostics?: unknown;
-}): Promise<void> {
-  const error = await createChatGptUiWarningError(params);
-  if (error) throw error;
-}
-
 async function createAssistantTimeoutError(params: {
   Runtime: ChromeClient["Runtime"];
   logger: BrowserLogger;
@@ -610,36 +598,6 @@ type AssistantAnswer = {
   meta: { turnId?: string | null; messageId?: string | null };
 };
 
-async function waitForAssistantOrGeneratedImageResponse(params: {
-  Runtime: ChromeClient["Runtime"];
-  waitForText: () => Promise<AssistantAnswer>;
-  timeoutMs: number;
-  minTurnIndex?: number;
-  expectedConversationId?: string;
-  imageOutputRequested: boolean;
-  logger: BrowserLogger;
-}): Promise<AssistantAnswer> {
-  if (!params.imageOutputRequested) {
-    return params.waitForText();
-  }
-
-  params.logger("[browser] Waiting for ChatGPT generated image response.");
-  const response = await pollGeneratedImageOrTextAssistantResponse(
-    params.Runtime,
-    params.timeoutMs,
-    params.minTurnIndex,
-    params.expectedConversationId,
-  );
-  if (response) {
-    if (response.html?.includes("/backend-api/estuary/content?id=file_")) {
-      params.logger("[browser] Captured generated image response before text appeared.");
-    }
-    return response;
-  }
-
-  throw new Error("assistant response timeout while waiting for generated image or text");
-}
-
 async function attemptAssistantRecheckOrRethrow(
   operation: () => Promise<AssistantAnswer | null>,
 ): Promise<AssistantAnswer | null> {
@@ -651,50 +609,6 @@ async function attemptAssistantRecheckOrRethrow(
     }
     return null;
   }
-}
-
-async function pollGeneratedImageOrTextAssistantResponse(
-  Runtime: ChromeClient["Runtime"],
-  timeoutMs: number,
-  minTurnIndex?: number,
-  expectedConversationId?: string,
-): Promise<AssistantAnswer | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    let snapshot = await readAssistantSnapshot(Runtime, minTurnIndex, expectedConversationId).catch(
-      () => null,
-    );
-    throwIfAssistantUiError(snapshot);
-    if (!snapshot && typeof minTurnIndex === "number" && Number.isFinite(minTurnIndex)) {
-      const relaxedSnapshot = await readAssistantSnapshot(
-        Runtime,
-        undefined,
-        expectedConversationId,
-      ).catch(() => null);
-      const relaxedHtml = typeof relaxedSnapshot?.html === "string" ? relaxedSnapshot.html : "";
-      if (
-        !relaxedSnapshot?.uiError &&
-        relaxedHtml.includes("/backend-api/estuary/content?id=file_")
-      ) {
-        snapshot = relaxedSnapshot;
-      }
-    }
-    const text = typeof snapshot?.text === "string" ? snapshot.text.trim() : "";
-    const html = typeof snapshot?.html === "string" ? snapshot.html : "";
-    const hasGeneratedImage = html.includes("/backend-api/estuary/content?id=file_");
-    if (text && (hasGeneratedImage || !isImageOnlyUiChromeText(text))) {
-      return {
-        text,
-        html,
-        meta: {
-          turnId: snapshot?.turnId ?? undefined,
-          messageId: snapshot?.messageId ?? undefined,
-        },
-      };
-    }
-    await delay(750);
-  }
-  return null;
 }
 
 export function isImageOnlyUiChromeText(text: string): boolean {
@@ -2176,33 +2090,19 @@ async function runBrowserModeInternal(
       const timeoutMs = recheckTimeoutMs > 0 ? recheckTimeoutMs : config.timeoutMs;
       const rechecked = await waitWithThinkingMonitor(() =>
         raceWithDisconnect(
-          waitForAssistantOrGeneratedImageResponse({
+          waitForAssistantResponseWithReload(
             Runtime,
-            waitForText: () =>
-              waitForAssistantResponseWithReload(
-                Runtime,
-                Page,
-                timeoutMs,
-                logger,
-                baselineTurns ?? undefined,
-                expectedConversationId(),
-              ),
+            Page,
             timeoutMs,
             logger,
-            minTurnIndex: baselineTurns ?? undefined,
-            expectedConversationId: expectedConversationId(),
-            imageOutputRequested,
-          }),
+            baselineTurns ?? undefined,
+            expectedConversationId(),
+          ),
         ),
       );
       logger("Recovered assistant response after delayed recheck");
       return rechecked;
     };
-    const imageOutputRequested = Boolean(
-      options.generateImagePath ||
-      options.outputPath ||
-      (options as { generateImage?: string }).generateImage,
-    );
     const captureAssistantTurn = async (
       turnPrompt: string,
       label: string,
@@ -2212,23 +2112,14 @@ async function runBrowserModeInternal(
         await updateConversationHint("assistant-wait", 15_000).catch(() => false);
         turnAnswer = await waitWithThinkingMonitor(() =>
           raceWithDisconnect(
-            waitForAssistantOrGeneratedImageResponse({
+            waitForAssistantResponseWithReload(
               Runtime,
-              waitForText: () =>
-                waitForAssistantResponseWithReload(
-                  Runtime,
-                  Page,
-                  config.timeoutMs,
-                  logger,
-                  baselineTurns ?? undefined,
-                  expectedConversationId(),
-                ),
-              timeoutMs: config.timeoutMs,
+              Page,
+              config.timeoutMs,
               logger,
-              minTurnIndex: baselineTurns ?? undefined,
-              expectedConversationId: expectedConversationId(),
-              imageOutputRequested,
-            }),
+              baselineTurns ?? undefined,
+              expectedConversationId(),
+            ),
           ),
         );
       } catch (error) {
@@ -2499,26 +2390,6 @@ async function runBrowserModeInternal(
       generateImagePath: options.generateImagePath,
       outputPath: options.outputPath,
       answerText,
-      waitTimeoutMs: options.config?.timeoutMs,
-      checkBlockingUiWarning: () =>
-        throwChatGptUiWarningIfPresent({
-          Runtime,
-          logger,
-          stage: "image-artifact-wait",
-          waitTarget: "generated image artifacts",
-          runtime: {
-            chromePid: chrome.pid,
-            chromePort: chrome.port,
-            chromeHost,
-            userDataDir,
-            chromeTargetId: lastTargetId,
-            tabUrl: lastUrl,
-            conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
-            promptSubmitted,
-            ownedRecoveryTarget,
-            controllerPid: process.pid,
-          },
-        }),
     });
     answerText = imageArtifacts.answerText || answerText;
     if (imageArtifacts.markdownSuffix) {
@@ -3785,32 +3656,18 @@ async function runRemoteBrowserMode(
       await emitRuntimeHint();
       const timeoutMs = recheckTimeoutMs > 0 ? recheckTimeoutMs : config.timeoutMs;
       const rechecked = await waitWithThinkingMonitor(() =>
-        waitForAssistantOrGeneratedImageResponse({
+        waitForAssistantResponseWithReload(
           Runtime,
-          waitForText: () =>
-            waitForAssistantResponseWithReload(
-              Runtime,
-              Page,
-              timeoutMs,
-              logger,
-              baselineTurns ?? undefined,
-              expectedConversationId(),
-            ),
+          Page,
           timeoutMs,
           logger,
-          minTurnIndex: baselineTurns ?? undefined,
-          expectedConversationId: expectedConversationId(),
-          imageOutputRequested,
-        }),
+          baselineTurns ?? undefined,
+          expectedConversationId(),
+        ),
       );
       logger("Recovered assistant response after delayed recheck");
       return rechecked;
     };
-    const imageOutputRequested = Boolean(
-      options.generateImagePath ||
-      options.outputPath ||
-      (options as { generateImage?: string }).generateImage,
-    );
     const captureAssistantTurn = async (
       turnPrompt: string,
       label: string,
@@ -3819,23 +3676,14 @@ async function runRemoteBrowserMode(
       try {
         await activeConversationUrlMonitor.update("assistant-wait", 15_000).catch(() => false);
         turnAnswer = await waitWithThinkingMonitor(() =>
-          waitForAssistantOrGeneratedImageResponse({
+          waitForAssistantResponseWithReload(
             Runtime,
-            waitForText: () =>
-              waitForAssistantResponseWithReload(
-                Runtime,
-                Page,
-                config.timeoutMs,
-                logger,
-                baselineTurns ?? undefined,
-                expectedConversationId(),
-              ),
-            timeoutMs: 0,
+            Page,
+            config.timeoutMs,
             logger,
-            minTurnIndex: baselineTurns ?? undefined,
-            expectedConversationId: expectedConversationId(),
-            imageOutputRequested,
-          }),
+            baselineTurns ?? undefined,
+            expectedConversationId(),
+          ),
         );
       } catch (error) {
         if (isAssistantResponseTimeoutError(error)) {
@@ -4061,26 +3909,6 @@ async function runRemoteBrowserMode(
       generateImagePath: options.generateImagePath,
       outputPath: options.outputPath,
       answerText,
-      waitTimeoutMs: options.config?.timeoutMs,
-      checkBlockingUiWarning: () =>
-        throwChatGptUiWarningIfPresent({
-          Runtime,
-          logger,
-          stage: "image-artifact-wait",
-          waitTarget: "generated image artifacts",
-          runtime: {
-            chromePort: port,
-            chromeHost: host,
-            chromeBrowserWSEndpoint: browserWSEndpoint,
-            chromeProfileRoot,
-            chromeTargetId: remoteTargetId ?? undefined,
-            tabUrl: lastUrl,
-            conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
-            promptSubmitted,
-            ownedRecoveryTarget,
-            controllerPid: process.pid,
-          },
-        }),
     });
     answerText = imageArtifacts.answerText || answerText;
     if (imageArtifacts.markdownSuffix) {
@@ -4277,7 +4105,6 @@ export const __test__ = {
   isImageOnlyUiChromeText,
   listIgnoredRemoteChromeFlags,
   normalizeAuthenticatedModelSelectionError,
-  pollGeneratedImageOrTextAssistantResponse,
   resolveManualLoginWaitMs,
   shouldApplyThinkingTimeSelection,
   shouldCleanupBlankTabsAfterLastLease,

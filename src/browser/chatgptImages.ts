@@ -9,15 +9,11 @@ import type {
 } from "./types.js";
 import { ASSISTANT_ROLE_SELECTOR } from "./constants.js";
 import { buildConversationTurnListExpression } from "./conversationTurns.js";
-import { delay } from "./utils.js";
 import { readAssistantSnapshot } from "./pageActions.js";
-import { throwIfAssistantUiError } from "./actions/assistantResponse.js";
 import { getOracleHomeDir } from "../oracleHome.js";
 import { resolveSessionArtifactsDir } from "./artifacts.js";
 import { saveAssistantDownloadButtonArtifacts } from "./chatgptFiles.js";
 
-const GENERATED_IMAGE_WAIT_MIN_MS = 15_000;
-const GENERATED_IMAGE_WAIT_MAX_MS = 15 * 60_000;
 const CHATGPT_GENERATED_IMAGE_BASE_URL = "https://chatgpt.com/";
 
 function isAllowedChatGptHost(hostname: string): boolean {
@@ -188,21 +184,6 @@ async function readAssistantGeneratedImagesWithFallback(
   const nearBoundary =
     fallbackTurnIndex !== null && fallbackTurnIndex + 1 >= Math.floor(minTurnIndex);
   return fallbackImages.length > 0 && nearBoundary ? fallbackImages : [];
-}
-
-function resolveGeneratedImageWaitTimeoutMs(waitTimeoutMs?: number): number {
-  const requestedTimeout =
-    typeof waitTimeoutMs === "number" && Number.isFinite(waitTimeoutMs)
-      ? waitTimeoutMs
-      : GENERATED_IMAGE_WAIT_MAX_MS;
-  return Math.max(
-    GENERATED_IMAGE_WAIT_MIN_MS,
-    Math.min(requestedTimeout, GENERATED_IMAGE_WAIT_MAX_MS),
-  );
-}
-
-export function resolveGeneratedImageWaitTimeoutMsForTest(waitTimeoutMs?: number): number {
-  return resolveGeneratedImageWaitTimeoutMs(waitTimeoutMs);
 }
 
 function contentTypeToExtension(contentType: string | null): string {
@@ -535,8 +516,6 @@ export async function collectGeneratedImageArtifacts(params: {
   generateImagePath?: string;
   outputPath?: string;
   answerText: string;
-  waitTimeoutMs?: number;
-  checkBlockingUiWarning?: () => Promise<void>;
 }): Promise<{
   generatedImages: BrowserGeneratedImage[];
   savedImages: SavedBrowserImage[];
@@ -549,10 +528,9 @@ export async function collectGeneratedImageArtifacts(params: {
     params.Runtime,
     params.minTurnIndex ?? undefined,
   );
-  let latestAnswerText = params.answerText;
+  const latestAnswerText = params.answerText;
 
   if (explicitTargetPath && generatedImages.length === 0) {
-    await params.checkBlockingUiWarning?.();
     const targetPath = path.resolve(explicitTargetPath);
     const buttonImages = await saveGeneratedImageButtonArtifacts({
       Browser: params.Browser,
@@ -565,43 +543,6 @@ export async function collectGeneratedImageArtifacts(params: {
     });
     if (buttonImages.length > 0) {
       return formatButtonImageArtifacts(buttonImages, latestAnswerText);
-    }
-    const deadline = Date.now() + resolveGeneratedImageWaitTimeoutMs(params.waitTimeoutMs);
-    while (Date.now() < deadline) {
-      await delay(1500);
-      await params.checkBlockingUiWarning?.();
-      generatedImages = await readAssistantGeneratedImagesWithFallback(
-        params.Runtime,
-        params.minTurnIndex ?? undefined,
-      );
-      if (generatedImages.length > 0) {
-        break;
-      }
-      const latestSnapshot = await readAssistantSnapshot(
-        params.Runtime,
-        params.minTurnIndex ?? undefined,
-      ).catch(() => null);
-      throwIfAssistantUiError(latestSnapshot);
-      const snapshotText =
-        typeof latestSnapshot?.text === "string" ? latestSnapshot.text.trim() : "";
-      if (snapshotText) {
-        latestAnswerText = snapshotText;
-      }
-    }
-    if (generatedImages.length === 0) {
-      await params.checkBlockingUiWarning?.();
-      const delayedButtonImages = await saveGeneratedImageButtonArtifacts({
-        Browser: params.Browser,
-        Client: params.Client,
-        Page: params.Page,
-        Runtime: params.Runtime,
-        logger: params.logger,
-        minTurnIndex: params.minTurnIndex,
-        targetPath,
-      });
-      if (delayedButtonImages.length > 0) {
-        return formatButtonImageArtifacts(delayedButtonImages, latestAnswerText);
-      }
     }
   }
 

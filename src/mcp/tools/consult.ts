@@ -131,7 +131,7 @@ const consultInputShape = {
     .string()
     .optional()
     .describe(
-      "Browser-only: save generated image(s) to this file path. For ChatGPT browser mode this enables the image-aware wait/download path used by CLI --generate-image.",
+      "Browser-only: save generated image(s) to this file path. ChatGPT uses its normal response wait, then performs one immediate artifact download attempt.",
     ),
   outputPath: z
     .string()
@@ -451,7 +451,7 @@ export function buildConsultDryRunResolved({
   const imageOutputPath = runOptions.generateImage ?? runOptions.outputPath ?? null;
   if (resolvedEngine === "browser" && imageOutputPath) {
     guidance.push(
-      "ChatGPT generated images will use the image-aware wait/download path and return saved files in structuredContent.images.",
+      "ChatGPT generated images use the normal response wait followed by one immediate download attempt and return saved files in structuredContent.images.",
     );
   }
   return {
@@ -841,7 +841,7 @@ export function registerConsultTool(server: McpServer): void {
     {
       title: "Run an oracle session",
       description:
-        'Run an Oracle session (API or ChatGPT browser automation). Use `files` to attach project context. If `engine` is omitted, Oracle follows CLI defaults: config/ORACLE_ENGINE first, then API when OPENAI_API_KEY is set, otherwise browser. Browser GPT-5.5 Pro consults can take many minutes; set `waitForCompletion:false` to return a durable sessionId immediately, then use `wait` to block without agent-side polling. Use `dryRun:true` first when configuring an agent and inspect `sessions`/`oracle status` before retrying. Browser manual-login uses a private Oracle Chrome profile separate from the user\'s normal Chrome; dry-run output includes first-time setup guidance when that path is active. For browser-based image/file uploads, set `browserAttachments:"always"`. For ChatGPT image generation, set `generateImage` to enable the same image wait/download path as CLI --generate-image and read returned paths from `images`. Browser consults can include `browserFollowUps` for a multi-turn ChatGPT review in one conversation. Sessions are stored under `ORACLE_HOME_DIR` (shared with the CLI).',
+        "Run an Oracle session through the fork's fixed browser/manual-login policy. Use `files` to attach project context. Browser GPT-5.5 Pro consults can take many minutes; set `waitForCompletion:false` to return a durable sessionId immediately, then use `wait` to block without agent-side polling. Use `dryRun:true` first when configuring an agent and inspect `sessions`/`oracle status` before retrying. Browser manual-login uses the persistent Oracle Chrome profile separate from the user's normal Chrome. For browser-based image/file uploads, set `browserAttachments:\"always\"`. For ChatGPT image generation, set `generateImage`; Oracle uses the normal assistant response wait and then makes one immediate image download attempt. Browser consults can include `browserFollowUps` for a multi-turn ChatGPT review in one conversation. Sessions are stored under `ORACLE_HOME_DIR` (shared with the CLI).",
       inputSchema: z.object(consultInputShape),
       outputSchema: z.object(consultOutputShape),
     },

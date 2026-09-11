@@ -122,7 +122,7 @@ export function registerChatGptImageTool(server: McpServer): void {
     {
       title: "Generate an image with ChatGPT",
       description:
-        "Agent-friendly wrapper for ChatGPT browser image generation. It selects browser mode, enables the image-aware wait/download path, uploads reference files when provided, and returns saved image paths in structuredContent.images.",
+        "Agent-friendly wrapper for ChatGPT browser image generation. It selects browser mode, uses the normal response wait followed by one immediate download attempt, uploads reference files when provided, and returns saved image paths in structuredContent.images.",
       inputSchema: z.object(chatGptImageInputShape),
       outputSchema: z.object(chatGptImageOutputShape),
     },

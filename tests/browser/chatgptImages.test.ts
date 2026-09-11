@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   collectGeneratedImageArtifacts,
   readAssistantGeneratedImages,
-  resolveGeneratedImageWaitTimeoutMsForTest,
   saveChatGptGeneratedImages,
 } from "../../src/browser/chatgptImages.js";
 import type { ChromeClient } from "../../src/browser/types.js";
@@ -359,16 +358,6 @@ describe("saveChatGptGeneratedImages", () => {
   });
 });
 
-describe("resolveGeneratedImageWaitTimeoutMsForTest", () => {
-  test("defaults to a 15 minute wait window when no timeout is provided", () => {
-    expect(resolveGeneratedImageWaitTimeoutMsForTest()).toBe(15 * 60_000);
-  });
-
-  test("caps image waits at 15 minutes even when a longer timeout is requested", () => {
-    expect(resolveGeneratedImageWaitTimeoutMsForTest(20 * 60_000)).toBe(15 * 60_000);
-  });
-});
-
 describe("collectGeneratedImageArtifacts", () => {
   const originalFetch = globalThis.fetch;
 
@@ -417,7 +406,6 @@ describe("collectGeneratedImageArtifacts", () => {
         minTurnIndex: 0,
         generateImagePath: outputPath,
         answerText: "Here you go.",
-        waitTimeoutMs: 15_000,
       });
 
       expect(result.imageCount).toBe(1);
@@ -438,14 +426,9 @@ describe("collectGeneratedImageArtifacts", () => {
     }
   });
 
-  test("fails fast when a blocking UI warning appears before image artifacts", async () => {
-    const runtime = {
-      evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
-    } as unknown as ChromeClient["Runtime"];
-    const warningError = new Error(
-      "ChatGPT displayed a rate-limit warning while waiting for generated image artifacts.",
-    );
-    const checkBlockingUiWarning = vi.fn().mockRejectedValue(warningError);
+  test("does not poll for an image that is not present after the assistant response", async () => {
+    const evaluate = vi.fn().mockResolvedValue({ result: { value: [] } });
+    const runtime = { evaluate } as unknown as ChromeClient["Runtime"];
 
     await expect(
       collectGeneratedImageArtifacts({
@@ -453,121 +436,10 @@ describe("collectGeneratedImageArtifacts", () => {
         Network: {} as ChromeClient["Network"],
         generateImagePath: path.join(os.tmpdir(), "generated.png"),
         answerText: "Working on it.",
-        waitTimeoutMs: 15_000,
-        checkBlockingUiWarning,
       }),
-    ).rejects.toBe(warningError);
-    expect(checkBlockingUiWarning).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow(/No images generated/);
+    expect(evaluate.mock.calls.length).toBeLessThanOrEqual(3);
   });
-
-  test("rejects a Retry failure while waiting for image artifacts", async () => {
-    vi.useFakeTimers();
-    try {
-      const runtime = {
-        evaluate: vi.fn(async ({ expression }: { expression: string }) => ({
-          result: {
-            value: expression.includes("extractAssistantTurn")
-              ? { text: "Something went wrong.", turnIndex: 2, uiError: "temporary_unavailable" }
-              : [],
-          },
-        })),
-      } as unknown as ChromeClient["Runtime"];
-      const result = collectGeneratedImageArtifacts({
-        Runtime: runtime,
-        Network: {} as ChromeClient["Network"],
-        minTurnIndex: 2,
-        generateImagePath: path.join(os.tmpdir(), "generated.png"),
-        answerText: "Working on it.",
-        waitTimeoutMs: 15_000,
-      });
-      const rejection = expect(result).rejects.toMatchObject({
-        details: { stage: "assistant-ui-error", code: "chatgpt-ui-warning" },
-      });
-      await vi.advanceTimersByTimeAsync(2_000);
-      await rejection;
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("retries behavior button downloads after waiting for delayed image generation", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-12T00:00:00Z"));
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-chatgpt-image-delayed-"));
-    const outputPath = path.join(tmpDir, "generated.png");
-    const downloadedPath = path.join(tmpDir, "delayed.png");
-    const png = Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    const buttonAvailableAt = Date.now() + 10_000;
-    const runtime = {
-      evaluate: vi.fn(async ({ expression }: { expression: string }) => {
-        if (expression.includes("behavior-btn")) {
-          if (Date.now() < buttonAvailableAt) {
-            return { result: { value: [] } };
-          }
-          await fs.writeFile(downloadedPath, png);
-          return {
-            result: {
-              value: [
-                {
-                  text: "Download the delayed image",
-                  ariaLabel: "",
-                  testId: "",
-                },
-              ],
-            },
-          };
-        }
-        return { result: { value: [] } };
-      }),
-    } as unknown as ChromeClient["Runtime"];
-    const client = {
-      send: vi.fn().mockResolvedValue({}),
-    } as unknown as ChromeClient;
-
-    try {
-      const resultPromise = collectGeneratedImageArtifacts({
-        Client: client,
-        Runtime: runtime,
-        Network: {} as ChromeClient["Network"],
-        minTurnIndex: 0,
-        generateImagePath: outputPath,
-        answerText: "Working on it.",
-        waitTimeoutMs: 15_000,
-      });
-      let settled = false;
-      void resultPromise.then(
-        () => {
-          settled = true;
-        },
-        () => {
-          settled = true;
-        },
-      );
-      // Filesystem callbacks can outlive a fixed number of timer advances under
-      // load. Keep driving the fake clock until completion, with a real deadline.
-      await vi.waitFor(
-        async () => {
-          await vi.advanceTimersByTimeAsync(1500);
-          await fs.readdir(tmpDir);
-          expect(settled).toBe(true);
-        },
-        { timeout: 5_000, interval: 10 },
-      );
-      const result = await resultPromise;
-
-      expect(result.imageCount).toBe(1);
-      expect(result.savedImages[0]).toMatchObject({
-        path: outputPath,
-        mimeType: "image/png",
-        sourceUrl: "browser-download",
-      });
-      await expect(fs.readFile(outputPath)).resolves.toEqual(png);
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  }, 10_000);
 
   test("falls back to a behavior button when the rendered image URL fails", async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-chatgpt-image-404-"));
@@ -633,7 +505,6 @@ describe("collectGeneratedImageArtifacts", () => {
         minTurnIndex: 0,
         generateImagePath: outputPath,
         answerText: "Preview",
-        waitTimeoutMs: 15_000,
       });
 
       expect(result.imageCount).toBe(1);
@@ -691,7 +562,6 @@ describe("collectGeneratedImageArtifacts", () => {
       Network: network,
       sessionId: "image-session",
       answerText: "Generated image",
-      waitTimeoutMs: 15_000,
     });
 
     expect(result.imageCount).toBe(1);

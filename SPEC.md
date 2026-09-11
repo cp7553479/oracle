@@ -63,6 +63,14 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 - Cleanup must not close an explicitly attached user tab, a Cloudflare challenge retained for
   manual intervention, or a sibling task's active target.
 
+## ChatGPT image submission
+
+- Image requests must use the normal assistant-response completion path. Oracle must not poll for
+  an image to appear or keep a task alive solely to detect image presence.
+- After the normal response completes, Oracle may make one immediate artifact scan and download an
+  image that is already present. If none is present, it must return or fail immediately rather than
+  starting an image-specific wait loop.
+
 ## Global build and runtime resolution
 
 - The global `oracle` executable must resolve to this repository's `dist/bin/oracle-cli.js`.
