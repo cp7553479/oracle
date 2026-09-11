@@ -1345,7 +1345,7 @@ describe("ensureLoggedIn", () => {
     expect(clicked).toEqual(["only@example.test"]);
   });
 
-  test("throws with cookie guidance when cookies missing", async () => {
+  test("throws with fixed manual-login guidance when login is missing", async () => {
     const runtime = {
       evaluate: vi.fn().mockResolvedValue({
         result: {
@@ -1360,7 +1360,7 @@ describe("ensureLoggedIn", () => {
       }),
     } as unknown as ChromeClient["Runtime"];
     await expect(ensureLoggedIn(runtime, logger, { appliedCookies: 0 })).rejects.toThrow(
-      /inline cookies/i,
+      /Oracle's manual-login browser/i,
     );
   });
 

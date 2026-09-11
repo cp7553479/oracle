@@ -9,7 +9,9 @@ test("built CLI silently ignores alternate browser authentication routes", async
   const { stdout, stderr } = await promisify(execFile)(
     process.execPath,
     [
-      path.resolve("dist/bin/oracle-cli.js"),
+      "--import",
+      "tsx",
+      path.resolve("bin/oracle-cli.ts"),
       "--copy-profile",
       "/tmp/alternate-profile",
       "--browser-cookie-sync",

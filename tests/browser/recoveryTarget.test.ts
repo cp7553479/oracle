@@ -231,7 +231,7 @@ describe("owned recovery target retirement", () => {
     await completeOwnedBrowserHarvest(metadata.id, harvested(), integrity, () => {});
     expect(closeTarget).not.toHaveBeenCalled();
   });
-  test("preserves a target leased by a controller using another session store", async () => {
+  test("ignores lease files from an alternate stored profile", async () => {
     const profile = path.join(root, "profile");
     await fs.mkdir(profile);
     await fs.writeFile(
@@ -252,6 +252,6 @@ describe("owned recovery target retirement", () => {
     metadata.browser!.runtime!.userDataDir = profile;
     await sessionStore.updateSession(metadata.id, { browser: metadata.browser });
     await completeOwnedBrowserHarvest(metadata.id, harvested(), integrity, () => {});
-    expect(closeTarget).not.toHaveBeenCalled();
+    expect(closeTarget).toHaveBeenCalledOnce();
   });
 });

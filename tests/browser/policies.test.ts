@@ -91,9 +91,9 @@ describe("shouldSyncBrowserCookies", () => {
     expect(shouldSyncBrowserCookies(config, { manualLogin: false })).toBe(false);
   });
 
-  test("syncs ordinary temporary profiles when cookie sync is enabled", () => {
+  test("does not sync ordinary profiles when cookie sync is requested", () => {
     const config = resolveBrowserConfig({ cookieSync: true });
-    expect(shouldSyncBrowserCookies(config, { manualLogin: false })).toBe(true);
+    expect(shouldSyncBrowserCookies(config, { manualLogin: false })).toBe(false);
   });
 
   test("skips persistent manual-login profiles by default", () => {
@@ -105,13 +105,13 @@ describe("shouldSyncBrowserCookies", () => {
     expect(shouldSyncBrowserCookies(config, { manualLogin: true })).toBe(false);
   });
 
-  test("syncs persistent manual-login profiles only with the explicit opt-in", () => {
+  test("does not sync persistent manual-login profiles with the legacy opt-in", () => {
     const config = resolveBrowserConfig({
       cookieSync: true,
       manualLogin: true,
       manualLoginCookieSync: true,
     });
-    expect(shouldSyncBrowserCookies(config, { manualLogin: true })).toBe(true);
+    expect(shouldSyncBrowserCookies(config, { manualLogin: true })).toBe(false);
   });
 
   test("does not sync a pre-signed copied profile", () => {

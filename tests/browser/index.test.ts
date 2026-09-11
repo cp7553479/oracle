@@ -458,9 +458,9 @@ describe("manual-login profile setup gate", () => {
     }
   });
 
-  test("formats the first-time setup command with the selected profile", () => {
-    expect(__test__.formatManualLoginSetupCommand("/tmp/oracle profile")).toContain(
-      '--browser-manual-login-profile-dir "/tmp/oracle profile"',
+  test("formats first-time setup with the fixed profile policy", () => {
+    expect(__test__.formatManualLoginSetupCommand("/tmp/oracle profile")).toBe(
+      'oracle --manual-login --engine browser --browser-keep-browser -p "HI"',
     );
   });
 
@@ -1176,24 +1176,20 @@ describe("runSubmissionWithRecoveryForTest", () => {
 });
 
 describe("resolveRemoteTabLeaseProfileDirForTest", () => {
-  test("coordinates remote Chrome through the forced manual-login profile", () => {
+  test("does not create a remote-Chrome lease route", () => {
     const coordinated = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
       manualLogin: true,
       manualLoginProfileDir: "/tmp/oracle-profile",
     });
-    expect(resolveRemoteTabLeaseProfileDirForTest(coordinated)).toBe(
-      path.join(os.homedir(), ".oracle", "browser-profile"),
-    );
+    expect(resolveRemoteTabLeaseProfileDirForTest(coordinated)).toBeNull();
 
     const forced = resolveBrowserConfig({
       remoteChrome: { host: "127.0.0.1", port: 9222 },
       manualLogin: false,
       manualLoginProfileDir: "/tmp/oracle-profile",
     });
-    expect(resolveRemoteTabLeaseProfileDirForTest(forced)).toBe(
-      path.join(os.homedir(), ".oracle", "browser-profile"),
-    );
+    expect(resolveRemoteTabLeaseProfileDirForTest(forced)).toBeNull();
   });
 });
 

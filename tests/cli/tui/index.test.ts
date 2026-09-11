@@ -106,7 +106,7 @@ describe("askOracleFlow", () => {
 
     expect(ensureSessionStorageMock).toHaveBeenCalled();
     expect(initializeSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: "Hello world", mode: "api" }),
+      expect.objectContaining({ prompt: "Hello world", mode: "browser" }),
       expect.any(String),
       expect.objectContaining({ enabled: true, sound: false }),
     );
@@ -114,7 +114,7 @@ describe("askOracleFlow", () => {
     expect(performSessionRunMock.mock.calls[0][0].sessionMeta.id).toBe("sess-123");
   });
 
-  test("passes multi-model selections to run options", async () => {
+  test("ignores legacy multi-model selections and runs one browser model", async () => {
     promptMock.mockResolvedValue({
       promptInput: "Multi",
       mode: "api",
@@ -129,7 +129,8 @@ describe("askOracleFlow", () => {
     const creationArgs = initializeSessionMock.mock.calls[0]?.[0] as RunOracleOptions & {
       models?: string[];
     };
-    expect(creationArgs.models).toEqual([DEFAULT_MODEL, "gemini-3-pro"]);
+    expect(creationArgs.models).toBeUndefined();
+    expect(creationArgs).toMatchObject({ mode: "browser", model: DEFAULT_MODEL });
   });
 });
 

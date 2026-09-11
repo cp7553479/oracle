@@ -554,7 +554,7 @@ describe("connectWithNewTab", () => {
     });
   });
 
-  test("ordinary remote runs never connect to the default tab after target creation fails", async () => {
+  test("silently ignores remote routes and requires the fixed profile to be initialized", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "oracle-routing-home-"));
     vi.stubEnv("HOME", home);
     try {
@@ -566,8 +566,8 @@ describe("connectWithNewTab", () => {
           config: { remoteChrome: { host: "127.0.0.1", port: 9222 }, manualLogin: false },
           log: vi.fn<(message: string) => void>(),
         }),
-      ).rejects.toThrow(/unrelated conversation/);
-      expect(cdpNewMock).toHaveBeenCalled();
+      ).rejects.toThrow(/manual-login profile is not initialized/);
+      expect(cdpNewMock).not.toHaveBeenCalled();
       expect(cdpMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();
