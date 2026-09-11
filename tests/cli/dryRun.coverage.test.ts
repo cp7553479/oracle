@@ -123,10 +123,10 @@ describe("runDryRunSummary", () => {
 
     const joined = log.mock.calls.flat().join("\n");
     expect(joined).toContain("Inline file content");
-    expect(joined).toContain("cookie-sync");
+    expect(joined).toContain("Cookies: persistent manual-login profile");
   });
 
-  test("browser dry run shows cookie copy disabled by default", async () => {
+  test("browser dry run shows the persistent manual-login profile", async () => {
     const log = vi.fn();
     const assembleBrowserPromptImpl = vi.fn().mockResolvedValue({
       markdown: "[SYSTEM]\n[USER]",
@@ -154,7 +154,7 @@ describe("runDryRunSummary", () => {
     );
 
     const joined = log.mock.calls.flat().join("\n");
-    expect(joined).toContain("Cookies: Chrome copy disabled");
+    expect(joined).toContain("Cookies: persistent manual-login profile");
     expect(joined).toContain("No files attached");
   });
 
@@ -186,7 +186,7 @@ describe("runDryRunSummary", () => {
     );
     let joined = log.mock.calls.flat().join("\n");
     expect(joined).toContain("Browser control: attach to an already-running local Chrome session");
-    expect(joined).toContain("Cookies: Chrome copy disabled");
+    expect(joined).toContain("Cookies: persistent manual-login profile");
     expect(joined).toContain("Preview JSON");
     expect(joined).toContain('"composerText": "Preview text"');
 

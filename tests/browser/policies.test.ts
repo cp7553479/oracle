@@ -68,7 +68,7 @@ describe("buildCookiePlan", () => {
   test("disabled cookie sync plan", () => {
     const plan = buildCookiePlan({ cookieSync: false });
     expect(plan.type).toBe("disabled");
-    expect(plan.description).toContain("Chrome copy disabled");
+    expect(plan.description).toContain("persistent manual-login profile");
   });
 
   test("defaults to no Chrome cookie copy", () => {

@@ -81,8 +81,7 @@ export function buildCookiePlan(config?: BrowserSessionConfig): CookiePlan {
   if (config?.cookieSync !== true) {
     return {
       type: "disabled",
-      description:
-        "Cookies: Chrome copy disabled (use --browser-manual-login, inline cookies, or --browser-cookie-sync).",
+      description: "Cookies: persistent manual-login profile.",
     };
   }
   const allowlist =
