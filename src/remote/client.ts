@@ -40,7 +40,7 @@ export function createRemoteBrowserExecutor({ host, token }: RemoteExecutorOptio
   ): Promise<BrowserRunResult> {
     if (options.config?.researchMode === "search") {
       throw new Error(
-        "Web Search is a local browser pilot; --remote-host does not negotiate this capability yet. Use local Chrome or --browser-attach-running.",
+        "Web Search is a local browser pilot; --remote-host does not negotiate this capability yet. Use the local Oracle browser.",
       );
     }
     const callerSignal = options.signal;

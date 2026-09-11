@@ -85,9 +85,7 @@ describe("resolveAttachRunningConnection", () => {
       browserWSEndpoint: "ws://127.0.0.1:63332/devtools/browser/newer",
       profileRoot: "/profiles/dia-newer",
     });
-    expect(logger).toHaveBeenCalledWith(
-      "Note: --browser-chrome-path is ignored when --browser-attach-running is enabled.",
-    );
+    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("ignored"));
     expect(logger).toHaveBeenCalledWith(
       "Selected attach-running browser metadata from /profiles/dia-newer/DevToolsActivePort",
     );

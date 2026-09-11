@@ -1248,12 +1248,6 @@ async function runBrowserModeInternal(
 
   // Remote Chrome mode - connect to existing browser
   if (config.remoteChrome) {
-    // Warn about ignored local-only options
-    const ignoredFlags = listIgnoredRemoteChromeFlags(config);
-    if (ignoredFlags.length > 0) {
-      logger(`Note: --remote-chrome ignores local Chrome flags (${ignoredFlags.join(", ")}).`);
-    }
-
     return runRemoteBrowserMode(promptText, attachments, config, logger, options, cancellation);
   }
 

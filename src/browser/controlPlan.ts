@@ -75,9 +75,7 @@ export function describeBrowserControlPlan(config: BrowserControlConfig = {}): B
 
   if (config.hideWindow) {
     guidance.push("On macOS, Oracle launches Chrome off-screen while keeping the page rendered.");
-    guidance.push(
-      "For the calmest shared-desktop flow, prefer --browser-attach-running or --remote-chrome.",
-    );
+    guidance.push("For less desktop disruption, use --browser-hide-window.");
     return {
       mode: "hidden-window",
       launchesChrome: true,
@@ -92,9 +90,7 @@ export function describeBrowserControlPlan(config: BrowserControlConfig = {}): B
       ? "Manual-login mode may show the persistent Oracle Chrome profile for sign-in or automation."
       : "A visible automation Chrome window may take focus while Oracle controls ChatGPT.",
   );
-  guidance.push(
-    "Use --browser-hide-window, --browser-attach-running, or --remote-chrome to reduce desktop disruption.",
-  );
+  guidance.push("Use --browser-hide-window to reduce desktop disruption.");
   if (config.keepBrowser) {
     guidance.push(
       "Chrome will remain open after the run because --browser-keep-browser is enabled.",
