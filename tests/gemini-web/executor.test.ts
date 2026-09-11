@@ -50,28 +50,6 @@ vi.mock("../../src/gemini-web/client.js", () => ({
   saveFirstGeminiImageFromOutput,
 }));
 
-const getCookies = vi.fn(async () => ({
-  cookies: [
-    {
-      name: "__Secure-1PSID",
-      value: "psid",
-      domain: "google.com",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-    },
-    {
-      name: "__Secure-1PSIDTS",
-      value: "psidts",
-      domain: "google.com",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-    },
-  ],
-  warnings: [] as string[],
-}));
-vi.mock("@steipete/sweet-cookie", () => ({ getCookies }));
 vi.mock("../../src/browser/chromeLifecycle.js", () => ({
   launchChrome,
   connectWithNewTab,
@@ -101,14 +79,6 @@ function requiredGeminiCookies() {
       secure: true,
       httpOnly: true,
     },
-    {
-      name: "__Secure-1PSIDTS",
-      value: "psidts",
-      domain: "google.com",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-    },
   ];
 }
 
@@ -116,7 +86,6 @@ describe("gemini-web executor", () => {
   beforeEach(() => {
     runGeminiWebWithFallback.mockClear();
     saveFirstGeminiImageFromOutput.mockClear();
-    getCookies.mockClear();
     launchChrome.mockReset();
     connectWithNewTab.mockReset();
     closeTab.mockClear();
@@ -289,7 +258,7 @@ describe("gemini-web executor", () => {
     );
   });
 
-  it("uses chromeCookiePath when provided", async () => {
+  it("ignores chromeCookiePath and opens the fixed browser profile", async () => {
     const { createGeminiWebExecutor } = await import("../../src/gemini-web/executor.js");
     const exec = createGeminiWebExecutor({});
     await exec({
@@ -298,12 +267,13 @@ describe("gemini-web executor", () => {
       config: { desiredModel: "Gemini 3 Pro", chromeCookiePath: "/tmp/Cookies" },
       log: () => {},
     });
-    expect(getCookies).toHaveBeenCalledWith(
-      expect.objectContaining({ chromeProfile: "/tmp/Cookies" }),
+    expect(resolveBrowserConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ chromeCookiePath: "/tmp/Cookies" }),
     );
+    expect(connectWithNewTab).toHaveBeenCalled();
   });
 
-  it("uses inline cookies when cookie sync is disabled", async () => {
+  it("ignores inline cookies and reads the fixed browser profile", async () => {
     const { createGeminiWebExecutor } = await import("../../src/gemini-web/executor.js");
     const exec = createGeminiWebExecutor({});
     await exec({
@@ -320,30 +290,10 @@ describe("gemini-web executor", () => {
       },
       log: () => {},
     });
-    expect(getCookies).not.toHaveBeenCalled();
-  });
-
-  it("includes cookie read warnings in the missing-cookie error", async () => {
-    getCookies.mockImplementationOnce(async () => ({
-      cookies: [],
-      warnings: [
-        "node:sqlite failed reading Chrome cookies (requires modern Chromium, e.g. Chrome >= 100): Value is too large to be represented as a JavaScript number: 13449189465095212",
-      ],
-    }));
-
-    const { createGeminiWebExecutor } = await import("../../src/gemini-web/executor.js");
-    const exec = createGeminiWebExecutor({});
-
-    await expect(
-      exec({
-        prompt: "hello",
-        attachments: [],
-        config: { desiredModel: "Gemini 3 Pro", chromeProfile: "Default" },
-        log: () => {},
-      }),
-    ).rejects.toThrow(
-      /Cookie read warnings:.*Value is too large to be represented as a JavaScript number[\s\S]*--browser-manual-login[\s\S]*--browser-inline-cookies-file/s,
+    expect(resolveBrowserConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ inlineCookiesSource: "test" }),
     );
+    expect(connectWithNewTab).toHaveBeenCalled();
   });
 
   it("uses DOM automation for gemini deep-think without keychain cookie reads", async () => {
@@ -357,7 +307,6 @@ describe("gemini-web executor", () => {
     });
 
     expect(result.answerText).toBe("deep-think answer");
-    expect(getCookies).not.toHaveBeenCalled();
     expect(launchChrome).toHaveBeenCalled();
     expect(connectWithNewTab).toHaveBeenCalled();
     expect(closeTab).toHaveBeenCalled();
@@ -374,7 +323,7 @@ describe("gemini-web executor", () => {
       log: () => {},
     });
 
-    expect(getCookies).toHaveBeenCalled();
+    expect(connectWithNewTab).toHaveBeenCalled();
     expect(runGeminiWebWithFallback).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "gemini-3-pro-deep-think",
