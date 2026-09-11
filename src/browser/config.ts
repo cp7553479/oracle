@@ -5,12 +5,10 @@ import {
   DEFAULT_MODEL_TARGET,
 } from "./constants.js";
 import { normalizeBrowserModelStrategy } from "./modelStrategy.js";
-import {
-  DEFAULT_MAX_CONCURRENT_CHATGPT_TABS,
-  normalizeMaxConcurrentTabs,
-} from "./tabLeaseRegistry.js";
+import { DEFAULT_MAX_CONCURRENT_CHATGPT_TABS } from "./tabLeaseRegistry.js";
 import type { BrowserAutomationConfig, ResolvedBrowserConfig } from "./types.js";
 import { normalizeChatgptUrl } from "./utils.js";
+import { parseDuration } from "../duration.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -37,6 +35,7 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   timeoutMs: 1_200_000,
   debugPort: null,
   inputTimeoutMs: 60_000,
+  approvalWaitMs: 20_000,
   attachmentTimeoutMs: 45_000,
   assistantRecheckDelayMs: 0,
   assistantRecheckTimeoutMs: 120_000,
@@ -78,9 +77,6 @@ export function resolveBrowserConfig(
   const envAllowCookieErrors =
     (process.env.ORACLE_BROWSER_ALLOW_COOKIE_ERRORS ?? "").trim().toLowerCase() === "true" ||
     (process.env.ORACLE_BROWSER_ALLOW_COOKIE_ERRORS ?? "").trim() === "1";
-  const envMaxConcurrentTabs = parseMaxConcurrentTabs(
-    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS,
-  );
   const rawUrl = config?.chatgptUrl ?? config?.url ?? DEFAULT_BROWSER_CONFIG.url;
   const normalizedUrl = normalizeChatgptUrl(
     rawUrl ?? DEFAULT_BROWSER_CONFIG.url,
@@ -96,10 +92,9 @@ export function resolveBrowserConfig(
   // copyProfileSource is cleared after the config spread below so MCP, remote,
   // and stored-session inputs cannot revive the removed CLI path.
   const manualLogin = true;
-  const resolvedProfileDir = resolveManualLoginProfileDir(
-    config?.manualLoginProfileDir,
-    process.env.ORACLE_BROWSER_PROFILE_DIR,
-  );
+  // Profile selection is deliberately not configurable. All browser callers,
+  // including MCP, remote, and Gemini, share Oracle's dedicated profile.
+  const resolvedProfileDir = defaultManualLoginProfileDir();
   const researchMode = normalizeResearchMode(config?.researchMode);
   const archiveConversations = normalizeArchiveMode(config?.archiveConversations);
   const defaultTimeoutMs =
@@ -112,6 +107,7 @@ export function resolveBrowserConfig(
     timeoutMs: config?.timeoutMs ?? defaultTimeoutMs,
     debugPort: config?.debugPort ?? debugPortEnv ?? DEFAULT_BROWSER_CONFIG.debugPort,
     inputTimeoutMs: config?.inputTimeoutMs ?? DEFAULT_BROWSER_CONFIG.inputTimeoutMs,
+    approvalWaitMs: resolveBrowserApprovalWait(config?.approvalWaitMs),
     attachmentTimeoutMs: config?.attachmentTimeoutMs ?? DEFAULT_BROWSER_CONFIG.attachmentTimeoutMs,
     assistantRecheckDelayMs:
       config?.assistantRecheckDelayMs ?? DEFAULT_BROWSER_CONFIG.assistantRecheckDelayMs,
@@ -120,9 +116,7 @@ export function resolveBrowserConfig(
     reuseChromeWaitMs: config?.reuseChromeWaitMs ?? DEFAULT_BROWSER_CONFIG.reuseChromeWaitMs,
     profileLockTimeoutMs:
       config?.profileLockTimeoutMs ?? DEFAULT_BROWSER_CONFIG.profileLockTimeoutMs,
-    maxConcurrentTabs: normalizeMaxConcurrentTabs(
-      config?.maxConcurrentTabs ?? envMaxConcurrentTabs ?? DEFAULT_BROWSER_CONFIG.maxConcurrentTabs,
-    ),
+    maxConcurrentTabs: 1,
     autoReattachDelayMs: config?.autoReattachDelayMs ?? DEFAULT_BROWSER_CONFIG.autoReattachDelayMs,
     autoReattachIntervalMs:
       config?.autoReattachIntervalMs ?? DEFAULT_BROWSER_CONFIG.autoReattachIntervalMs,
@@ -138,9 +132,9 @@ export function resolveBrowserConfig(
     hideWindow: config?.hideWindow ?? DEFAULT_BROWSER_CONFIG.hideWindow,
     desiredModel,
     modelStrategy,
-    chromeProfile: config?.chromeProfile ?? DEFAULT_BROWSER_CONFIG.chromeProfile,
+    chromeProfile: DEFAULT_BROWSER_CONFIG.chromeProfile,
     chromePath: config?.chromePath ?? DEFAULT_BROWSER_CONFIG.chromePath,
-    chromeCookiePath: config?.chromeCookiePath ?? DEFAULT_BROWSER_CONFIG.chromeCookiePath,
+    chromeCookiePath: DEFAULT_BROWSER_CONFIG.chromeCookiePath,
     attachRunning: config?.attachRunning ?? DEFAULT_BROWSER_CONFIG.attachRunning,
     browserTabRef: config?.browserTabRef ?? DEFAULT_BROWSER_CONFIG.browserTabRef,
     debug: config?.debug ?? DEFAULT_BROWSER_CONFIG.debug,
@@ -148,8 +142,7 @@ export function resolveBrowserConfig(
       config?.allowCookieErrors ?? envAllowCookieErrors ?? DEFAULT_BROWSER_CONFIG.allowCookieErrors,
     remoteChromeBrowserWSEndpoint:
       config?.remoteChromeBrowserWSEndpoint ?? DEFAULT_BROWSER_CONFIG.remoteChromeBrowserWSEndpoint,
-    remoteChromeProfileRoot:
-      config?.remoteChromeProfileRoot ?? DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
+    remoteChromeProfileRoot: DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
     thinkingTime: config?.thinkingTime,
     researchMode,
     archiveConversations,
@@ -163,8 +156,8 @@ export function resolveBrowserConfig(
   };
 }
 
-function normalizeResearchMode(value: unknown): "off" | "deep" {
-  return value === "deep" ? "deep" : "off";
+function normalizeResearchMode(value: unknown): "off" | "search" | "deep" {
+  return value === "deep" || value === "search" ? value : "off";
 }
 
 function normalizeArchiveMode(value: unknown): "auto" | "always" | "never" {
@@ -180,21 +173,18 @@ function parseDebugPort(raw?: string | null): number | null {
   return value;
 }
 
-function parseMaxConcurrentTabs(raw?: string | null): number | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-  const value = Number(trimmed);
-  if (!Number.isInteger(value) || value <= 0) {
-    return null;
-  }
-  return value;
+export function defaultManualLoginProfileDir(): string {
+  return path.join(os.homedir(), ".oracle", "browser-profile");
 }
 
-function resolveManualLoginProfileDir(...candidates: Array<string | null | undefined>): string {
-  for (const candidate of candidates) {
-    const profileDir = candidate?.trim();
-    if (profileDir) return profileDir;
+export function resolveBrowserApprovalWait(value?: string | number): number {
+  const raw = value ?? process.env.ORACLE_BROWSER_APPROVAL_WAIT?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_BROWSER_CONFIG.approvalWaitMs;
+  const parsed = typeof raw === "number" ? raw : parseDuration(raw, Number.NaN);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 2_147_483_647) {
+    throw new Error(
+      "Invalid browser approval wait: use a positive duration up to 2147483647ms (for example --browser-approval-wait 5m, browser.approvalWaitMs: 300000, or ORACLE_BROWSER_APPROVAL_WAIT=5m).",
+    );
   }
-  return path.join(os.homedir(), ".oracle", "browser-profile");
+  return parsed;
 }

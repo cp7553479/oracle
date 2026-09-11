@@ -21,7 +21,7 @@ JSON5 parsing, so trailing commas and comments are allowed.
   },
 
   browser: {
-    chromeProfile: "Default",
+    chromeProfile: null, // ignored: profile selection is blocked
     chromePath: null,
     chromeCookiePath: null,
     chatgptUrl: "https://chatgpt.com/", // root is fine; folder URLs also work
@@ -48,7 +48,7 @@ JSON5 parsing, so trailing commas and comments are allowed.
     thinkingTime: "extended", // light | standard | extended | extra-high | pro | heavy (ChatGPT Thinking/Pro models)
     researchMode: "off", // off | deep (ChatGPT Deep Research; browser only)
     manualLogin: true, // forced in this fork; false is ignored
-    manualLoginProfileDir: null, // override profile dir (or set ORACLE_BROWSER_PROFILE_DIR)
+    manualLoginProfileDir: null, // ignored: always ~/.oracle/browser-profile
     headless: false,
     hideWindow: false,
     keepBrowser: false,
@@ -125,7 +125,7 @@ CLI flags and explicit override environment variables → effective config (proj
 - `sessionRetentionHours` controls the default value for `--retain-hours`. When unset, `ORACLE_RETAIN_HOURS` (if present) becomes the fallback, and the CLI flag still wins over both.
 - `ORACLE_MAX_FILE_SIZE_BYTES` overrides `maxFileSizeBytes` when set. Oracle validates it as a positive integer number of bytes before reading any `--file` inputs.
 - `browser.chatgptUrl` accepts either the root ChatGPT URL (`https://chatgpt.com/`) or a folder/workspace URL (e.g., `https://chatgpt.com/g/.../project`); `browser.url` remains as a legacy alias.
-- Browser automation defaults can be set under `browser.*`, including `browser.manualLoginProfileDir`, `browser.attachRunning`, `browser.thinkingTime` (CLI override: `--browser-thinking-time`), and `browser.researchMode` (CLI override: `--browser-research`). Manual login is forced; `browser.manualLogin=false` and copied-profile input are ignored.
+- Browser automation defaults can be set under `browser.*`, including `browser.attachRunning`, `browser.thinkingTime` (CLI override: `--browser-thinking-time`), and `browser.researchMode` (CLI override: `--browser-research`). Manual login is forced; profile directory/name overrides, `browser.manualLogin=false`, and copied-profile input are ignored.
 
 If the config is missing or invalid, Oracle falls back to defaults and prints a warning for parse errors.
 

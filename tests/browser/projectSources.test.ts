@@ -8,8 +8,15 @@ import {
   buildProjectSourcesReadyExpression,
   hasUploadedProjectSourceBatchForTest,
 } from "../../src/browser/actions/projectSources.js";
+import { projectSourcesBrowserLeasePolicyForTest } from "../../src/browser/projectSourcesRunner.js";
 
 describe("Project Sources browser expressions", () => {
+  test("uses the fork-wide single-slot queue without a wait timeout", () => {
+    expect(projectSourcesBrowserLeasePolicyForTest()).toEqual({
+      maxConcurrentTabs: 1,
+      timeoutMs: 0,
+    });
+  });
   test("recognizes English and Polish Project Sources UI labels", () => {
     const ready = buildProjectSourcesReadyExpression();
     expect(ready).toContain("sources");

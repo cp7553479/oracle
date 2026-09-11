@@ -10,6 +10,8 @@ import type {
 } from "../browser/types.js";
 
 export interface BrowserDefaultsOptions {
+  remoteChrome?: string;
+  copyProfile?: string;
   chatgptUrl?: string;
   browserUrl?: string;
   browserChromeProfile?: string;
@@ -18,6 +20,7 @@ export interface BrowserDefaultsOptions {
   browserAttachRunning?: boolean;
   browserTimeout?: string | number;
   browserInputTimeout?: string | number;
+  browserApprovalWait?: string | number;
   browserAttachmentTimeout?: string | number;
   browserRecheckDelay?: string | number;
   browserRecheckTimeout?: string | number;
@@ -38,7 +41,6 @@ export interface BrowserDefaultsOptions {
   browserResearch?: BrowserResearchMode;
   browserArchive?: BrowserArchiveMode;
   browserManualLogin?: boolean;
-  browserManualLoginProfileDir?: string | null;
   browserManualLoginCookieSync?: boolean;
 }
 
@@ -61,6 +63,16 @@ export function applyBrowserDefaultsFromConfig(
     (isUnset("browserAttachRunning") && browser.attachRunning === true);
   const currentModelRequestedByCli =
     options.browserModelStrategy === "current" && getSource("browserModelStrategy") === "cli";
+
+  if (
+    !options.copyProfile &&
+    isUnset("remoteChrome") &&
+    options.remoteChrome === undefined &&
+    browser.remoteChrome
+  ) {
+    const { host, port } = browser.remoteChrome;
+    options.remoteChrome = `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
+  }
 
   const configuredChatgptUrl = browser.chatgptUrl ?? browser.url;
   const cliChatgptSet = options.chatgptUrl !== undefined || options.browserUrl !== undefined;
@@ -99,6 +111,9 @@ export function applyBrowserDefaultsFromConfig(
   }
   if (isUnset("browserInputTimeout") && typeof browser.inputTimeoutMs === "number") {
     options.browserInputTimeout = String(browser.inputTimeoutMs);
+  }
+  if (isUnset("browserApprovalWait") && typeof browser.approvalWaitMs === "number") {
+    options.browserApprovalWait = String(browser.approvalWaitMs);
   }
   if (isUnset("browserAttachmentTimeout") && typeof browser.attachmentTimeoutMs === "number") {
     options.browserAttachmentTimeout = String(browser.attachmentTimeoutMs);
@@ -171,13 +186,6 @@ export function applyBrowserDefaultsFromConfig(
     browser.manualLogin !== undefined
   ) {
     options.browserManualLogin = browser.manualLogin;
-  }
-  if (
-    !attachRunningRequested &&
-    isUnset("browserManualLoginProfileDir") &&
-    browser.manualLoginProfileDir !== undefined
-  ) {
-    options.browserManualLoginProfileDir = browser.manualLoginProfileDir;
   }
   if (
     !attachRunningRequested &&

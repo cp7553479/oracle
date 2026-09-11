@@ -20,9 +20,10 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 
 - Every root CLI run must behave as though `--engine browser --manual-browser-login` were appended
   after all user, environment, and configuration arguments.
-- Browser runs must reuse the persistent signed-in profile at `~/.oracle/browser-profile`, unless
-  `ORACLE_BROWSER_PROFILE_DIR` or `--browser-manual-login-profile-dir` selects another persistent
-  manual-login profile.
+- Browser runs must reuse only the persistent signed-in profile at `~/.oracle/browser-profile`.
+  Profile-selection CLI options must be rejected at every command entry point; environment,
+  configuration, MCP, remote, and stored-session profile overrides must not change this path.
+  Cookie-source profile selection and copied profiles must not bypass default manual login.
 - `--manual-login`, `--manual-browser-login`, and `--browser-manual-login` are compatible names for
   the required manual-login behavior.
 - `--copy-profile` must not be exposed as a CLI option. Low-level configuration must clear any

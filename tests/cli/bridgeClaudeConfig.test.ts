@@ -14,7 +14,6 @@ describe("formatClaudeMcpConfig", () => {
     const parsed = JSON.parse(
       formatClaudeMcpConfig({
         oracleHomeDir: "/Users/test/.oracle-local",
-        browserProfileDir: "/Users/test/.oracle-local/browser-profile",
         remoteHost: "127.0.0.1:9473",
         remoteToken: "secret-token",
         includeToken: false,
@@ -29,7 +28,6 @@ describe("formatClaudeMcpConfig", () => {
     expect(parsed.mcpServers.oracle.env).toMatchObject({
       ORACLE_ENGINE: "browser",
       ORACLE_HOME_DIR: "/Users/test/.oracle-local",
-      ORACLE_BROWSER_PROFILE_DIR: "/Users/test/.oracle-local/browser-profile",
       ORACLE_REMOTE_HOST: "127.0.0.1:9473",
       ORACLE_REMOTE_TOKEN: "<YOUR_TOKEN>",
     });
@@ -39,7 +37,6 @@ describe("formatClaudeMcpConfig", () => {
     const parsed = JSON.parse(
       formatClaudeMcpConfig({
         oracleHomeDir: "/Users/test/.oracle",
-        browserProfileDir: "/Users/test/.oracle/browser-profile",
         remoteHost: "127.0.0.1:9473",
         remoteToken: "secret-token",
         includeToken: true,
@@ -50,13 +47,11 @@ describe("formatClaudeMcpConfig", () => {
     expect(parsed.mcpServers.oracle.env).toEqual({
       ORACLE_ENGINE: "browser",
       ORACLE_HOME_DIR: "/Users/test/.oracle",
-      ORACLE_BROWSER_PROFILE_DIR: "/Users/test/.oracle/browser-profile",
     });
   });
 
   test("prints local-browser CLI config as parseable stdout JSON", async () => {
     const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-claude-config-"));
-    const browserProfileDir = path.join(oracleHome, "browser-profile");
     try {
       const { stdout, stderr } = await execFileAsync(
         process.execPath,
@@ -69,8 +64,6 @@ describe("formatClaudeMcpConfig", () => {
               .join(" "),
             // biome-ignore lint/style/useNamingConvention: env var name
             ORACLE_HOME_DIR: oracleHome,
-            // biome-ignore lint/style/useNamingConvention: env var name
-            ORACLE_BROWSER_PROFILE_DIR: browserProfileDir,
           },
         },
       );
@@ -80,7 +73,6 @@ describe("formatClaudeMcpConfig", () => {
       expect(parsed.mcpServers.oracle.env).toEqual({
         ORACLE_ENGINE: "browser",
         ORACLE_HOME_DIR: oracleHome,
-        ORACLE_BROWSER_PROFILE_DIR: browserProfileDir,
       });
     } finally {
       await rm(oracleHome, { recursive: true, force: true });

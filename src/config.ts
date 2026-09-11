@@ -19,6 +19,7 @@ export interface NotifyConfig {
 }
 
 export interface BrowserConfigDefaults {
+  remoteChrome?: { host: string; port: number } | null;
   chromeProfile?: string | null;
   chromePath?: string | null;
   chromeCookiePath?: string | null;
@@ -34,6 +35,8 @@ export interface BrowserConfigDefaults {
   timeoutMs?: number;
   debugPort?: number | null;
   inputTimeoutMs?: number;
+  /** Time budget for each Chrome remote-debugging approval prompt. */
+  approvalWaitMs?: number;
   /** Time budget for attachment upload/readiness before clicking send. */
   attachmentTimeoutMs?: number;
   /** Delay before rechecking the conversation after an assistant timeout. */
@@ -67,7 +70,7 @@ export interface BrowserConfigDefaults {
   archiveConversations?: BrowserArchiveMode;
   /** Skip cookie sync and reuse a persistent automation profile (waits for manual ChatGPT login). */
   manualLogin?: boolean;
-  /** Manual-login profile directory override (also available via ORACLE_BROWSER_PROFILE_DIR). */
+  /** Legacy input retained for backwards-compatible config loading; ignored by browser resolution. */
   manualLoginProfileDir?: string | null;
   /** Seed a manual-login profile from configured Chrome/inline cookies. */
   manualLoginCookieSync?: boolean;
@@ -284,6 +287,7 @@ function sanitizeProjectConfig(config: UserConfig): UserConfig {
       "attachRunning",
       "timeoutMs",
       "inputTimeoutMs",
+      "approvalWaitMs",
       "attachmentTimeoutMs",
       "assistantRecheckDelayMs",
       "assistantRecheckTimeoutMs",

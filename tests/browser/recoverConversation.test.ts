@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   isRecoveredConversationHarvestReady,
@@ -171,7 +173,7 @@ describe("isRecoveredConversationHarvestReady", () => {
 });
 
 describe("resolveRecoveryProfileDir", () => {
-  test("uses the session manual-login profile dir", () => {
+  test("ignores the session manual-login profile override", () => {
     expect(
       resolveRecoveryProfileDir(
         metaWith({ tabUrl: "https://chatgpt.com/c/abc" }, undefined, {
@@ -179,10 +181,10 @@ describe("resolveRecoveryProfileDir", () => {
           manualLoginProfileDir: "/tmp/oracle-profile",
         }),
       ),
-    ).toBe("/tmp/oracle-profile");
+    ).toBe(path.join(os.homedir(), ".oracle", "browser-profile"));
   });
 
-  test("prefers the recorded runtime profile dir for default manual-login sessions", () => {
+  test("ignores the recorded runtime profile override", () => {
     expect(
       resolveRecoveryProfileDir(
         metaWith(
@@ -196,7 +198,7 @@ describe("resolveRecoveryProfileDir", () => {
           },
         ),
       ),
-    ).toBe("/tmp/runtime-profile");
+    ).toBe(path.join(os.homedir(), ".oracle", "browser-profile"));
   });
 
   test("recovers sessions whose metadata lacks manualLogin because it is now forced", () => {
@@ -213,6 +215,6 @@ describe("resolveRecoveryProfileDir", () => {
           },
         ),
       ),
-    ).toBe("/tmp/temp-profile");
+    ).toBe(path.join(os.homedir(), ".oracle", "browser-profile"));
   });
 });

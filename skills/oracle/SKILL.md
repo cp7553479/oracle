@@ -145,7 +145,10 @@ are essential to the question.
 - Current model families include GPT-5.5/5.4/5.2/5.1, Gemini 3.x, and Claude
   4.x; availability depends on engine and provider.
 - Browser attachments use `--browser-attachments auto|never|always`.
-- For many files, add `--browser-bundle-files --browser-bundle-format auto|zip`.
+- Browser uploads keep one text/source file native and bundle multiple
+  text/source files. `auto` keeps flattened text for text-only uploads; use
+  `--browser-bundle-format zip` for a filesystem tree, or `--browser-bundle-files`
+  to force every resolved attachment into one bundle.
 - Reuse an existing Chrome session with `--browser-tab <ref>`,
   `--browser-attach-running`, or `--remote-chrome <host:port>`.
 - Use `--browser-model-strategy select|current|ignore` to control picker

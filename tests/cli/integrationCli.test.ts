@@ -130,6 +130,43 @@ describe("oracle CLI integration", () => {
   });
 
   test(
+    "does not expose or accept browser profile selection flags",
+    async () => {
+      const help = await execCli(["--help"]);
+      expect(help.code).toBe(0);
+      expect(help.stdout).not.toContain("--browser-manual-login-profile-dir");
+
+      for (const flag of [
+        "--browser-manual-login-profile-dir",
+        "--browser-chrome-profile",
+        "--browser-cookie-path",
+      ]) {
+        const rejected = await execCli([flag, "/tmp/profile", "-p", "test"]);
+        expect(rejected.code).not.toBe(0);
+        expect(rejected.stderr).toContain(`unknown option '${flag}`);
+      }
+
+      const subcommandProfileFlags: Array<[string[], string]> = [
+        [["serve", "--manual-login-profile-dir=/tmp/profile"], "--manual-login-profile-dir"],
+        [
+          ["project-sources", "list", "--browser-manual-login-profile-dir=/tmp/profile"],
+          "--browser-manual-login-profile-dir",
+        ],
+        [
+          ["bridge", "claude-config", "--browser-profile-dir=/tmp/profile"],
+          "--browser-profile-dir",
+        ],
+      ];
+      for (const [args, flag] of subcommandProfileFlags) {
+        const rejected = await execCli(args);
+        expect(rejected.code).not.toBe(0);
+        expect(rejected.stderr).toContain(`unknown option '${flag}`);
+      }
+    },
+    INTEGRATION_TIMEOUT,
+  );
+
+  test(
     "exits nonzero when a detached worker receives an unknown session id",
     async () => {
       const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-missing-session-"));

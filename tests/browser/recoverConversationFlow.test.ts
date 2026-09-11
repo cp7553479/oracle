@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { SessionMetadata } from "../../src/sessionStore.js";
 
@@ -71,7 +73,7 @@ describe("recoverConversationTab flow", () => {
     expect(recovered.chrome).toBeNull();
   });
 
-  test("launches the stored manual-login profile when the existing endpoint is gone", async () => {
+  test("launches the default manual-login profile when the existing endpoint is gone", async () => {
     const openChatGptTarget = vi
       .fn()
       .mockRejectedValueOnce(new Error("ECONNREFUSED"))
@@ -98,7 +100,7 @@ describe("recoverConversationTab flow", () => {
     });
 
     expect(acquireManualLoginChromeForRun).toHaveBeenCalledWith(
-      "/tmp/recover-profile",
+      path.join(os.homedir(), ".oracle", "browser-profile"),
       expect.objectContaining({ manualLogin: true }),
       logger,
       "sess-recover",

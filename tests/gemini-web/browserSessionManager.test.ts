@@ -78,9 +78,10 @@ describe("openGeminiBrowserSession", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("prefers an explicit manual-login profile dir over the environment", async () => {
+  it("ignores explicit and environment profile overrides", async () => {
     const explicitDir = path.join(tempRoot, "explicit-profile");
     process.env.ORACLE_BROWSER_PROFILE_DIR = path.join(tempRoot, "env-profile");
+    const defaultDir = path.join(os.homedir(), ".oracle", "browser-profile");
 
     const { openGeminiBrowserSession } =
       await import("../../src/gemini-web/browserSessionManager.js");
@@ -90,18 +91,18 @@ describe("openGeminiBrowserSession", () => {
       purpose: "test",
     });
 
-    expect(session.profileDir).toBe(explicitDir);
+    expect(session.profileDir).toBe(defaultDir);
     expect(launchChrome).toHaveBeenCalledWith(
       expect.objectContaining({
         manualLogin: true,
-        manualLoginProfileDir: explicitDir,
+        manualLoginProfileDir: defaultDir,
       }),
-      explicitDir,
+      defaultDir,
       expect.any(Function),
     );
   });
 
-  it("uses ORACLE_BROWSER_PROFILE_DIR when no explicit profile dir is set", async () => {
+  it("uses the default profile even when ORACLE_BROWSER_PROFILE_DIR is set", async () => {
     const envDir = path.join(tempRoot, "env-profile");
     process.env.ORACLE_BROWSER_PROFILE_DIR = envDir;
 
@@ -113,14 +114,15 @@ describe("openGeminiBrowserSession", () => {
       purpose: "test",
     });
 
-    expect(session.profileDir).toBe(envDir);
+    const defaultDir = path.join(os.homedir(), ".oracle", "browser-profile");
+    expect(session.profileDir).toBe(defaultDir);
     expect(launchChrome).toHaveBeenCalledWith(
       expect.objectContaining({
         keepBrowser: true,
         manualLogin: true,
-        manualLoginProfileDir: envDir,
+        manualLoginProfileDir: defaultDir,
       }),
-      envDir,
+      defaultDir,
       expect.any(Function),
     );
   });

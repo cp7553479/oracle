@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CHATGPT_COOKIE_NAMES, resolveBrowserConfig } from "../../src/browser/config.js";
@@ -6,25 +6,11 @@ import { CHATGPT_URL, DEEP_RESEARCH_DEFAULT_TIMEOUT_MS } from "../../src/browser
 
 describe("resolveBrowserConfig", () => {
   const originalProfileDir = process.env.ORACLE_BROWSER_PROFILE_DIR;
-  const originalMaxTabs = process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
-
-  beforeEach(() => {
-    // Isolate from the caller's environment: a developer/CI export of the max-tabs
-    // override must not leak into tests that assert built-in defaults. afterEach
-    // below still restores the caller's original value once the suite finishes.
-    delete process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
-  });
-
   afterEach(() => {
     if (originalProfileDir === undefined) {
       delete process.env.ORACLE_BROWSER_PROFILE_DIR;
     } else {
       process.env.ORACLE_BROWSER_PROFILE_DIR = originalProfileDir;
-    }
-    if (originalMaxTabs === undefined) {
-      delete process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS;
-    } else {
-      process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = originalMaxTabs;
     }
   });
 
@@ -66,11 +52,11 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.cookieSync).toBe(false);
     expect(resolved.headless).toBe(true);
     expect(resolved.desiredModel).toBe("Custom");
-    expect(resolved.chromeProfile).toBe("Profile 1");
+    expect(resolved.chromeProfile).toBeNull();
     expect(resolved.chromePath).toBe("/Applications/Chrome");
     expect(resolved.browserTabRef).toBe("current");
     expect(resolved.debug).toBe(true);
-    expect(resolved.maxConcurrentTabs).toBe(5);
+    expect(resolved.maxConcurrentTabs).toBe(1);
     expect(resolved.researchMode).toBe("deep");
     expect(resolved.archiveConversations).toBe("never");
   });
@@ -86,28 +72,23 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.modelStrategy).toBe("select");
   });
 
-  test("resolves manual-login profile dirs from config, env, and default", () => {
+  test("always uses Oracle's default manual-login profile and ignores config and env overrides", () => {
     process.env.ORACLE_BROWSER_PROFILE_DIR = "/tmp/env-profile";
+    const defaultDir = path.join(os.homedir(), ".oracle", "browser-profile");
 
     expect(
       resolveBrowserConfig({
         manualLogin: true,
         manualLoginProfileDir: " /tmp/config-profile ",
       }).manualLoginProfileDir,
-    ).toBe("/tmp/config-profile");
+    ).toBe(defaultDir);
 
-    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
-      "/tmp/env-profile",
-    );
+    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(defaultDir);
 
     process.env.ORACLE_BROWSER_PROFILE_DIR = "   ";
-    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(
-      path.join(os.homedir(), ".oracle", "browser-profile"),
-    );
+    expect(resolveBrowserConfig({ manualLogin: true }).manualLoginProfileDir).toBe(defaultDir);
 
-    expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBe(
-      path.join(os.homedir(), ".oracle", "browser-profile"),
-    );
+    expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBe(defaultDir);
   });
 
   test("forces manual login and clears copied-profile input from every caller", () => {
@@ -120,21 +101,10 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.copyProfileSource).toBeNull();
   });
 
-  test("resolves maxConcurrentTabs from config, env, and default", () => {
+  test("forces a single browser tab regardless of config and environment", () => {
     process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "5";
-    expect(resolveBrowserConfig({ maxConcurrentTabs: 2 }).maxConcurrentTabs).toBe(2);
-    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(5);
-
-    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "0";
+    expect(resolveBrowserConfig({ maxConcurrentTabs: 2 }).maxConcurrentTabs).toBe(1);
     expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
-
-    process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = "not-a-number";
-    expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
-
-    for (const malformed of ["5junk", "2.5", "1e2"]) {
-      process.env.ORACLE_BROWSER_MAX_CONCURRENT_TABS = malformed;
-      expect(resolveBrowserConfig(undefined).maxConcurrentTabs).toBe(1);
-    }
   });
 
   test("uses the longer Deep Research timeout unless explicitly overridden", () => {

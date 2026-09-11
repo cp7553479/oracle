@@ -8,7 +8,6 @@ export interface BridgeClaudeConfigCliOptions {
   printToken?: boolean;
   localBrowser?: boolean;
   oracleHomeDir?: string;
-  browserProfileDir?: string;
 }
 
 export async function runBridgeClaudeConfig(options: BridgeClaudeConfigCliOptions): Promise<void> {
@@ -25,14 +24,6 @@ export async function runBridgeClaudeConfig(options: BridgeClaudeConfigCliOption
       options.oracleHomeDir ??
       process.env.ORACLE_HOME_DIR ??
       path.join(os.homedir(), options.localBrowser ? ".oracle" : ".oracle-local"),
-    browserProfileDir:
-      options.browserProfileDir ??
-      process.env.ORACLE_BROWSER_PROFILE_DIR ??
-      path.join(
-        os.homedir(),
-        options.localBrowser ? ".oracle" : ".oracle-local",
-        "browser-profile",
-      ),
     remoteHost: resolved.host,
     remoteToken: resolved.token,
     includeToken: Boolean(options.printToken),
@@ -50,14 +41,12 @@ export async function runBridgeClaudeConfig(options: BridgeClaudeConfigCliOption
 
 export function formatClaudeMcpConfig({
   oracleHomeDir,
-  browserProfileDir,
   remoteHost,
   remoteToken,
   includeToken,
   localBrowser = false,
 }: {
   oracleHomeDir: string;
-  browserProfileDir: string;
   remoteHost?: string;
   remoteToken?: string;
   includeToken: boolean;
@@ -68,8 +57,6 @@ export function formatClaudeMcpConfig({
   env["ORACLE_ENGINE"] = "browser";
   // biome-ignore lint/complexity/useLiteralKeys: env vars are uppercase and include underscores.
   env["ORACLE_HOME_DIR"] = oracleHomeDir;
-  // biome-ignore lint/complexity/useLiteralKeys: env vars are uppercase and include underscores.
-  env["ORACLE_BROWSER_PROFILE_DIR"] = browserProfileDir;
 
   if (remoteHost && !localBrowser) {
     // biome-ignore lint/complexity/useLiteralKeys: env vars are uppercase and include underscores.

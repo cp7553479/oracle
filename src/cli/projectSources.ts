@@ -5,6 +5,7 @@ import type { BrowserSessionConfig } from "../sessionStore.js";
 import type { BrowserAttachment } from "../browser/types.js";
 import type { BrowserFlagOptions } from "./browserConfig.js";
 import { buildBrowserConfig } from "./browserConfig.js";
+import { defaultManualLoginProfileDir } from "../browser/config.js";
 import { readFiles } from "../oracle/files.js";
 import { loadUserConfig } from "../config.js";
 import { resolveConfiguredMaxFileSizeBytes } from "./fileSize.js";
@@ -98,16 +99,8 @@ export async function buildProjectSourcesBrowserConfig({
       chatgptUrl: projectUrl,
     }),
   );
-  const envProfileDir = process.env.ORACLE_BROWSER_PROFILE_DIR?.trim();
-  const manualLogin =
-    flagConfig.manualLogin ?? configuredBrowser.manualLogin ?? (envProfileDir ? true : undefined);
-  const manualLoginProfileDir =
-    manualLogin === true
-      ? (flagConfig.manualLoginProfileDir ??
-        configuredBrowser.manualLoginProfileDir ??
-        envProfileDir ??
-        null)
-      : null;
+  const manualLogin = true;
+  const manualLoginProfileDir = defaultManualLoginProfileDir();
   const manualLoginCookieSync =
     flagConfig.manualLoginCookieSync ?? configuredBrowser.manualLoginCookieSync;
   const cookieSync =
