@@ -80,6 +80,7 @@ import {
   isTraceValueFlag,
 } from "../src/cli/perfTrace.js";
 import { resolveBrowserFollowupReference } from "../src/cli/followup.js";
+import { stripDisabledBrowserProfileArgs } from "../src/cli/browserProfilePolicy.js";
 
 interface CliOptions extends OptionValues {
   prompt?: string;
@@ -221,7 +222,8 @@ const LEGACY_FLAG_ALIASES = new Map<string, string>([
   ["--[no-]notify-sound", "--notify-sound"],
   ["--[no-]background", "--background"],
 ]);
-const legacyNormalizedArgv = process.argv.map((arg, index) => {
+const profilePolicyArgv = stripDisabledBrowserProfileArgs(process.argv);
+const legacyNormalizedArgv = profilePolicyArgv.map((arg, index) => {
   if (index < 2) return arg;
   return LEGACY_FLAG_ALIASES.get(arg) ?? arg;
 });
@@ -634,12 +636,6 @@ program
   )
   .addOption(
     new Option(
-      "--browser-attach-running",
-      "Attach to a running local browser session instead of launching Chrome (defaults to 127.0.0.1:9222; combine with --remote-chrome to hint a different host:port).",
-    ),
-  )
-  .addOption(
-    new Option(
       "--chatgpt-url <url>",
       `Override the ChatGPT web URL (e.g., workspace/folder like https://chatgpt.com/g/.../project; default ${CHATGPT_URL}).`,
     ),
@@ -724,12 +720,6 @@ program
   )
   .addOption(
     new Option(
-      "--browser-cookie-wait <ms|s|m>",
-      "Wait before retrying cookie sync when Chrome cookies are empty or locked.",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
       "--browser-port <port>",
       "Use a fixed Chrome DevTools port (helpful on WSL firewalls).",
     ).argParser(parseIntOption),
@@ -739,31 +729,6 @@ program
       .argParser(parseIntOption)
       .hideHelp(),
   )
-  .addOption(
-    new Option(
-      "--browser-cookie-names <names>",
-      "Comma-separated cookie allowlist for sync.",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--browser-inline-cookies <jsonOrBase64>",
-      "Inline cookies payload (JSON array or base64-encoded JSON).",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--browser-inline-cookies-file <path>",
-      "Load inline cookies from file (JSON or base64 JSON).",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
-      "--browser-cookie-sync",
-      "Copy cookies from live Chrome (opt-in; token rotation may invalidate that session).",
-    ),
-  )
-  .addOption(new Option("--browser-no-cookie-sync", "Skip copying cookies from Chrome.").hideHelp())
   .addOption(
     new Option(
       "--browser-manual-login",
@@ -818,27 +783,11 @@ program
   )
   .addOption(
     new Option(
-      "--browser-allow-cookie-errors",
-      "Continue even if Chrome cookies cannot be copied.",
-    ).hideHelp(),
-  )
-  .addOption(
-    new Option(
       "--browser-attachments <mode>",
       "How to deliver --file inputs in browser mode: auto (default) pastes text inline up to ~60k chars then uploads; never requires inline-compatible text files; always uploads.",
     )
       .choices(["auto", "never", "always"])
       .default("auto"),
-  )
-  .addOption(
-    new Option(
-      "--remote-chrome <host:port>",
-      "Connect to remote Chrome DevTools Protocol, or when combined with --browser-attach-running use this host:port as the local attach hint.",
-    ),
-  )
-  .option(
-    "--browser-tab <ref>",
-    "Reuse an existing ChatGPT tab by ref (current, target id, full URL, or title substring) instead of opening a new tab.",
   )
   .addOption(
     new Option(
@@ -955,16 +904,6 @@ program
     "--max-queued-runs <count>",
     "Waiting requests in opt-in queue mode (default 8; 0 disables waiting).",
   )
-  .option(
-    "--manual-login",
-    "Use a dedicated Chrome profile for manual login (recommended when cookie sync is unavailable).",
-    false,
-  )
-  .option(
-    "--browser-cookie-sync",
-    "Copy cookies from this host's live Chrome profile instead of using the dedicated profile.",
-    false,
-  )
   .action(async (commandOptions) => {
     const { serveRemote } = await import("../src/remote/server.js");
     const { buildServeBrowserConfig } = await import("../src/cli/serveBrowserConfig.js");
@@ -982,8 +921,8 @@ program
         commandOptions.maxQueuedRuns === undefined
           ? undefined
           : Number(commandOptions.maxQueuedRuns),
-      manualLoginDefault: commandOptions.manualLogin,
-      cookieSyncDefault: commandOptions.browserCookieSync,
+      manualLoginDefault: true,
+      cookieSyncDefault: false,
     });
   });
 
@@ -1007,18 +946,9 @@ function addProjectSourcesCommonOptions(command: Command): Command {
     .option("--browser-profile-lock-timeout <duration>", "Timeout waiting for profile launch lock.")
     .option("--browser-reuse-wait <duration>", "Wait for an existing shared Chrome to appear.")
     .option("--browser-max-concurrent-tabs <n>", "Concurrent tabs allowed for the shared profile.")
-    .option("--browser-cookie-wait <duration>", "Wait before retrying cookie sync.")
     .option("--browser-chrome-path <path>", "Chrome/Chromium executable path.")
-    .option("--browser-inline-cookies <json>", "Inline ChatGPT cookies JSON.")
-    .option("--browser-inline-cookies-file <path>", "File containing ChatGPT cookies JSON.")
-    .option(
-      "--browser-cookie-sync",
-      "Copy cookies from live Chrome (opt-in; token rotation may invalidate that session).",
-    )
-    .option("--browser-no-cookie-sync", "Skip copying cookies from Chrome.")
     .option("--browser-keep-browser", "Keep Chrome running after completion.", false)
     .option("--browser-hide-window", "Hide Chrome window after launch on macOS.", false)
-    .option("--browser-allow-cookie-errors", "Continue when cookie sync fails.", false)
     .option(
       "--max-file-size-bytes <bytes>",
       "Reject uploads larger than this many bytes.",
@@ -1220,10 +1150,6 @@ program
   .option(
     "--write-output <path>",
     "Write harvested browser output to this file (requires --harvest or --live).",
-  )
-  .option(
-    "--browser-tab <ref>",
-    "Override the browser tab ref used for harvesting/live tail (current, target id, URL, or title substring).",
   )
   .option(
     "--no-recover",
@@ -2873,10 +2799,6 @@ function printDebugHelp(cliName: string): void {
   printDebugOptionGroup([
     ["--chatgpt-url <url>", "Override the ChatGPT web URL (workspace/folder targets)."],
     ["--browser-chrome-path <path>", "Point to a custom Chrome/Chromium binary."],
-    [
-      "--browser-attach-running",
-      "Attach to your current Chrome session through its local remote debugging toggle.",
-    ],
     ["--browser-url <url>", "Alias for --chatgpt-url."],
     ["--browser-timeout <ms|s|m>", "Cap total wait time for the assistant response."],
     ["--browser-input-timeout <ms|s|m>", "Cap how long we wait for the composer textarea."],
@@ -2903,17 +2825,8 @@ function printDebugHelp(cliName: string): void {
     ],
     ["--browser-auto-reattach-timeout <ms|s|m|h>", "Time budget for each auto-reattach attempt."],
     [
-      "--browser-cookie-wait <ms|s|m>",
-      "Wait before retrying cookie sync when Chrome cookies are empty or locked.",
-    ],
-    [
-      "--browser-cookie-sync",
-      "Copy cookies from live Chrome (opt-in; token rotation may invalidate that session).",
-    ],
-    ["--browser-no-cookie-sync", "Skip copying cookies from your main profile."],
-    [
       "--browser-manual-login",
-      "Skip cookie copy; reuse a persistent automation profile and log in manually.",
+      "Reuse the required persistent automation profile and log in manually.",
     ],
     ["--browser-headless", "Launch Chrome in headless mode."],
     ["--browser-hide-window", "Hide the Chrome window (macOS headful only)."],

@@ -29,7 +29,7 @@ export async function assertManualLoginProfileReadyForRun({
     "ChatGPT browser manual-login profile is not initialized. " +
       `Browser mode is using Oracle's private Chrome profile at ${userDataDir}, separate from your normal Chrome profile. ` +
       `Run first-time setup, sign in there, then retry: ${setupCommand}. ` +
-      "If you want to reuse an already signed-in Chrome instead, use --browser-attach-running.",
+      "Sign in through that Oracle-owned browser profile.",
     {
       stage: "browser-login-setup",
       details: {
@@ -53,11 +53,8 @@ export async function isManualLoginProfileInitialized(profileDir: string): Promi
 }
 
 export function formatManualLoginSetupCommand(profileDir: string): string {
-  return [
-    "oracle --engine browser --browser-manual-login --browser-keep-browser",
-    `--browser-manual-login-profile-dir ${JSON.stringify(profileDir)}`,
-    '-p "HI"',
-  ].join(" ");
+  void profileDir;
+  return 'oracle --manual-login --engine browser --browser-keep-browser -p "HI"';
 }
 
 export function defaultManualLoginProfileDir() {

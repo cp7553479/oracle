@@ -129,17 +129,11 @@ export async function createRemoteServer(
   deps: RemoteServerDeps = {},
 ): Promise<RemoteServerInstance> {
   const runBrowser = deps.runBrowser ?? runBrowserMode;
-  const attachedBrowser = usesHostBrowserAttachment(options.browserConfig);
-  const manualLoginDefault = !attachedBrowser && options.manualLoginDefault;
-  const hostBrowserConfig: RemoteHostBrowserConfig = options.browserConfig
-    ? {
-        attachRunning: options.browserConfig?.attachRunning,
-        remoteChrome: options.browserConfig?.remoteChrome
-          ? { ...options.browserConfig.remoteChrome }
-          : undefined,
-        approvalWaitMs: options.browserConfig?.approvalWaitMs,
-      }
-    : {};
+  const hostBrowserConfig: RemoteHostBrowserConfig = {
+    attachRunning: false,
+    remoteChrome: null,
+    approvalWaitMs: options.browserConfig?.approvalWaitMs,
+  };
   const server = http.createServer();
   const logger = options.logger ?? console.log;
   const authToken = options.token ?? randomBytes(16).toString("hex");
@@ -428,14 +422,11 @@ export async function createRemoteServer(
       // `browserTabRef`/`attachRunning` select a tab that may belong to somebody
       // else's run. With those reachable, a bridge token is not a permission to
       // ask ChatGPT a question — it is a permission to run code here.
-      payload.browserConfig = {
+      payload.browserConfig = resolveBrowserConfig({
         ...pickClientBrowserConfig(payload.browserConfig),
         ...hostBrowserConfig,
-      };
-      // Remote runs rely on the host's authentication policy; never accept cookie payloads from clients.
-      payload.browserConfig.inlineCookies = null;
-      payload.browserConfig.inlineCookiesSource = null;
-      payload.browserConfig.cookieSync = !attachedBrowser && options.cookieSyncDefault === true;
+        keepBrowser: true,
+      });
 
       const clientSession =
         typeof payload.options.sessionId === "string"
@@ -444,18 +435,6 @@ export async function createRemoteServer(
       payload.options.sessionId = `${clientSession || "remote"}-${runId}`;
       if (browserTabCap !== undefined) payload.browserConfig.maxConcurrentTabs = browserTabCap;
       signal?.throwIfAborted();
-
-      // Enforce manual-login profile when cookie sync is unavailable (e.g., Windows/WSL).
-      if (manualLoginDefault) {
-        payload.browserConfig.manualLogin = true;
-        payload.browserConfig.manualLoginProfileDir = defaultManualLoginProfileDir();
-        payload.browserConfig.keepBrowser = true;
-        if (verbose) {
-          logger(
-            `[serve] Enforcing manual-login profile at ${defaultManualLoginProfileDir()} for remote run ${runId}`,
-          );
-        }
-      }
 
       const result = await runBrowser({
         prompt: payload.prompt,
@@ -467,7 +446,7 @@ export async function createRemoteServer(
         // process. This separate service policy closes only a successfully
         // captured tab owned by this run, preventing one renderer leak per
         // request while incomplete/reattachable tabs remain untouched.
-        closeOwnedTabOnComplete: Boolean(manualLoginDefault && !clientRequestedKeepBrowser),
+        closeOwnedTabOnComplete: !clientRequestedKeepBrowser,
         closeOwnedTabOnCancel: !clientRequestedKeepBrowser,
         log: automationLogger,
         heartbeatIntervalMs: payload.options.heartbeatIntervalMs,
@@ -561,13 +540,6 @@ export async function createRemoteServer(
 export async function serveRemote(options: RemoteServerOptions = {}): Promise<void> {
   validateAdmissionOptions(options);
   const manualProfileDir = defaultManualLoginProfileDir();
-  const preferManualLogin =
-    options.manualLoginDefault ||
-    options.cookieSyncDefault !== true ||
-    process.platform === "win32" ||
-    isWsl();
-  let cookies: CookieParam[] | null = null;
-  let opened = false;
 
   if (isWsl() && process.env.ORACLE_ALLOW_WSL_SERVE !== "1") {
     console.log(
@@ -577,82 +549,44 @@ export async function serveRemote(options: RemoteServerOptions = {}): Promise<vo
       "If you want to stay in WSL anyway, set ORACLE_ALLOW_WSL_SERVE=1 and ensure a Linux Chrome is installed, then rerun.",
     );
     console.log(
-      "Alternatively, start Windows Chrome with --remote-debugging-port=9222 and use `--remote-chrome <windows-ip>:9222`.",
+      "Run the Oracle browser host on a supported desktop where the fixed manual-login profile is available.",
     );
     return;
   }
 
-  if (usesHostBrowserAttachment(options.browserConfig)) {
-    console.log("Using the host browser attachment; skipping local Chrome login/bootstrap.");
-    await runRemoteServer(options);
-    return;
-  }
-
-  if (!preferManualLogin) {
-    console.log(
-      "Warning: Chrome cookie copying can invalidate an active ChatGPT session when tokens rotate. Prefer the default dedicated manual-login profile when possible.",
-    );
-    // Warm-up: ensure this host has a ChatGPT login before accepting runs.
-    const result = await loadLocalChatgptCookies(console.log, CHATGPT_URL);
-    cookies = result.cookies;
-    opened = result.opened;
-  }
-
-  if (!cookies || cookies.length === 0) {
-    console.log("No ChatGPT cookies detected on this host.");
-    if (preferManualLogin) {
-      await mkdir(manualProfileDir, { recursive: true });
-      console.log(
-        `Cookie extraction is unavailable on this platform. Using manual-login Chrome profile at ${manualProfileDir}. Remote runs will reuse this profile; sign in once when the browser opens.`,
-      );
-      const existingPort = await readDevToolsPort(manualProfileDir);
-      if (existingPort) {
-        const reachable = await verifyDevToolsReachable({ port: existingPort });
-        if (reachable.ok) {
-          console.log(
-            "Detected an existing automation Chrome session; will reuse it for manual login.",
-          );
-        } else {
-          console.log(
-            `Found stale DevToolsActivePort (port ${existingPort}, ${reachable.error}); launching a fresh manual-login Chrome.`,
-          );
-          await cleanupStaleProfileState(manualProfileDir, console.log, {
-            lockRemovalMode: "never",
-          });
-          void launchManualLoginChrome(manualProfileDir, CHATGPT_URL, console.log);
-        }
-      } else {
-        void launchManualLoginChrome(manualProfileDir, CHATGPT_URL, console.log);
-      }
-    } else if (opened) {
-      console.log(
-        "Opened chatgpt.com for login. Sign in, then restart `oracle serve` to continue.",
-      );
-      return;
+  await mkdir(manualProfileDir, { recursive: true });
+  console.log(
+    `Using the fixed manual-login Chrome profile at ${manualProfileDir}. Remote runs reuse this profile and never copy or inject cookies.`,
+  );
+  const existingPort = await readDevToolsPort(manualProfileDir);
+  if (existingPort) {
+    const reachable = await verifyDevToolsReachable({ port: existingPort });
+    if (reachable.ok) {
+      console.log("Detected an existing automation Chrome session; will reuse it.");
     } else {
       console.log(
-        "Please open https://chatgpt.com/ in this host's browser and sign in; then rerun.",
+        `Found stale DevToolsActivePort (port ${existingPort}, ${reachable.error}); launching a fresh manual-login Chrome.`,
       );
-      console.log(
-        "Tip: install xdg-utils (xdg-open) to enable automatic browser opening on Linux/WSL.",
-      );
-      return;
+      await cleanupStaleProfileState(manualProfileDir, console.log, {
+        lockRemovalMode: "never",
+      });
+      void launchManualLoginChrome(manualProfileDir, CHATGPT_URL, console.log);
     }
   } else {
-    console.log(
-      `Detected ${cookies.length} ChatGPT cookies on this host; runs will reuse this session.`,
-    );
+    void launchManualLoginChrome(manualProfileDir, CHATGPT_URL, console.log);
   }
 
   await runRemoteServer({
     ...options,
-    manualLoginDefault: preferManualLogin,
+    browserConfig: {
+      attachRunning: false,
+      remoteChrome: null,
+      approvalWaitMs: options.browserConfig?.approvalWaitMs,
+    },
+    manualLoginDefault: true,
     manualLoginProfileDir: manualProfileDir,
+    cookieSyncDefault: false,
   });
-}
-
-function usesHostBrowserAttachment(config?: RemoteHostBrowserConfig): boolean {
-  return config?.attachRunning === true || Boolean(config?.remoteChrome);
 }
 
 async function runRemoteServer(options: RemoteServerOptions): Promise<void> {

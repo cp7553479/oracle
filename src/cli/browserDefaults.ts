@@ -58,21 +58,8 @@ export function applyBrowserDefaultsFromConfig(
     const source = getSource(key);
     return source === undefined || source === "default";
   };
-  const attachRunningRequested =
-    options.browserAttachRunning === true ||
-    (isUnset("browserAttachRunning") && browser.attachRunning === true);
   const currentModelRequestedByCli =
     options.browserModelStrategy === "current" && getSource("browserModelStrategy") === "cli";
-
-  if (
-    !options.copyProfile &&
-    isUnset("remoteChrome") &&
-    options.remoteChrome === undefined &&
-    browser.remoteChrome
-  ) {
-    const { host, port } = browser.remoteChrome;
-    options.remoteChrome = `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
-  }
 
   const configuredChatgptUrl = browser.chatgptUrl ?? browser.url;
   const cliChatgptSet = options.chatgptUrl !== undefined || options.browserUrl !== undefined;
@@ -80,25 +67,8 @@ export function applyBrowserDefaultsFromConfig(
     options.chatgptUrl = normalizeChatgptUrl(configuredChatgptUrl ?? "", CHATGPT_URL);
   }
 
-  if (
-    !attachRunningRequested &&
-    isUnset("browserChromeProfile") &&
-    browser.chromeProfile !== undefined
-  ) {
-    options.browserChromeProfile = browser.chromeProfile ?? undefined;
-  }
   if (isUnset("browserChromePath") && browser.chromePath !== undefined) {
     options.browserChromePath = browser.chromePath ?? undefined;
-  }
-  if (
-    !attachRunningRequested &&
-    isUnset("browserCookiePath") &&
-    browser.chromeCookiePath !== undefined
-  ) {
-    options.browserCookiePath = browser.chromeCookiePath ?? undefined;
-  }
-  if (isUnset("browserAttachRunning") && browser.attachRunning !== undefined) {
-    options.browserAttachRunning = browser.attachRunning;
   }
   if (isUnset("browserUrl") && options.browserUrl === undefined && browser.url !== undefined) {
     options.browserUrl = browser.url;
@@ -106,7 +76,7 @@ export function applyBrowserDefaultsFromConfig(
   if (isUnset("browserTimeout") && typeof browser.timeoutMs === "number") {
     options.browserTimeout = String(browser.timeoutMs);
   }
-  if (!attachRunningRequested && isUnset("browserPort") && typeof browser.debugPort === "number") {
+  if (isUnset("browserPort") && typeof browser.debugPort === "number") {
     options.browserPort = browser.debugPort;
   }
   if (isUnset("browserInputTimeout") && typeof browser.inputTimeoutMs === "number") {
@@ -148,20 +118,13 @@ export function applyBrowserDefaultsFromConfig(
   if (isUnset("browserCookieWait") && typeof browser.cookieSyncWaitMs === "number") {
     options.browserCookieWait = String(browser.cookieSyncWaitMs);
   }
-  if (!attachRunningRequested && isUnset("browserCookieSync") && browser.cookieSync !== undefined) {
-    options.browserCookieSync = browser.cookieSync;
-  }
-  if (!attachRunningRequested && isUnset("browserHeadless") && browser.headless !== undefined) {
+  if (isUnset("browserHeadless") && browser.headless !== undefined) {
     options.browserHeadless = browser.headless;
   }
-  if (!attachRunningRequested && isUnset("browserHideWindow") && browser.hideWindow !== undefined) {
+  if (isUnset("browserHideWindow") && browser.hideWindow !== undefined) {
     options.browserHideWindow = browser.hideWindow;
   }
-  if (
-    !attachRunningRequested &&
-    isUnset("browserKeepBrowser") &&
-    browser.keepBrowser !== undefined
-  ) {
+  if (isUnset("browserKeepBrowser") && browser.keepBrowser !== undefined) {
     options.browserKeepBrowser = browser.keepBrowser;
   }
   if (isUnset("browserModelStrategy") && browser.modelStrategy !== undefined) {
@@ -179,19 +142,5 @@ export function applyBrowserDefaultsFromConfig(
   }
   if (isUnset("browserArchive") && browser.archiveConversations !== undefined) {
     options.browserArchive = browser.archiveConversations;
-  }
-  if (
-    !attachRunningRequested &&
-    isUnset("browserManualLogin") &&
-    browser.manualLogin !== undefined
-  ) {
-    options.browserManualLogin = browser.manualLogin;
-  }
-  if (
-    !attachRunningRequested &&
-    isUnset("browserManualLoginCookieSync") &&
-    browser.manualLoginCookieSync !== undefined
-  ) {
-    options.browserManualLoginCookieSync = browser.manualLoginCookieSync;
   }
 }

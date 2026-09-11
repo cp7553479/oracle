@@ -208,32 +208,6 @@ export async function buildBrowserConfig(
       modelStrategy,
     });
   assertBrowserModelAvailable(options.model, modelStrategy);
-  const cookieNames = parseCookieNames(
-    options.browserCookieNames ?? process.env.ORACLE_BROWSER_COOKIE_NAMES,
-  );
-  let inline = await resolveInlineCookies({
-    inlineArg: options.browserInlineCookies,
-    inlineFileArg: options.browserInlineCookiesFile,
-    envPayload: process.env.ORACLE_BROWSER_COOKIES_JSON,
-    envFile: process.env.ORACLE_BROWSER_COOKIES_FILE,
-    cwd: process.cwd(),
-  });
-  const chromeCookieSyncRequested =
-    options.browserNoCookieSync !== true &&
-    (options.browserCookieSync === true || options.browserManualLoginCookieSync === true);
-  if (inline?.source?.startsWith("home:") && chromeCookieSyncRequested) {
-    inline = undefined;
-  }
-
-  let remoteChrome: { host: string; port: number } | undefined;
-  if (options.remoteChrome) {
-    remoteChrome = parseRemoteChromeTarget(options.remoteChrome);
-  }
-  const attachRunning = options.browserAttachRunning === true;
-  validateAttachRunningOptions(options, {
-    attachRunning,
-    hasInlineCookies: Boolean(inline?.cookies),
-  });
   const rawUrl = options.chatgptUrl ?? options.browserUrl;
   const url = rawUrl ? normalizeChatgptUrl(rawUrl, CHATGPT_URL) : undefined;
 
@@ -244,10 +218,10 @@ export async function buildBrowserConfig(
       : mapModelToBrowserLabel(options.model);
 
   return {
-    chromeProfile: options.browserChromeProfile ?? DEFAULT_CHROME_PROFILE,
+    chromeProfile: null,
     chromePath: options.browserChromePath ?? null,
-    chromeCookiePath: options.browserCookiePath ?? null,
-    attachRunning,
+    chromeCookiePath: null,
+    attachRunning: false,
     url,
     debugPort: selectBrowserPort(options),
     timeoutMs: options.browserTimeout
@@ -306,24 +280,16 @@ export async function buildBrowserConfig(
           DEFAULT_BROWSER_AUTO_REATTACH_TIMEOUT_MS,
         )
       : undefined,
-    cookieSyncWaitMs: options.browserCookieWait
-      ? parseBrowserDuration(options.browserCookieWait, "--browser-cookie-wait", 0)
-      : undefined,
-    cookieSync: inline?.cookies?.length
-      ? true
-      : options.browserNoCookieSync
-        ? false
-        : options.browserCookieSync === true || options.browserManualLoginCookieSync === true
-          ? true
-          : undefined,
-    cookieNames,
-    inlineCookies: inline?.cookies,
-    inlineCookiesSource: inline?.source ?? null,
+    cookieSyncWaitMs: 0,
+    cookieSync: false,
+    cookieNames: undefined,
+    inlineCookies: null,
+    inlineCookiesSource: null,
     headless: options.browserHeadless === true ? true : undefined,
     keepBrowser: options.browserKeepBrowser ? true : undefined,
     manualLogin: true,
     manualLoginProfileDir: undefined,
-    manualLoginCookieSync: inline?.cookies?.length ? true : options.browserManualLoginCookieSync,
+    manualLoginCookieSync: false,
     copyProfileSource: undefined,
     hideWindow: options.browserHideWindow ? true : undefined,
     desiredModel,
@@ -331,8 +297,8 @@ export async function buildBrowserConfig(
     debug: options.verbose ? true : undefined,
     // Allow cookie failures by default so runs can continue without Chrome/Keychain secrets.
     allowCookieErrors: options.browserAllowCookieErrors ?? true,
-    remoteChrome,
-    browserTabRef: options.browserTab ?? undefined,
+    remoteChrome: null,
+    browserTabRef: null,
     thinkingTime,
     researchMode:
       options.browserResearch === "deep" || options.browserResearch === "search"

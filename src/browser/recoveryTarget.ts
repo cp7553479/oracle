@@ -2,7 +2,7 @@ import type { BrowserRecoveryTarget, SessionMetadata } from "../sessionStore.js"
 import { randomUUID } from "node:crypto";
 import { sessionStore } from "../sessionStore.js";
 import { connectToRemoteChromeTarget } from "./chromeLifecycle.js";
-import { resolveBrowserApprovalWait } from "./config.js";
+import { defaultManualLoginProfileDir, resolveBrowserApprovalWait } from "./config.js";
 import { extractConversationIdFromUrl } from "./reattachHelpers.js";
 import { STOP_BUTTON_SELECTORS } from "./constants.js";
 import type { BrowserLogger } from "./types.js";
@@ -54,18 +54,7 @@ async function targetHasActiveController(
     )
       return true;
   }
-  const runtime = metadata.browser?.runtime;
-  const profileDirs = new Set(
-    [
-      runtime?.userDataDir,
-      runtime?.chromeProfileRoot,
-      metadata.browser?.config?.manualLoginProfileDir,
-    ].filter((dir): dir is string => Boolean(dir)),
-  );
-  for (const dir of profileDirs) {
-    if (await hasActiveBrowserTargetLease(dir, capture)) return true;
-  }
-  return false;
+  return hasActiveBrowserTargetLease(defaultManualLoginProfileDir(), capture);
 }
 
 export function matchesOwnedRecoveryTarget(

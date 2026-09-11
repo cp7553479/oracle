@@ -462,8 +462,8 @@ export async function ensureLoggedIn(
   const cookieHint = options.remoteSession
     ? "The remote Chrome session is not signed into ChatGPT. Sign in there, then rerun."
     : (options.appliedCookies ?? 0) === 0
-      ? "No ChatGPT cookies were applied; sign in to chatgpt.com in Chrome or pass inline cookies (--browser-inline-cookies[(-file)] / ORACLE_BROWSER_COOKIES_JSON)."
-      : "ChatGPT login appears missing; open chatgpt.com in Chrome to refresh the session or provide inline cookies (--browser-inline-cookies[(-file)] / ORACLE_BROWSER_COOKIES_JSON).";
+      ? "No ChatGPT session was found; sign in to chatgpt.com in Oracle's manual-login browser."
+      : "ChatGPT login appears missing; sign in again in Oracle's manual-login browser.";
 
   const accountHint = welcomeBack.hint ? ` ${welcomeBack.hint}` : "";
   throw new Error(`ChatGPT session not detected.${domLabel}${accountHint} ${cookieHint}`);

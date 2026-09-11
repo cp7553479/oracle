@@ -27,7 +27,7 @@ export async function readSessionLogTail(
 import { performSessionRun } from "../../cli/sessionRunner.js";
 import { runDryRunSummary } from "../../cli/dryRun.js";
 import { CHATGPT_URL } from "../../browser/constants.js";
-import { defaultManualLoginProfileDir } from "../../browser/config.js";
+import { defaultManualLoginProfileDir, resolveBrowserConfig } from "../../browser/config.js";
 import { CONSULT_PRESETS, browserThinkingTimeRawSchema, consultInputSchema } from "../types.js";
 import { applyConsultPreset } from "../consultPresets.js";
 import { loadUserConfig, type UserConfig } from "../../config.js";
@@ -361,18 +361,27 @@ export function buildConsultBrowserConfig({
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
   const modelStrategy = browserModelStrategy ?? configuredBrowser.modelStrategy;
 
-  return {
+  return resolveBrowserConfig({
     ...configuredBrowser,
     url: configuredUrl,
     chatgptUrl: configuredUrl,
-    cookieSync: manualLogin
-      ? configuredBrowser.manualLoginCookieSync === true
-      : configuredBrowser.cookieSync === true,
+    cookieSync: false,
     headless: configuredBrowser.headless ?? false,
     hideWindow: configuredBrowser.hideWindow ?? false,
     keepBrowser: browserKeepBrowser ?? configuredBrowser.keepBrowser ?? false,
     manualLogin,
     manualLoginProfileDir: defaultManualLoginProfileDir(),
+    manualLoginCookieSync: false,
+    inlineCookies: null,
+    inlineCookiesSource: null,
+    chromeProfile: null,
+    chromeCookiePath: null,
+    copyProfileSource: null,
+    attachRunning: false,
+    browserTabRef: null,
+    remoteChrome: null,
+    remoteChromeBrowserWSEndpoint: null,
+    remoteChromeProfileRoot: null,
     thinkingTime:
       browserThinkingTime ??
       configuredThinkingTime ??
@@ -385,7 +394,7 @@ export function buildConsultBrowserConfig({
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
     desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
-  };
+  });
 }
 
 export function buildConsultDryRunResolved({
@@ -414,7 +423,7 @@ export function buildConsultDryRunResolved({
         `Manual-login browser mode uses Oracle's private Chrome profile at ${profile}, separate from your normal Chrome profile.`,
       );
       guidance.push(
-        `First-time setup: run oracle --engine browser --browser-manual-login --browser-keep-browser --browser-manual-login-profile-dir ${JSON.stringify(profile)} -p "HI", sign into ChatGPT in that window, then retry the consult.`,
+        'First-time setup: run oracle --manual-login --engine browser --browser-keep-browser -p "HI", sign into ChatGPT in that window, then retry the consult.',
       );
       guidance.push(
         "If this profile is not signed in, non-setup MCP/browser runs fail fast instead of waiting for the full browser timeout.",

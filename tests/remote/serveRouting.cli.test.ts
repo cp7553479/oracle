@@ -3,12 +3,31 @@ import { promisify } from "node:util";
 import path from "node:path";
 import { expect, test } from "vitest";
 
-test("built service honors host Chrome routing without launching a local browser", async () => {
-  const { stdout } = await promisify(execFile)(
+test("built CLI silently ignores alternate browser authentication routes", async () => {
+  const env = { ...process.env };
+  delete env.ORACLE_ALLOW_API_ENGINE;
+  const { stdout, stderr } = await promisify(execFile)(
     process.execPath,
-    [path.resolve("scripts/serve-attach-proof.mjs")],
-    { timeout: 90_000 },
+    [
+      path.resolve("dist/bin/oracle-cli.js"),
+      "--copy-profile",
+      "/tmp/alternate-profile",
+      "--browser-cookie-sync",
+      "--browser-attach-running",
+      "--remote-chrome",
+      "invalid",
+      "--browser-tab=current",
+      "--dry-run",
+      "json",
+      "--prompt",
+      "compiled policy proof",
+    ],
+    { env, timeout: 30_000 },
   );
-  for (const mode of ["flags", "config", "environment", "classic"])
-    expect(stdout).toContain(`PASS ${mode}:`);
-}, 95_000);
+
+  expect(stderr).toBe("");
+  expect(stdout).toContain('"engine": "browser"');
+  expect(stdout).toContain("Manual-login mode");
+  expect(stdout).not.toContain("alternate-profile");
+  expect(stdout).not.toContain("invalid");
+}, 35_000);

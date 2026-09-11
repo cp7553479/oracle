@@ -5,7 +5,7 @@ import type { BrowserSessionConfig } from "../sessionStore.js";
 import type { BrowserAttachment } from "../browser/types.js";
 import type { BrowserFlagOptions } from "./browserConfig.js";
 import { buildBrowserConfig } from "./browserConfig.js";
-import { defaultManualLoginProfileDir } from "../browser/config.js";
+import { resolveBrowserConfig } from "../browser/config.js";
 import { readFiles } from "../oracle/files.js";
 import { loadUserConfig } from "../config.js";
 import { resolveConfiguredMaxFileSizeBytes } from "./fileSize.js";
@@ -99,30 +99,16 @@ export async function buildProjectSourcesBrowserConfig({
       chatgptUrl: projectUrl,
     }),
   );
-  const manualLogin = true;
-  const manualLoginProfileDir = defaultManualLoginProfileDir();
-  const manualLoginCookieSync =
-    flagConfig.manualLoginCookieSync ?? configuredBrowser.manualLoginCookieSync;
-  const cookieSync =
-    flagConfig.cookieSync === false
-      ? false
-      : flagConfig.cookieSync === true
-        ? true
-        : manualLogin
-          ? manualLoginCookieSync === true
-          : configuredBrowser.cookieSync === true;
   return {
-    ...configuredBrowser,
-    ...flagConfig,
-    url: projectUrl,
-    chatgptUrl: projectUrl,
-    cookieSync,
-    manualLogin,
-    manualLoginProfileDir,
-    manualLoginCookieSync,
+    ...resolveBrowserConfig({
+      ...configuredBrowser,
+      ...flagConfig,
+      url: projectUrl,
+      chatgptUrl: projectUrl,
+      modelStrategy: "ignore",
+      researchMode: "off",
+    }),
     desiredModel: null,
-    modelStrategy: "ignore",
-    researchMode: "off",
   };
 }
 

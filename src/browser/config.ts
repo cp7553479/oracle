@@ -122,11 +122,11 @@ export function resolveBrowserConfig(
       config?.autoReattachIntervalMs ?? DEFAULT_BROWSER_CONFIG.autoReattachIntervalMs,
     autoReattachTimeoutMs:
       config?.autoReattachTimeoutMs ?? DEFAULT_BROWSER_CONFIG.autoReattachTimeoutMs,
-    cookieSync: config?.cookieSync ?? DEFAULT_BROWSER_CONFIG.cookieSync,
-    cookieNames: config?.cookieNames ?? DEFAULT_BROWSER_CONFIG.cookieNames,
-    cookieSyncWaitMs: config?.cookieSyncWaitMs ?? DEFAULT_BROWSER_CONFIG.cookieSyncWaitMs,
-    inlineCookies: config?.inlineCookies ?? DEFAULT_BROWSER_CONFIG.inlineCookies,
-    inlineCookiesSource: config?.inlineCookiesSource ?? DEFAULT_BROWSER_CONFIG.inlineCookiesSource,
+    cookieSync: false,
+    cookieNames: DEFAULT_BROWSER_CONFIG.cookieNames,
+    cookieSyncWaitMs: 0,
+    inlineCookies: null,
+    inlineCookiesSource: null,
     headless: config?.headless ?? DEFAULT_BROWSER_CONFIG.headless,
     keepBrowser: config?.keepBrowser ?? DEFAULT_BROWSER_CONFIG.keepBrowser,
     hideWindow: config?.hideWindow ?? DEFAULT_BROWSER_CONFIG.hideWindow,
@@ -135,13 +135,13 @@ export function resolveBrowserConfig(
     chromeProfile: DEFAULT_BROWSER_CONFIG.chromeProfile,
     chromePath: config?.chromePath ?? DEFAULT_BROWSER_CONFIG.chromePath,
     chromeCookiePath: DEFAULT_BROWSER_CONFIG.chromeCookiePath,
-    attachRunning: config?.attachRunning ?? DEFAULT_BROWSER_CONFIG.attachRunning,
-    browserTabRef: config?.browserTabRef ?? DEFAULT_BROWSER_CONFIG.browserTabRef,
+    attachRunning: false,
+    browserTabRef: null,
     debug: config?.debug ?? DEFAULT_BROWSER_CONFIG.debug,
     allowCookieErrors:
       config?.allowCookieErrors ?? envAllowCookieErrors ?? DEFAULT_BROWSER_CONFIG.allowCookieErrors,
-    remoteChromeBrowserWSEndpoint:
-      config?.remoteChromeBrowserWSEndpoint ?? DEFAULT_BROWSER_CONFIG.remoteChromeBrowserWSEndpoint,
+    remoteChrome: null,
+    remoteChromeBrowserWSEndpoint: null,
     remoteChromeProfileRoot: DEFAULT_BROWSER_CONFIG.remoteChromeProfileRoot,
     thinkingTime: config?.thinkingTime,
     researchMode,
@@ -150,8 +150,7 @@ export function resolveBrowserConfig(
       config?.resumeConversationUrl ?? DEFAULT_BROWSER_CONFIG.resumeConversationUrl,
     manualLogin,
     manualLoginProfileDir: manualLogin ? resolvedProfileDir : null,
-    manualLoginCookieSync:
-      config?.manualLoginCookieSync ?? DEFAULT_BROWSER_CONFIG.manualLoginCookieSync,
+    manualLoginCookieSync: false,
     copyProfileSource: null,
   };
 }
