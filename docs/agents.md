@@ -49,7 +49,9 @@ Then reference `oracle` in `CLAUDE.md`. Claude Code will load `SKILL.md` wheneve
 
 ### As a slash command
 
-Many users alias Oracle behind a custom `/consult` slash command that wraps `npx -y @steipete/oracle --engine browser …`. Pair with `--browser-tab current` to keep all consults in one ChatGPT conversation.
+Alias Oracle behind a custom `/consult` command only through the globally linked local executable,
+using the required `oracle --manual-login --engine browser …` prefix. Browser tasks share the fixed
+persistent profile and queue one at a time.
 
 ## Codex
 
@@ -99,13 +101,16 @@ Completed runs persist answers, usage, cost, session ids, model choices, and lin
 
 ## Multi-agent shared profile (browser mode)
 
-When multiple agents share one signed-in Chrome profile (the manual-login workflow), Oracle coordinates browser tab slots so parallel runs queue instead of crashing. Tune with:
+When multiple agents share the signed-in fixed profile, Oracle queues browser tasks instead of
+running them concurrently. The compatibility concurrency flag cannot raise this limit. Timing knobs
+still available for launch recovery include:
 
-- `--browser-max-concurrent-tabs` — default 3 simultaneous tabs.
+- `--browser-max-concurrent-tabs` — accepted for compatibility; effective value is always 1.
 - `--browser-profile-lock-timeout` — wait for the profile lock before sending.
 - `--browser-reuse-wait` — wait for a shared Chrome profile before launching.
 
-For the most reliable shared setup: run one signed-in Chrome with remote debugging, point all callers at it via `--remote-chrome <host:port>`. See [Browser Mode](browser-mode.md).
+All callers use `~/.oracle/browser-profile`; profile, cookie, existing-tab, attach-running, and
+remote-Chrome overrides are silently ignored. See [Browser Mode](browser-mode.md).
 
 ## Cost / safety hygiene
 

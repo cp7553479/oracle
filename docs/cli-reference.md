@@ -84,14 +84,10 @@ See [OpenAI / Azure / OpenRouter](openai-endpoints.md) and [OpenRouter](openrout
 | `--chatgpt-url <url>`                                                          | Target a ChatGPT workspace / project folder.                                                                                 |
 | `--browser-model-strategy <select\|current\|ignore>`                           | Control ChatGPT model picker.                                                                                                |
 | `--browser-manual-login`                                                       | Use persistent profile + manual login (no Keychain).                                                                         |
-| `--browser-cookie-sync`                                                        | Explicitly copy cookies from live Chrome; prefer manual login because token rotation can invalidate the live session.        |
-| `--browser-attach-running`                                                     | Attach to your already-running Chrome via DevTools.                                                                          |
-| `--browser-tab <ref>`                                                          | Reuse an existing tab (`current`, id, URL, title substring).                                                                 |
 | `--browser-thinking-time <light\|standard\|extended\|extra-high\|pro\|heavy>`  | Effort intensity; `pro` selects the Pro tier and fails closed if unconfirmed, other unmatched tiers keep the current effort. |
 | `--browser-research <mode>`                                                    | Select `off`, `search` (Web Search), or `deep` (Deep Research); default off.                                                 |
 | `--browser-follow-up <prompt>`                                                 | Multi-turn in the same ChatGPT conversation.                                                                                 |
 | `--browser-port <port>`                                                        | Pin Chrome DevTools port.                                                                                                    |
-| `--browser-inline-cookies[(-file)] <…>`                                        | Supply cookies inline (no Keychain / Chrome).                                                                                |
 | `--browser-timeout`, `--browser-input-timeout`, `--browser-attachment-timeout` | Overall / input / attachment readiness timeouts (h/m/s/ms).                                                                  |
 | `--browser-recheck-delay`, `--browser-recheck-timeout`                         | Delayed retry after a timeout.                                                                                               |
 | `--browser-auto-reattach-delay/-interval/-timeout`                             | Poll the existing tab when ChatGPT redirects mid-load.                                                                       |
@@ -102,8 +98,10 @@ See [OpenAI / Azure / OpenRouter](openai-endpoints.md) and [OpenRouter](openrout
 | `--browser-headless`, `--browser-hide-window`                                  | Visibility controls.                                                                                                         |
 | `--browser-attachments <auto\|never\|always>`                                  | Attach files inline vs upload.                                                                                               |
 | `--browser-bundle-files`, `--browser-bundle-format <auto\|text\|zip>`          | Multi-file source uploads bundle by default; `auto` keeps flattened text unless ZIP is selected or raw files are present.    |
-| `--browser-chrome-path`, `--browser-cookie-path`                               | Override Chrome / cookie store discovery (Linux / Windows).                                                                  |
+| `--browser-chrome-path`                                                        | Select the Chrome/Chromium executable; the profile remains fixed.                                                            |
 
+This fork silently consumes and ignores legacy profile, cookie, copy-profile, attach-running,
+remote-Chrome, and browser-tab arguments. They are not shown in help and never block a run.
 See [Browser Mode](browser-mode.md) for usage.
 
 ## Remote browser
@@ -112,7 +110,6 @@ See [Browser Mode](browser-mode.md) for usage.
 | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `--remote-host <host:port>`           | Use a remote `oracle serve` host.                                                                 |
 | `--remote-token <secret>`             | Auth for the remote host.                                                                         |
-| `--remote-chrome <host:port>`         | Attach to an existing remote Chrome session.                                                      |
 | `serve --max-concurrent-runs <count>` | Opt into bounded concurrent admission; effective capacity cannot exceed the host browser tab cap. |
 | `serve --max-queued-runs <count>`     | Waiting requests in opt-in mode (default 8; zero disables waiting).                               |
 

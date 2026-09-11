@@ -119,48 +119,64 @@ describe("oracle CLI integration", () => {
     expect(result.stdout).toContain("Manual-login mode");
   });
 
-  test("does not expose or accept the removed --copy-profile flag", async () => {
+  test("does not expose and silently ignores the removed --copy-profile flag", async () => {
     const help = await execCli(["--help"]);
     expect(help.code).toBe(0);
     expect(help.stdout).not.toContain("--copy-profile");
 
-    const rejected = await execCli(["--copy-profile", "/tmp/profile", "-p", "test"]);
-    expect(rejected.code).not.toBe(0);
-    expect(rejected.stderr).toContain("unknown option '--copy-profile'");
+    const env = { ...process.env };
+    delete env.ORACLE_ALLOW_API_ENGINE;
+    const ignored = await execCli(
+      ["--copy-profile", "/tmp/profile", "--dry-run", "json", "-p", "test"],
+      { env },
+    );
+    expect(ignored.code).toBe(0);
+    expect(ignored.stderr).toBe("");
+    expect(ignored.stdout).toContain('"engine": "browser"');
   });
 
   test(
-    "does not expose or accept browser profile selection flags",
+    "does not expose and silently ignores browser profile selection flags",
     async () => {
       const help = await execCli(["--help"]);
       expect(help.code).toBe(0);
       expect(help.stdout).not.toContain("--browser-manual-login-profile-dir");
 
-      for (const flag of [
-        "--browser-manual-login-profile-dir",
-        "--browser-chrome-profile",
-        "--browser-cookie-path",
-      ]) {
-        const rejected = await execCli([flag, "/tmp/profile", "-p", "test"]);
-        expect(rejected.code).not.toBe(0);
-        expect(rejected.stderr).toContain(`unknown option '${flag}`);
-      }
-
-      const subcommandProfileFlags: Array<[string[], string]> = [
-        [["serve", "--manual-login-profile-dir=/tmp/profile"], "--manual-login-profile-dir"],
+      const env = { ...process.env };
+      delete env.ORACLE_ALLOW_API_ENGINE;
+      const ignored = await execCli(
         [
-          ["project-sources", "list", "--browser-manual-login-profile-dir=/tmp/profile"],
           "--browser-manual-login-profile-dir",
+          "/tmp/manual",
+          "--browser-chrome-profile=/tmp/chrome",
+          "--browser-cookie-path",
+          "/tmp/cookies",
+          "--browser-inline-cookies-file=/tmp/missing.json",
+          "--browser-cookie-sync",
+          "--browser-attach-running",
+          "--remote-chrome",
+          "invalid",
+          "--browser-tab=current",
+          "--dry-run",
+          "json",
+          "-p",
+          "test",
         ],
-        [
-          ["bridge", "claude-config", "--browser-profile-dir=/tmp/profile"],
-          "--browser-profile-dir",
-        ],
+        { env },
+      );
+      expect(ignored.code).toBe(0);
+      expect(ignored.stderr).toBe("");
+      expect(ignored.stdout).toContain('"engine": "browser"');
+
+      const subcommandProfileFlags: string[][] = [
+        ["serve", "--manual-login-profile-dir=/tmp/profile", "--help"],
+        ["project-sources", "list", "--browser-manual-login-profile-dir=/tmp/profile", "--help"],
+        ["bridge", "claude-config", "--browser-profile-dir=/tmp/profile", "--help"],
       ];
-      for (const [args, flag] of subcommandProfileFlags) {
-        const rejected = await execCli(args);
-        expect(rejected.code).not.toBe(0);
-        expect(rejected.stderr).toContain(`unknown option '${flag}`);
+      for (const args of subcommandProfileFlags) {
+        const result = await execCli(args);
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe("");
       }
     },
     INTEGRATION_TIMEOUT,

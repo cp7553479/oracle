@@ -21,9 +21,9 @@ JSON5 parsing, so trailing commas and comments are allowed.
   },
 
   browser: {
-    chromeProfile: null, // ignored: profile selection is blocked
+    chromeProfile: null, // ignored silently: always the fixed Oracle profile
     chromePath: null,
-    chromeCookiePath: null,
+    chromeCookiePath: null, // ignored silently
     chatgptUrl: "https://chatgpt.com/", // root is fine; folder URLs also work
     url: null, // alias for chatgptUrl (kept for back-compat)
     // Remote browser bridge (preferred place to store remote host settings)
@@ -34,8 +34,8 @@ JSON5 parsing, so trailing commas and comments are allowed.
     timeoutMs: 1200000,
     inputTimeoutMs: 30000,
     attachmentTimeoutMs: 90000, // wait for file upload/readiness before clicking Send (default: 45s)
-    cookieSync: false, // opt in to copying cookies from a live Chrome profile (prefer manualLogin)
-    cookieSyncWaitMs: 0, // wait (ms) before retrying cookie sync when Chrome cookies are empty/locked
+    cookieSync: false, // ignored silently; cookie copying is disabled
+    cookieSyncWaitMs: 0, // ignored silently
     assistantRecheckDelayMs: 0, // wait this long after timeout, then retry capture (0 = disabled)
     assistantRecheckTimeoutMs: 120000, // time budget for the recheck attempt (default: 2m)
     reuseChromeWaitMs: 10000, // wait for a shared Chrome profile to appear before launching (parallel runs)
@@ -52,7 +52,7 @@ JSON5 parsing, so trailing commas and comments are allowed.
     headless: false,
     hideWindow: false,
     keepBrowser: false,
-    manualLoginCookieSync: false, // explicitly seed the manual-login profile from live Chrome cookies
+    manualLoginCookieSync: false, // ignored silently; cookie injection is disabled
   },
 
   // Azure OpenAI defaults (only used when endpoint is set)
@@ -125,11 +125,12 @@ CLI flags and explicit override environment variables → effective config (proj
 - `sessionRetentionHours` controls the default value for `--retain-hours`. When unset, `ORACLE_RETAIN_HOURS` (if present) becomes the fallback, and the CLI flag still wins over both.
 - `ORACLE_MAX_FILE_SIZE_BYTES` overrides `maxFileSizeBytes` when set. Oracle validates it as a positive integer number of bytes before reading any `--file` inputs.
 - `browser.chatgptUrl` accepts either the root ChatGPT URL (`https://chatgpt.com/`) or a folder/workspace URL (e.g., `https://chatgpt.com/g/.../project`); `browser.url` remains as a legacy alias.
-- Browser automation defaults can be set under `browser.*`, including `browser.attachRunning`, `browser.thinkingTime` (CLI override: `--browser-thinking-time`), and `browser.researchMode` (CLI override: `--browser-research`). Manual login is forced; profile directory/name overrides, `browser.manualLogin=false`, and copied-profile input are ignored.
+- Browser automation workflow defaults can be set under `browser.*`, including `browser.thinkingTime` (CLI override: `--browser-thinking-time`) and `browser.researchMode` (CLI override: `--browser-research`). Manual login is forced. Profile directory/name, cookie copy/injection, attach-running, remote-Chrome, browser-tab, `browser.manualLogin=false`, and copied-profile inputs are silently ignored.
 
 If the config is missing or invalid, Oracle falls back to defaults and prints a warning for parse errors.
 
-Chromium-based browsers usually need both `chromePath` (binary) and `chromeCookiePath` (cookie DB) set so automation can launch the right executable and reuse your login. See [docs/chromium-forks.md](chromium-forks.md) for detailed paths per browser/OS.
+Chromium-based browsers may set `chromePath` to select the executable, but the profile and login
+remain fixed at `~/.oracle/browser-profile`; cookie DB settings are ignored.
 
 ## Session retention
 

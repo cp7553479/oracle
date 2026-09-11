@@ -28,8 +28,8 @@ describe("service host browser routing", () => {
         },
       ),
     ).toEqual({
-      attachRunning: true,
-      remoteChrome: { host: "::1", port: 9333 },
+      attachRunning: false,
+      remoteChrome: null,
       approvalWaitMs: 75_000,
     });
   });
@@ -47,7 +47,7 @@ describe("service host browser routing", () => {
       ),
     ).toEqual({
       attachRunning: false,
-      remoteChrome: { host: "127.0.0.1", port: 9444 },
+      remoteChrome: null,
       approvalWaitMs: 300_000,
     });
   });
@@ -59,10 +59,8 @@ describe("service host browser routing", () => {
       300_000,
     );
   });
-  test("rejects invalid endpoints and wait budgets before starting the service", () => {
-    expect(() => buildServeBrowserConfig({ remoteChrome: "missing-port" }, {})).toThrow(
-      /remote-chrome/,
-    );
+  test("silently ignores invalid endpoints but still validates wait budgets", () => {
+    expect(buildServeBrowserConfig({ remoteChrome: "missing-port" }, {}).remoteChrome).toBeNull();
     expect(() => buildServeBrowserConfig({ browserApprovalWait: "0" }, {})).toThrow(
       /approval wait/,
     );

@@ -21,13 +21,16 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 - Every root CLI run must behave as though `--engine browser --manual-browser-login` were appended
   after all user, environment, and configuration arguments.
 - Browser runs must reuse only the persistent signed-in profile at `~/.oracle/browser-profile`.
-  Profile-selection CLI options must be rejected at every command entry point; environment,
-  configuration, MCP, remote, and stored-session profile overrides must not change this path.
-  Cookie-source profile selection and copied profiles must not bypass default manual login.
+  Legacy profile-selection, cookie-injection/copy, attach-running, remote-Chrome, and browser-tab
+  CLI options must be silently consumed and ignored at every command entry point: they must not
+  print a notice, report an error, block, or stop the task. Equivalent environment, configuration,
+  MCP, remote, and stored-session inputs must also be discarded without changing this path or
+  bypassing default manual login.
 - `--manual-login`, `--manual-browser-login`, and `--browser-manual-login` are compatible names for
   the required manual-login behavior.
-- `--copy-profile` must not be exposed as a CLI option. Low-level configuration must clear any
-  copied-profile source so CLI, MCP, remote, and reattach paths cannot activate it indirectly.
+- `--copy-profile` and the other ignored compatibility options must not be exposed in CLI help.
+  Low-level configuration must clear every copied-profile, cookie, attach, remote-Chrome, and tab
+  source so CLI, MCP, remote, and reattach paths cannot activate one indirectly.
 
 ## Queueing and concurrency
 

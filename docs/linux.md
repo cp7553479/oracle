@@ -1,7 +1,9 @@
 # Linux Notes
 
 - Browser engine now works on Linux (Chrome/Chromium/Edge) without the old `DISPLAY` guard. Oracle will launch whatever `chrome-launcher` finds or what you pass via `CHROME_PATH`.
-- Explicit cookie sync (`--browser-cookie-sync`) supports snap-installed Chromium automatically. Prefer `--browser-manual-login` for a dedicated profile. Common cookie DB for the Default profile:
+- This fork disables cookie sync and profile selection. Use `--manual-login --engine browser`; Oracle
+  always reuses `~/.oracle/browser-profile`. Legacy cookie flags are silently ignored. Common
+  upstream cookie DB paths below are retained only as background reference:
   - `~/snap/chromium/common/chromium/Default/Cookies`
 - If you use a non-default profile or a custom install, point Oracle at the correct paths:
   - `--browser-chrome-path /path/to/chrome`

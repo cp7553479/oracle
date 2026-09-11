@@ -13,13 +13,13 @@ describe("buildBrowserConfig", () => {
   test("uses defaults when optional flags omitted", async () => {
     const config = await buildBrowserConfig({ model: "gpt-5.5-pro" });
     expect(config).toMatchObject({
-      chromeProfile: "Default",
+      chromeProfile: null,
       chromePath: null,
       chromeCookiePath: null,
       url: undefined,
       timeoutMs: undefined,
       inputTimeoutMs: undefined,
-      cookieSync: undefined,
+      cookieSync: false,
       headless: undefined,
       keepBrowser: undefined,
       hideWindow: undefined,
@@ -34,21 +34,21 @@ describe("buildBrowserConfig", () => {
     });
   });
 
-  test("forwards configured manual-login cookie sync to browser sessions", async () => {
+  test("ignores configured manual-login cookie sync", async () => {
     const config = await buildBrowserConfig({
       model: "gpt-5.5-pro",
       browserManualLogin: true,
       browserManualLoginCookieSync: true,
     });
 
-    expect(config.manualLoginCookieSync).toBe(true);
-    expect(config.cookieSync).toBe(true);
+    expect(config.manualLoginCookieSync).toBe(false);
+    expect(config.cookieSync).toBe(false);
   });
 
-  test("requires explicit opt-in for ordinary Chrome cookie sync", async () => {
+  test("silently ignores ordinary Chrome cookie sync inputs", async () => {
     await expect(
       buildBrowserConfig({ model: "gpt-5.5-pro", browserCookieSync: true }),
-    ).resolves.toMatchObject({ cookieSync: true });
+    ).resolves.toMatchObject({ cookieSync: false });
     await expect(
       buildBrowserConfig({
         model: "gpt-5.5-pro",
@@ -213,16 +213,16 @@ describe("buildBrowserConfig", () => {
       verbose: true,
     });
     expect(config).toMatchObject({
-      chromeProfile: "Profile 2",
+      chromeProfile: null,
       chromePath: "/Applications/Chrome.app",
-      chromeCookiePath: "/tmp/cookies.db",
+      chromeCookiePath: null,
       url: "https://chat.example.com/",
       timeoutMs: 120_000,
       inputTimeoutMs: 5_000,
       attachmentTimeoutMs: 120_000,
       profileLockTimeoutMs: 120_000,
       maxConcurrentTabs: 5,
-      cookieSyncWaitMs: 4_000,
+      cookieSyncWaitMs: 0,
       cookieSync: false,
       headless: true,
       hideWindow: true,
@@ -368,88 +368,33 @@ describe("buildBrowserConfig", () => {
     expect(config.desiredModel).toBe("Thinking 5.4");
   });
 
-  test("parses remoteChrome host targets", async () => {
+  test("silently ignores profile, cookie, attach, remote, and tab inputs", async () => {
     const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
-      remoteChrome: "remote-host:9333",
-    });
-    expect(config.remoteChrome).toEqual({ host: "remote-host", port: 9_333 });
-  });
-
-  test("enables attach-running with auto-connect by default", async () => {
-    const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
+      model: "gpt-5.6-sol",
       browserAttachRunning: true,
-    });
-    expect(config.attachRunning).toBe(true);
-  });
-
-  test("passes through a browser tab ref", async () => {
-    const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
+      browserChromeProfile: "Profile 2",
+      browserCookiePath: "/tmp/cookies",
+      browserCookieSync: true,
+      browserInlineCookies: "not-json",
+      browserManualLoginCookieSync: true,
       browserTab: "current",
-    });
-    expect(config.browserTabRef).toBe("current");
-  });
-
-  test("still accepts browser-chrome-path when attach-running is enabled", async () => {
-    const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
-      browserAttachRunning: true,
+      remoteChrome: "not-even-valid",
       browserChromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     });
-    expect(config.attachRunning).toBe(true);
-    expect(config.chromePath).toBe("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
-  });
-
-  test("rejects launcher-owned flags when attach-running is enabled", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        browserAttachRunning: true,
-        browserManualLogin: true,
-      }),
-    ).rejects.toThrow(/attach-running/i);
-  });
-
-  test("rejects headless when attach-running is enabled", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        browserAttachRunning: true,
-        browserHeadless: true,
-      }),
-    ).rejects.toThrow(/browser-attach-running cannot be combined with --browser-headless/);
-  });
-
-  test("rejects browser-chrome-profile when attach-running is enabled", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        browserAttachRunning: true,
-        browserChromeProfile: "Profile 2",
-      }),
-    ).rejects.toThrow(/attach-running/i);
-  });
-
-  test("rejects inline cookie overrides when attach-running is enabled", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        browserAttachRunning: true,
-        browserInlineCookies: "[]",
-      }),
-    ).rejects.toThrow(/attach-running/i);
-  });
-
-  test("allows remote-chrome as an attach-running hint", async () => {
-    const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
-      browserAttachRunning: true,
-      remoteChrome: "remote-host:9333",
+    expect(config).toMatchObject({
+      attachRunning: false,
+      browserTabRef: null,
+      chromeProfile: null,
+      chromeCookiePath: null,
+      cookieSync: false,
+      cookieSyncWaitMs: 0,
+      inlineCookies: null,
+      inlineCookiesSource: null,
+      manualLogin: true,
+      manualLoginCookieSync: false,
+      remoteChrome: null,
     });
-    expect(config.attachRunning).toBe(true);
-    expect(config.remoteChrome).toEqual({ host: "remote-host", port: 9_333 });
+    expect(config.chromePath).toBe("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
   });
 
   test("normalizes chatgpt-url alias and adds https when missing", async () => {
@@ -498,40 +443,14 @@ describe("buildBrowserConfig", () => {
     expect(config.desiredModel).toBe("Thinking 5.4");
   });
 
-  test("accepts IPv6 remoteChrome targets wrapped in brackets", async () => {
-    const config = await buildBrowserConfig({
-      model: "gpt-5.2-pro",
-      remoteChrome: "[2001:db8::1]:9222",
-    });
-    expect(config.remoteChrome).toEqual({ host: "2001:db8::1", port: 9_222 });
-  });
-
-  test("rejects malformed remoteChrome targets", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        remoteChrome: "just-a-host",
-      }),
-    ).rejects.toThrow(/host:port/i);
-  });
-
-  test("rejects remoteChrome IPv6 without brackets", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        remoteChrome: "2001:db8::1:9222",
-      }),
-    ).rejects.toThrow(/Wrap IPv6 addresses/i);
-  });
-
-  test("rejects out-of-range remoteChrome ports", async () => {
-    await expect(
-      buildBrowserConfig({
-        model: "gpt-5.2-pro",
-        remoteChrome: "server:70000",
-      }),
-    ).rejects.toThrow(/between 1 and 65535/i);
-  });
+  test.each(["[2001:db8::1]:9222", "just-a-host", "2001:db8::1:9222", "server:70000"])(
+    "silently ignores remote Chrome target %s",
+    async (remoteChrome) => {
+      await expect(
+        buildBrowserConfig({ model: "gpt-5.6-sol", remoteChrome }),
+      ).resolves.toMatchObject({ remoteChrome: null, attachRunning: false });
+    },
+  );
 });
 
 describe("resolveBrowserModelLabel", () => {

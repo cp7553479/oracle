@@ -68,7 +68,7 @@ describe("project sources CLI helpers", () => {
     });
   });
 
-  test("honors explicit cookie sync for a persistent manual-login profile", async () => {
+  test("ignores explicit cookie sync for a persistent manual-login profile", async () => {
     const config = await buildProjectSourcesBrowserConfig({
       options: {},
       projectUrl: "https://chatgpt.com/g/g-p-123/project?tab=sources",
@@ -80,12 +80,12 @@ describe("project sources CLI helpers", () => {
 
     expect(config).toMatchObject({
       manualLogin: true,
-      manualLoginCookieSync: true,
-      cookieSync: true,
+      manualLoginCookieSync: false,
+      cookieSync: false,
     });
   });
 
-  test("honors explicit cookie sync for manual-login profiles", async () => {
+  test("ignores every cookie sync input for manual-login profiles", async () => {
     const fromConfig = await buildProjectSourcesBrowserConfig({
       options: {},
       projectUrl: "https://chatgpt.com/g/g-p-123/project?tab=sources",
@@ -97,7 +97,7 @@ describe("project sources CLI helpers", () => {
       configuredBrowser: {},
     });
 
-    expect(fromConfig.cookieSync).toBe(true);
-    expect(fromFlag.cookieSync).toBe(true);
+    expect(fromConfig.cookieSync).toBe(false);
+    expect(fromFlag.cookieSync).toBe(false);
   });
 });

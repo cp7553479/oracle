@@ -146,10 +146,9 @@ is retained under `browser.harvest.integrity` and shown as a browser warning;
 an implicit harvest fails with `conversation-identity-mismatch` before exporting
 the newly harvested answer. Existing transcripts and answer logs are preserved.
 
-An explicit `--browser-tab` override still permits inspecting another target,
-but records the mismatch and does not reassign the original capture. Unavailable
-recorded transcript headers or unreadable recorded conversation URLs are marked
-`unverified`. Matching known conversation IDs
+Legacy browser-tab overrides are silently ignored, so reattach remains scoped to the fixed-profile
+session metadata. Unavailable recorded transcript headers or unreadable recorded conversation URLs
+are marked `unverified`. Matching known conversation IDs
 does not by itself prove that an answer belongs to the original prompt.
 
 ## Naming conventions

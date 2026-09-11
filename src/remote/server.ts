@@ -5,10 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, mkdir, writeFile, stat, realpath } from "node:fs/promises";
 import chalk from "chalk";
-import type { BrowserAttachment, BrowserLogger, CookieParam } from "../browser/types.js";
+import type { BrowserAttachment, BrowserLogger } from "../browser/types.js";
 import { materializeStagedFallbackBundle } from "../browser/prompt.js";
 import type { BrowserSessionConfig } from "../sessionManager.js";
 import { runBrowserMode } from "../browserMode.js";
@@ -25,7 +24,6 @@ import type {
   RemoteRunEvent,
 } from "./types.js";
 import { MAX_REMOTE_ARTIFACT_BYTES } from "./types.js";
-import { getCookies, type Cookie } from "@steipete/sweet-cookie";
 import { CHATGPT_URL } from "../browser/constants.js";
 import { getCliVersion } from "../version.js";
 import { getOracleHomeDir } from "../oracleHome.js";
@@ -1041,146 +1039,9 @@ function formatAllInterfaceAddresses(bindAddress: string, port: number): string[
   return Array.from(new Set([...ipv4, ...ipv6]));
 }
 
-async function loadLocalChatgptCookies(
-  logger: (message: string) => void,
-  targetUrl: string,
-): Promise<{ cookies: CookieParam[] | null; opened: boolean }> {
-  try {
-    logger("Loading ChatGPT cookies from this host's Chrome profile...");
-    const { cookies: rawCookies, warnings } = await getCookies({
-      url: targetUrl,
-      browsers: ["chrome"],
-      mode: "merge",
-      chromeProfile: "Default",
-      timeoutMs: 5_000,
-    });
-    if (warnings.length) {
-      logger(`Cookie warnings:\n- ${warnings.join("\n- ")}`);
-    }
-    const cookies = rawCookies.map(toCdpCookie).filter((c): c is CookieParam => Boolean(c));
-    if (!cookies || cookies.length === 0) {
-      logger("No local ChatGPT cookies found on this host. Please log in once; opening ChatGPT...");
-      const opened = triggerLocalLoginPrompt(logger, targetUrl);
-      return { cookies: null, opened };
-    }
-    logger(`Loaded ${cookies.length} local ChatGPT cookies on this host.`);
-    return { cookies, opened: false };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const missingDbMatch = message.match(/Unable to locate Chrome cookie DB at (.+?)(?:\.|$)/);
-    if (missingDbMatch) {
-      const lookedPath = missingDbMatch[1];
-      logger(
-        `Chrome cookies not found at ${lookedPath}. Set --browser-cookie-path to your Chrome profile or log in manually.`,
-      );
-    } else {
-      logger(`Unable to load local ChatGPT cookies on this host: ${message}`);
-    }
-    if (process.platform === "linux" && isWsl()) {
-      logger(
-        "WSL hint: Chrome lives under /mnt/c/Users/<you>/AppData/Local/Google/Chrome/User Data/Default; pass --browser-cookie-path to that directory if auto-detect fails.",
-      );
-    }
-    const opened = triggerLocalLoginPrompt(logger, targetUrl);
-    return { cookies: null, opened };
-  }
-}
-
-function toCdpCookie(cookie: Cookie): CookieParam | null {
-  if (!cookie?.name) return null;
-  const out: CookieParam = {
-    name: cookie.name,
-    value: cookie.value,
-    domain: cookie.domain,
-    path: cookie.path ?? "/",
-    secure: cookie.secure ?? true,
-    httpOnly: cookie.httpOnly ?? false,
-  };
-  if (typeof cookie.expires === "number") out.expires = cookie.expires;
-  if (cookie.sameSite === "Lax" || cookie.sameSite === "Strict" || cookie.sameSite === "None") {
-    out.sameSite = cookie.sameSite;
-  }
-  return out;
-}
-
-function triggerLocalLoginPrompt(logger: (message: string) => void, url: string): boolean {
-  const verbose = process.argv.includes("--verbose") || process.env.ORACLE_SERVE_VERBOSE === "1";
-  const openers: Array<{ cmd: string; args?: string[] }> = [];
-
-  if (process.platform === "darwin") {
-    openers.push({ cmd: "open" });
-  } else if (process.platform === "win32") {
-    openers.push({ cmd: "start" });
-  } else {
-    if (isWsl()) {
-      // Prefer wslview when available, then fall back to Windows start.exe to open in the host browser.
-      openers.push({ cmd: "wslview" });
-      openers.push({ cmd: "cmd.exe", args: ["/c", "start", "", url] });
-    }
-    openers.push({ cmd: "xdg-open" });
-  }
-
-  // Add a cross-platform, low-friction fallback when nothing above is available.
-  openers.push({ cmd: "sensible-browser" });
-
-  try {
-    // Fire and forget; user completes login in the opened browser window.
-    if (verbose) {
-      logger(`[serve] Login opener candidates: ${openers.map((o) => o.cmd).join(", ")}`);
-    }
-    const candidate = openers.find((opener) => canSpawn(opener.cmd));
-    if (candidate) {
-      const child = spawn(candidate.cmd, candidate.args ?? [url], {
-        stdio: "ignore",
-        detached: true,
-      });
-      child.unref();
-      child.once("error", (error) => {
-        if (verbose) {
-          logger(
-            `[serve] Opener ${candidate.cmd} failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-        logger(`Please open ${url} in this host's browser and sign in; then rerun.`);
-      });
-      logger(
-        `Opened ${url} locally via ${candidate.cmd}. Please sign in; subsequent runs will reuse the session.`,
-      );
-      if (verbose && candidate.args) {
-        logger(`[serve] Opener args: ${candidate.args.join(" ")}`);
-      }
-      return true;
-    }
-    if (verbose) {
-      logger("[serve] No available opener found; prompting manual login.");
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
 function isWsl(): boolean {
   if (process.platform !== "linux") return false;
   return Boolean(process.env.WSL_DISTRO_NAME || os.release().toLowerCase().includes("microsoft"));
-}
-
-function canSpawn(cmd: string): boolean {
-  if (!cmd) return false;
-  try {
-    if (process.platform === "win32") {
-      // `where` returns non-zero when the command is not found.
-      const result = spawnSync("where", [cmd], { stdio: "ignore" });
-      return result.status === 0;
-    }
-    // `command -v` is a shell builtin; run through sh. Fallback to `which`.
-    const shResult = spawnSync("sh", ["-c", `command -v ${cmd}`], { stdio: "ignore" });
-    if (shResult.status === 0) return true;
-    const whichResult = spawnSync("which", [cmd], { stdio: "ignore" });
-    return whichResult.status === 0;
-  } catch {
-    return false;
-  }
 }
 
 async function launchManualLoginChrome(

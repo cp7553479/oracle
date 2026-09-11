@@ -334,7 +334,7 @@ describe("summarizeModelRunsForConsult", () => {
     expect(config).toMatchObject({ manualLogin: true, cookieSync: false });
   });
 
-  test("honors explicit cookie sync for MCP manual-login consults", () => {
+  test("ignores explicit cookie sync for MCP manual-login consults", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {
         browser: {
@@ -349,8 +349,8 @@ describe("summarizeModelRunsForConsult", () => {
 
     expect(config).toMatchObject({
       manualLogin: true,
-      manualLoginCookieSync: true,
-      cookieSync: true,
+      manualLoginCookieSync: false,
+      cookieSync: false,
     });
   });
 

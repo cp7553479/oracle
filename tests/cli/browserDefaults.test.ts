@@ -5,92 +5,34 @@ import {
   type BrowserDefaultsOptions,
 } from "../../src/cli/browserDefaults.js";
 import type { UserConfig } from "../../src/config.js";
-import { buildBrowserConfig } from "../../src/cli/browserConfig.js";
 
 const source = (_key: keyof BrowserDefaultsOptions) => undefined;
 
 describe("applyBrowserDefaultsFromConfig", () => {
-  test("uses the same configured remote Chrome as MCP unless CLI overrides it", () => {
+  test("does not inherit profile, cookie, attach, or remote browser settings", () => {
     const options: BrowserDefaultsOptions = {};
-    const config: UserConfig = { browser: { remoteChrome: { host: "127.0.0.1", port: 9222 } } };
-    applyBrowserDefaultsFromConfig(options, config, source);
-    expect(options.remoteChrome).toBe("127.0.0.1:9222");
-    options.remoteChrome = "another-host:9444";
-    applyBrowserDefaultsFromConfig(options, config, () => "cli");
-    expect(options.remoteChrome).toBe("another-host:9444");
-  });
-
-  test("formats IPv6 remote Chrome defaults for the existing target parser", () => {
-    for (const host of ["::1", "[::1]"]) {
-      const options: BrowserDefaultsOptions = {};
-      applyBrowserDefaultsFromConfig(
-        options,
-        { browser: { remoteChrome: { host, port: 9222 } } },
-        source,
-      );
-      expect(options.remoteChrome).toBe("[::1]:9222");
-    }
-  });
-
-  test("uses the configured host/port and respects non-CLI endpoint overrides", () => {
-    const config: UserConfig = {
-      browser: { remoteChrome: { host: "devbox.example", port: 9444 } },
-    };
-    const options: BrowserDefaultsOptions = {};
-    applyBrowserDefaultsFromConfig(options, config, source);
-    expect(options.remoteChrome).toBe("devbox.example:9444");
-    options.remoteChrome = "programmatic.example:9555";
-    applyBrowserDefaultsFromConfig(options, config, source);
-    expect(options.remoteChrome).toBe("programmatic.example:9555");
-  });
-
-  test("retains the configured endpoint as the attach-running destination", async () => {
-    const config: UserConfig = {
-      browser: { attachRunning: true, remoteChrome: { host: "remote.example", port: 9444 } },
-    };
-    const inherited: BrowserDefaultsOptions = {};
-    applyBrowserDefaultsFromConfig(inherited, config, source);
-    expect(inherited.remoteChrome).toBe("remote.example:9444");
-    const resolved = await buildBrowserConfig({
-      model: "gpt-5.6-sol",
-      browserAttachRunning: inherited.browserAttachRunning,
-      remoteChrome: inherited.remoteChrome,
-    });
-    expect(resolved.attachRunning).toBe(true);
-    expect(resolved.remoteChrome).toEqual({ host: "remote.example", port: 9444 });
-    const explicit: BrowserDefaultsOptions = { browserAttachRunning: false };
-    applyBrowserDefaultsFromConfig(explicit, config, (key) =>
-      key === "browserAttachRunning" ? "cli" : undefined,
-    );
-    expect(explicit.remoteChrome).toBe("remote.example:9444");
-  });
-
-  test("preserves the configured endpoint with an explicit attach-running flag", () => {
-    const options: BrowserDefaultsOptions = { browserAttachRunning: true };
     applyBrowserDefaultsFromConfig(
       options,
-      { browser: { remoteChrome: { host: "explicit.example", port: 9555 } } },
+      {
+        browser: {
+          remoteChrome: { host: "127.0.0.1", port: 9222 },
+          attachRunning: true,
+          chromeProfile: "Work",
+          chromeCookiePath: "/tmp/cookies",
+          cookieSync: true,
+          manualLogin: false,
+          manualLoginCookieSync: true,
+        },
+      },
       source,
     );
-    expect(options.remoteChrome).toBe("explicit.example:9555");
-  });
-
-  test("does not inject remote Chrome into an explicit copy-profile launch", () => {
-    const options: BrowserDefaultsOptions = { copyProfile: "/profile" };
-    applyBrowserDefaultsFromConfig(
-      options,
-      { browser: { remoteChrome: { host: "127.0.0.1", port: 9222 } } },
-      source,
-    );
-    expect(options.remoteChrome).toBeUndefined();
-  });
-
-  test("leaves an unset or null remote Chrome configuration local", () => {
-    for (const config of [{}, { browser: { remoteChrome: null } }]) {
-      const options: BrowserDefaultsOptions = {};
-      applyBrowserDefaultsFromConfig(options, config, source);
-      expect(options.remoteChrome).toBeUndefined();
-    }
+    expect(options).not.toHaveProperty("remoteChrome");
+    expect(options).not.toHaveProperty("browserAttachRunning");
+    expect(options).not.toHaveProperty("browserChromeProfile");
+    expect(options).not.toHaveProperty("browserCookiePath");
+    expect(options).not.toHaveProperty("browserCookieSync");
+    expect(options).not.toHaveProperty("browserManualLogin");
+    expect(options).not.toHaveProperty("browserManualLoginCookieSync");
   });
   test("applies chatgptUrl from user config when flags are absent", () => {
     const options: BrowserDefaultsOptions = {};
@@ -154,15 +96,15 @@ describe("applyBrowserDefaultsFromConfig", () => {
     applyBrowserDefaultsFromConfig(options, config, (_key) => "default");
 
     expect(options.browserChromePath).toBe("/Applications/Comet.app/Contents/MacOS/Comet");
-    expect(options.browserChromeProfile).toBe("Work");
-    expect(options.browserCookiePath).toBe("/tmp/cookies");
+    expect(options.browserChromeProfile).toBeUndefined();
+    expect(options.browserCookiePath).toBeUndefined();
     expect(options.browserTimeout).toBe("120000");
     expect(options.browserInputTimeout).toBe("15000");
     expect(options.browserAttachmentTimeout).toBe("90000");
     expect(options.browserProfileLockTimeout).toBe("90000");
     expect(options.browserMaxConcurrentTabs).toBe("4");
     expect(options.browserCookieWait).toBe("4000");
-    expect(options.browserCookieSync).toBe(true);
+    expect(options.browserCookieSync).toBeUndefined();
     expect(options.browserHeadless).toBe(true);
     expect(options.browserHideWindow).toBe(true);
     expect(options.browserKeepBrowser).toBe(true);
@@ -301,7 +243,7 @@ describe("applyBrowserDefaultsFromConfig", () => {
     expect(options.browserThinkingTime).toBe(expectedThinkingTime);
   });
 
-  test("applies manual-login defaults from config when CLI flags are untouched", () => {
+  test("ignores manual-login and cookie-sync defaults from config", () => {
     const options: BrowserDefaultsOptions = {};
     const config: UserConfig = {
       browser: {
@@ -312,11 +254,11 @@ describe("applyBrowserDefaultsFromConfig", () => {
 
     applyBrowserDefaultsFromConfig(options, config, (_key) => "default");
 
-    expect(options.browserManualLogin).toBe(true);
-    expect(options.browserManualLoginCookieSync).toBe(true);
+    expect(options.browserManualLogin).toBeUndefined();
+    expect(options.browserManualLoginCookieSync).toBeUndefined();
   });
 
-  test("applies attach-running defaults from config when CLI flags are untouched", () => {
+  test("ignores attach-running defaults from config", () => {
     const options: BrowserDefaultsOptions = {};
     const config: UserConfig = {
       browser: {
@@ -326,10 +268,10 @@ describe("applyBrowserDefaultsFromConfig", () => {
 
     applyBrowserDefaultsFromConfig(options, config, (_key) => "default");
 
-    expect(options.browserAttachRunning).toBe(true);
+    expect(options.browserAttachRunning).toBeUndefined();
   });
 
-  test("attach-running skips conflicting launch-only defaults from config", () => {
+  test("explicit legacy attach input does not enable profile defaults", () => {
     const options: BrowserDefaultsOptions = { browserAttachRunning: true };
     const config: UserConfig = {
       browser: {
@@ -354,17 +296,17 @@ describe("applyBrowserDefaultsFromConfig", () => {
     expect(options.browserAttachRunning).toBe(true);
     expect(options.browserChromeProfile).toBeUndefined();
     expect(options.browserCookiePath).toBeUndefined();
-    expect(options.browserPort).toBeUndefined();
-    expect(options.browserHeadless).toBeUndefined();
+    expect(options.browserPort).toBe(9222);
+    expect(options.browserHeadless).toBe(true);
     expect(options.browserManualLoginCookieSync).toBeUndefined();
-    expect(options.browserHideWindow).toBeUndefined();
-    expect(options.browserKeepBrowser).toBeUndefined();
+    expect(options.browserHideWindow).toBe(true);
+    expect(options.browserKeepBrowser).toBe(true);
     expect(options.browserManualLogin).toBeUndefined();
     expect(options.browserTimeout).toBe("120000");
     expect(options.browserThinkingTime).toBe("extended");
   });
 
-  test("saved attach-running also skips a saved headless preference", () => {
+  test("saved attach-running is ignored while unrelated display settings remain", () => {
     const options: BrowserDefaultsOptions = {};
     const config: UserConfig = {
       browser: {
@@ -376,9 +318,9 @@ describe("applyBrowserDefaultsFromConfig", () => {
 
     applyBrowserDefaultsFromConfig(options, config, (_key) => "default");
 
-    expect(options.browserAttachRunning).toBe(true);
-    expect(options.browserHeadless).toBeUndefined();
-    expect(options.browserHideWindow).toBeUndefined();
+    expect(options.browserAttachRunning).toBeUndefined();
+    expect(options.browserHeadless).toBe(true);
+    expect(options.browserHideWindow).toBe(true);
   });
 
   test("does not override manual-login when CLI enabled it", () => {

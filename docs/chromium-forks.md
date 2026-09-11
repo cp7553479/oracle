@@ -1,6 +1,9 @@
 # Chromium-based browsers (Chromium, Edge, Brave variants)
 
-Oracle’s browser engine assumes Google Chrome by default and launches it via `chrome-launcher`. Cookie copying from Chrome’s profile/keychain is an explicit opt-in because cloning a live ChatGPT session can invalidate the interactive browser when tokens rotate. Chromium, Microsoft Edge, and other forks ship the same DevTools protocol, but they keep the executable and cookie store in different locations. Prefer a dedicated `--browser-manual-login` profile; if you intentionally copy cookies, use `--browser-cookie-sync` with the knobs below.
+Oracle’s browser engine assumes Google Chrome by default and launches it via `chrome-launcher`.
+This fork permits selecting a compatible executable with `--browser-chrome-path`, but always uses
+the persistent `~/.oracle/browser-profile`. Cookie/profile/attach/remote/tab controls described by
+upstream releases are silent compatibility no-ops here.
 
 ## 1. Point Oracle at the right executable
 
@@ -29,7 +32,11 @@ oracle --engine browser \
 
 Headless mode is opt-in; Oracle remains headful by default because some sites reject stock headless Chrome. The selected Chromium binary must provide any compatibility those sites require. Headless is a launch-only option: an explicit `--browser-headless` flag cannot be combined with `--browser-attach-running`, a saved `browser.headless` preference is ignored in attach-running mode (matching other launch-only defaults), and standalone `--remote-chrome` continues to warn and ignore headless.
 
-## 2. Tell cookie sync where your session lives
+## 2. Sign in to the fixed Oracle profile
+
+Run `oracle --manual-login --engine browser --browser-keep-browser -p "HI"` and complete login in
+the opened browser. Cookie path and cookie-sync flags shown in older examples are ignored by this
+fork.
 
 Set the new `--browser-cookie-path` flag (or `browser.chromeCookiePath` in config) to the absolute path of the fork’s `Cookies` SQLite database. When present, Oracle feeds this path straight into the internal cookie reader, skipping Chrome-only heuristics and profile-name guesses.
 

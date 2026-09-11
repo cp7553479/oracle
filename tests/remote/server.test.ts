@@ -52,13 +52,17 @@ describe("remote browser service", () => {
           runBrowser: async (options) => {
             observed = true;
             expect(options.config).toMatchObject({
-              ...hostRoute,
+              attachRunning: false,
+              remoteChrome: null,
+              approvalWaitMs: 300_000,
               cookieSync: false,
+              manualLoginCookieSync: false,
+              manualLogin: true,
+              manualLoginProfileDir: path.join(os.homedir(), ".oracle", "browser-profile"),
               thinkingTime: "pro",
             });
-            expect(options.config?.manualLogin).not.toBe(true);
-            expect(options.config?.chromePath).toBeUndefined();
-            expect(options.closeOwnedTabOnComplete).toBe(false);
+            expect(options.config?.chromePath).toBeNull();
+            expect(options.closeOwnedTabOnComplete).toBe(true);
             return {
               answerText: "host-route",
               answerMarkdown: "host-route",

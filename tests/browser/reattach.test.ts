@@ -7,6 +7,7 @@ import * as chromeLifecycle from "../../src/browser/chromeLifecycle.js";
 import type { BrowserLogger, ChromeClient } from "../../src/browser/types.js";
 
 type FakeTarget = { id?: string; targetId?: string; type?: string; url?: string };
+const FIXED_PROFILE_DIR = path.join(os.homedir(), ".oracle", "browser-profile");
 type FakeClient = {
   // biome-ignore lint/style/useNamingConvention: mirrors DevTools protocol domain names
   Runtime: {
@@ -42,6 +43,7 @@ describe("resumeBrowserSession", () => {
       await resumeBrowserSession(
         {
           chromePort: 9222,
+          chromeProfileRoot: FIXED_PROFILE_DIR,
           chromeBrowserWSEndpoint: "ws://127.0.0.1:9222/devtools/browser/approval-fixture",
           chromeTargetId: "saved-tab",
           tabUrl: "https://chatgpt.com/c/saved",
@@ -74,6 +76,7 @@ describe("resumeBrowserSession", () => {
     async (identityFails) => {
       const runtime = {
         chromePort: 51559,
+        chromeProfileRoot: FIXED_PROFILE_DIR,
         chromeHost: "127.0.0.1",
         chromeTargetId: "target-1",
         tabUrl: "https://chatgpt.com/c/abc",
@@ -152,6 +155,7 @@ describe("resumeBrowserSession", () => {
   test("uses prompt preview turn index when reattaching to an already-open answer", async () => {
     const runtime = {
       chromePort: 51559,
+      chromeProfileRoot: FIXED_PROFILE_DIR,
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/abc",
@@ -205,6 +209,7 @@ describe("resumeBrowserSession", () => {
   test("uses Deep Research completion path when reattaching research sessions", async () => {
     const runtime = {
       chromePort: 51559,
+      chromeProfileRoot: FIXED_PROFILE_DIR,
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/deep",
@@ -299,7 +304,7 @@ describe("resumeBrowserSession", () => {
   test("tries live reattach from browser websocket metadata before falling back", async () => {
     const runtime = {
       chromeBrowserWSEndpoint: "ws://127.0.0.1:9222/devtools/browser/abc",
-      chromeProfileRoot: "/tmp/oracle-attach-running-profile",
+      chromeProfileRoot: FIXED_PROFILE_DIR,
       tabUrl: "https://chatgpt.com/c/abc",
       chromeTargetId: "target-2",
     };
@@ -360,6 +365,7 @@ describe("resumeBrowserSession", () => {
   test("closes the attached client before falling back to recovery", async () => {
     const runtime = {
       chromePort: 51559,
+      chromeProfileRoot: FIXED_PROFILE_DIR,
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/abc",
@@ -598,10 +604,10 @@ describe("manual-login cookie sync recovery", () => {
     }
   });
 
-  test("invokes cookie sync while reopening an explicitly synchronized manual-login profile", async () => {
+  test("ignores cookie sync while reopening the fixed manual-login profile", async () => {
     const profileDir = await mkdtemp(path.join(os.tmpdir(), "oracle-reattach-cookie-sync-"));
     try {
-      const expected = new Error("stop after cookie sync");
+      const expected = new Error("stop after navigation");
       const kill = vi.fn(async () => {});
       const close = vi.fn(async () => {});
       const launchChrome = vi.fn(async () => ({ port: 9222, kill }));
@@ -609,7 +615,11 @@ describe("manual-login cookie sync recovery", () => {
         // biome-ignore lint/style/useNamingConvention: mirrors DevTools protocol domain names
         Network: {},
         // biome-ignore lint/style/useNamingConvention: mirrors DevTools protocol domain names
-        Page: {},
+        Page: {
+          navigate: vi.fn(async () => {
+            throw expected;
+          }),
+        },
         // biome-ignore lint/style/useNamingConvention: mirrors DevTools protocol domain names
         Runtime: { enable: vi.fn() },
         // biome-ignore lint/style/useNamingConvention: mirrors DevTools protocol domain names
@@ -618,9 +628,7 @@ describe("manual-login cookie sync recovery", () => {
         Target: {},
         close,
       }));
-      const syncCookies = vi.fn(async () => {
-        throw expected;
-      });
+      const syncCookies = vi.fn(async () => 1);
       const logger = vi.fn() as BrowserLogger;
 
       await expect(
@@ -642,7 +650,15 @@ describe("manual-login cookie sync recovery", () => {
         ),
       ).rejects.toBe(expected);
 
-      expect(syncCookies).toHaveBeenCalledOnce();
+      expect(syncCookies).not.toHaveBeenCalled();
+      expect(launchChrome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cookieSync: false,
+          manualLoginProfileDir: FIXED_PROFILE_DIR,
+        }),
+        FIXED_PROFILE_DIR,
+        logger,
+      );
       expect(close).toHaveBeenCalledOnce();
       expect(kill).toHaveBeenCalledOnce();
     } finally {

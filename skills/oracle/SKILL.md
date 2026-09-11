@@ -22,6 +22,8 @@ The CLI enforces the equivalent persistent manual-login browser configuration
 internally. Never use registry `npx`/`pnpm dlx` commands or `--copy-profile`.
 Only one browser task runs at a time; later calls wait in the browser queue.
 Reattach harvesting closes its recovered target/browser when finished.
+Legacy profile, cookie, attach-running, remote-Chrome, and browser-tab flags are
+silent compatibility no-ops. Do not use them.
 
 ## Main use case (browser, GPT-5.6)
 
@@ -34,6 +36,7 @@ Recommended defaults:
 
 - Engine: browser (`--engine browser`)
 - Base Sol: `--model gpt-5.6-sol`
+- Default reasoning: `--browser-thinking-time medium` unless the user explicitly requests another level
 - Base Sol maximum reasoning: `--browser-thinking-time extra-high` (Extra High)
 - Explicit Pro effort on GPT-5.6 Sol: `--browser-thinking-time pro` (fails closed if Pro cannot be confirmed)
 - Browser GPT-5.5 with Pro effort: `--model gpt-5.5 --browser-thinking-time pro`
@@ -57,8 +60,8 @@ This version supports GPT-5.6 on both surfaces, but Pro selection differs:
 For base Sol, use:
 
 ```bash
-oracle --engine browser --browser-manual-login --model gpt-5.6-sol \
-  --browser-thinking-time extra-high \
+oracle --manual-login --engine browser --model gpt-5.6-sol \
+  --browser-thinking-time medium \
   -p "<task>" --file "src/**"
 ```
 
@@ -108,7 +111,7 @@ and a live browser run records strict GPT-5.6 selection evidence.
   - `oracle --manual-login --engine browser --dry-run summary --files-report -p "<task>" --file "src/**"`
 
 - Browser run:
-  - `oracle --engine browser --browser-manual-login --model gpt-5.6-sol --browser-thinking-time extra-high -p "<task>" --file "src/**"`
+  - `oracle --manual-login --engine browser --model gpt-5.6-sol --browser-thinking-time medium -p "<task>" --file "src/**"`
 
 - Manual paste fallback:
   - `oracle --manual-login --engine browser --render-markdown --copy-markdown -p "<task>" --file "src/**"`
@@ -149,31 +152,13 @@ are essential to the question.
   text/source files. `auto` keeps flattened text for text-only uploads; use
   `--browser-bundle-format zip` for a filesystem tree, or `--browser-bundle-files`
   to force every resolved attachment into one bundle.
-- Reuse an existing Chrome session with `--browser-tab <ref>`,
-  `--browser-attach-running`, or `--remote-chrome <host:port>`.
+- Oracle always launches or recovers its fixed persistent browser profile; callers cannot select a
+  different profile, cookie source, existing tab, attached browser, or remote Chrome endpoint.
 - Use `--browser-model-strategy select|current|ignore` to control picker
   behavior.
 - Use `--browser-follow-up "<prompt>"` for another turn in the same browser
   conversation, or `--followup <sessionId|responseId>` for a stored run.
 - Use `--browser-research deep` only when Deep Research is explicitly wanted.
-
-## API preflight
-
-Before an API run, check provider readiness without printing secrets:
-
-```bash
-oracle doctor --providers --models gpt-5.4,claude-4.6-sonnet,gemini-3-pro
-oracle --preflight --models gpt-5.4,gemini-3-pro
-oracle --route --model gpt-5.4
-```
-
-Use `--provider openai` or `--no-azure` when first-party OpenAI routing is
-required. For multi-model panels where partial success is useful, use
-`--allow-partial --write-output <path>` so successful outputs and the manifest
-can be recovered.
-
-Set an explicit deadline for automation, for example `--timeout 10m`; Oracle
-derives the HTTP timeout unless `--http-timeout` is supplied.
 
 ## Sessions and recovery
 
@@ -181,8 +166,8 @@ derives the HTTP timeout unless `--http-timeout` is supplied.
   `ORACLE_HOME_DIR`.
 - Browser artifacts include `transcript.md` and, when available, research
   reports and generated images.
-- List recent sessions with `oracle status --hours 72`.
-- Attach with `oracle session <id> --render`.
+- List recent sessions with `oracle --manual-login --engine browser status --hours 72`.
+- Attach with `oracle --manual-login --engine browser session <id> --render`.
 - Use `--slug "<3-5 words>"` for readable session IDs.
 - If a run times out, reattach; do not re-run it. Use `--force` only when a
   genuinely new identical run is intended.

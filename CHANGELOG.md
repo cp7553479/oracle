@@ -4,7 +4,7 @@
 
 ### Fork policy
 
-- Sync upstream `67253e7b`; force the default manual-login profile at `~/.oracle/browser-profile`, reject profile-selection CLI options, and ignore profile overrides from environment/configuration. Preserve the single-slot queue, silent current-model fallback, completed-target cleanup, and Gemini large-header recovery.
+- Sync upstream `67253e7b`; force browser/manual-login with the persistent `~/.oracle/browser-profile`, and silently ignore legacy profile, cookie, copy, attach-running, remote-Chrome, and browser-tab inputs from every entry point. Preserve the single-slot queue, silent current-model fallback, completed-target cleanup, and Gemini large-header recovery.
 
 ## 0.20.0 - 2026-09-07
 

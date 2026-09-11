@@ -54,7 +54,7 @@ describe("resolveBrowserConfig", () => {
     expect(resolved.desiredModel).toBe("Custom");
     expect(resolved.chromeProfile).toBeNull();
     expect(resolved.chromePath).toBe("/Applications/Chrome");
-    expect(resolved.browserTabRef).toBe("current");
+    expect(resolved.browserTabRef).toBeNull();
     expect(resolved.debug).toBe(true);
     expect(resolved.maxConcurrentTabs).toBe(1);
     expect(resolved.researchMode).toBe("deep");
@@ -91,14 +91,24 @@ describe("resolveBrowserConfig", () => {
     expect(resolveBrowserConfig({ manualLogin: false }).manualLoginProfileDir).toBe(defaultDir);
   });
 
-  test("forces manual login and clears copied-profile input from every caller", () => {
+  test("forces manual login and clears alternate authentication routes", () => {
     const resolved = resolveBrowserConfig({
       manualLogin: false,
       copyProfileSource: "/tmp/copied-profile-source",
+      cookieSync: true,
+      inlineCookies: [{ name: "session", value: "secret", domain: ".chatgpt.com" }],
+      attachRunning: true,
+      browserTabRef: "current",
+      remoteChrome: { host: "elsewhere", port: 9222 },
     });
 
     expect(resolved.manualLogin).toBe(true);
     expect(resolved.copyProfileSource).toBeNull();
+    expect(resolved.cookieSync).toBe(false);
+    expect(resolved.inlineCookies).toBeNull();
+    expect(resolved.attachRunning).toBe(false);
+    expect(resolved.browserTabRef).toBeNull();
+    expect(resolved.remoteChrome).toBeNull();
   });
 
   test("forces a single browser tab regardless of config and environment", () => {

@@ -1,5 +1,11 @@
 # Browser Mode
 
+> **Fork policy:** every CLI run uses browser manual-login with the persistent
+> `~/.oracle/browser-profile`. Profile selection, cookie copy/injection, copy-profile,
+> attach-running, remote-Chrome, and browser-tab inputs are accepted only as silent compatibility
+> no-ops. They are not printed, do not fail the command, and cannot change authentication. Browser
+> tasks share one queue slot.
+
 Oracle’s `--engine browser` supports three different execution paths:
 
 - **ChatGPT launcher mode** (GPT-\* models): Oracle launches Chrome itself and drives the ChatGPT web UI over CDP.
@@ -12,7 +18,7 @@ This fork routes every root CLI run through the ChatGPT web UI and persistent ma
 
 `--preview` now works with `--engine browser`: it renders the composed prompt, lists which files would be uploaded vs inlined, and shows the bundle location when bundling is enabled, without launching Chrome.
 
-## Quick example: browser mode with custom cookies
+## Quick example: browser mode
 
 ```bash
 # Minimal inline-cookies flow: keep ChatGPT logged in without Keychain
@@ -43,7 +49,10 @@ oracle --engine browser \
 
 You can pass the same payload inline (`--browser-inline-cookies '<json or base64>'`) or via env (`ORACLE_BROWSER_COOKIES_JSON`, `ORACLE_BROWSER_COOKIES_FILE`). Cloudflare cookies (`cf_clearance`, `__cf_bm`, etc.) are only needed when you hit a challenge.
 
-## Quick example: attach to your running Chrome
+## Legacy attach inputs
+
+The following upstream options are intentionally disabled in this fork. Older callers may still
+pass them, but Oracle silently ignores them and continues with its fixed persistent profile.
 
 Use this when you already have a signed-in Chrome session running with DevTools access enabled and want Oracle to reuse that browser instead of launching its own copy.
 

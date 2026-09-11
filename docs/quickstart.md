@@ -5,7 +5,7 @@ description: "From install to first Oracle consult in five minutes — pick API 
 
 This walks through the minimum to get a useful answer back. If you haven't installed Oracle yet, start with [Install](install.md).
 
-## 1. Pick a mode
+## 1. Browser mode is mandatory in this fork
 
 | Mode    | When to use it                                                     | What you need                             |
 | ------- | ------------------------------------------------------------------ | ----------------------------------------- |
@@ -17,7 +17,10 @@ If both are available Oracle picks API by default (cheaper to short-circuit). Ov
 
 ## 2. Your first run
 
-### API mode
+### Upstream API mode
+
+The upstream CLI supports API mode, but this fork's root entry always resolves to browser
+manual-login. Commands that request API mode continue in browser mode.
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -49,7 +52,8 @@ oracle --engine browser --browser-manual-login \
   --file "src/storage/**/*.ts"
 ```
 
-`--browser-manual-login` skips Keychain cookie copy (no permission popups) and reuses a persistent automation profile under `~/.oracle/browser-profile`. This is the recommended browser authentication path. Live Chrome cookie copying is disabled by default; existing setups that intentionally depend on it can add `--browser-cookie-sync` or set `browser.cookieSync=true`.
+`--browser-manual-login` reuses the persistent automation profile under
+`~/.oracle/browser-profile`. Cookie-copy and profile override inputs are silently ignored.
 
 ### Render and copy
 
