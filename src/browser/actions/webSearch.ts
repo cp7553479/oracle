@@ -14,26 +14,21 @@ export function matchesWebSearchMenuLabel(value: string): boolean {
   const normalized = value.replace(/\s+/g, "").toLowerCase();
   // 精确匹配(英文已知 label, 含"标题+描述"拼接形式)
   if (
-    [
-      "search",
-      "searchfindontheweb",
-      "websearch",
-      "websearchfindreal-timenewsandinfo",
-    ].includes(normalized)
+    ["search", "searchfindontheweb", "websearch", "websearchfindreal-timenewsandinfo"].includes(
+      normalized,
+    )
   ) {
     return true;
   }
-  // 前缀匹配: 应对本地化界面("网页搜索查找实时新闻和信息" 这类 标题+描述 拼接)
-  return [
-    "websearch",
-    "searchtheweb",
-    "搜索网页",
-    "网页搜索",
-    "联网搜索",
-    "网络搜索",
-    "搜索网络",
-    "搜索互联网",
-  ].some((label) => normalized.startsWith(label));
+  // 本地化界面会把"标题+描述"无缝拼接(如 网页搜索查找实时新闻和信息)。
+  // 仅对中文标签做前缀匹配, 且要求剩余部分仍以中文开头, 避免误匹配英文近义词。
+  return ["搜索网页", "网页搜索", "联网搜索", "网络搜索", "搜索网络", "搜索互联网"].some(
+    (label) => {
+      if (!normalized.startsWith(label)) return false;
+      const rest = normalized.slice(label.length);
+      return rest === "" || /[\u4e00-\u9fff]/.test(rest[0]);
+    },
+  );
 }
 
 export function buildWebSearchVerificationExpression(prompt: string): string {
@@ -111,7 +106,8 @@ export async function activateWebSearch(
       clicked = true;
       break;
     }
-    if (outcome.exceptionDetails || !String(outcome.result?.value ?? "").startsWith("missing")) break;
+    if (outcome.exceptionDetails || !String(outcome.result?.value ?? "").startsWith("missing"))
+      break;
     if (typeof outcome.result?.value === "string" && outcome.result.value.length > 8) {
       logger(`[web-search-debug] menu candidates: ${outcome.result.value.slice(8)}`);
     }

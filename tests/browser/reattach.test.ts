@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import { resumeBrowserSession, __test__ } from "../../src/browser/reattach.js";
 import * as chromeLifecycle from "../../src/browser/chromeLifecycle.js";
@@ -26,33 +26,26 @@ type FakeClient = {
 };
 
 describe("resumeBrowserSession", () => {
-  test("removes a temporary recovery profile created as cancellation arrives", async () => {
+  test("cancels before relaunch and never creates a temporary profile", async () => {
+    // Fork policy: reattach always reuses the persistent manual-login profile,
+    // so no temporary recovery profile exists to clean up on cancellation.
     const cancellation = new AbortController();
+    cancellation.abort();
     const launchChrome = vi.fn();
-    let profileDir = "";
-    const createTemporaryProfile = async () => {
-      profileDir = await mkdtemp(path.join(os.tmpdir(), "oracle-reattach-cancel-test-"));
-      cancellation.abort();
-      return profileDir;
-    };
+    const createTemporaryProfile = vi.fn(async () =>
+      mkdtemp(path.join(os.tmpdir(), "oracle-reattach-unreachable-")),
+    );
 
     await expect(
-      resumeBrowserSession(
-        {},
-        // Windows defaults to the persistent manual-login profile, so pin the
-        // temporary-profile path this test is exercising on every platform.
-        { manualLogin: false },
-        vi.fn() as BrowserLogger,
-        {
-          signal: cancellation.signal,
-          createTemporaryProfile,
-          launchChrome: launchChrome as never,
-        },
-      ),
+      resumeBrowserSession({}, { manualLogin: false }, vi.fn() as BrowserLogger, {
+        signal: cancellation.signal,
+        createTemporaryProfile,
+        launchChrome: launchChrome as never,
+      }),
     ).rejects.toThrow(BrowserRunCancelledError);
 
     expect(launchChrome).not.toHaveBeenCalled();
-    await expect(stat(profileDir)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(createTemporaryProfile).not.toHaveBeenCalled();
   });
 
   test("cancels an in-flight response wait without falling back to a new browser", async () => {
@@ -111,7 +104,7 @@ describe("resumeBrowserSession", () => {
       await resumeBrowserSession(
         {
           chromePort: 9222,
-          chromeProfileRoot: FIXED_PROFILE_DIR,
+          chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
           chromeBrowserWSEndpoint: "ws://127.0.0.1:9222/devtools/browser/approval-fixture",
           chromeTargetId: "saved-tab",
           tabUrl: "https://chatgpt.com/c/saved",
@@ -144,7 +137,7 @@ describe("resumeBrowserSession", () => {
     async (identityFails) => {
       const runtime = {
         chromePort: 51559,
-        chromeProfileRoot: FIXED_PROFILE_DIR,
+        chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
         chromeHost: "127.0.0.1",
         chromeTargetId: "target-1",
         tabUrl: "https://chatgpt.com/c/abc",
@@ -223,7 +216,7 @@ describe("resumeBrowserSession", () => {
   test("uses prompt preview turn index when reattaching to an already-open answer", async () => {
     const runtime = {
       chromePort: 51559,
-      chromeProfileRoot: FIXED_PROFILE_DIR,
+      chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/abc",
@@ -277,7 +270,7 @@ describe("resumeBrowserSession", () => {
   test("uses Deep Research completion path when reattaching research sessions", async () => {
     const runtime = {
       chromePort: 51559,
-      chromeProfileRoot: FIXED_PROFILE_DIR,
+      chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/deep",
@@ -372,7 +365,7 @@ describe("resumeBrowserSession", () => {
   test("tries live reattach from browser websocket metadata before falling back", async () => {
     const runtime = {
       chromeBrowserWSEndpoint: "ws://127.0.0.1:9222/devtools/browser/abc",
-      chromeProfileRoot: FIXED_PROFILE_DIR,
+      chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
       tabUrl: "https://chatgpt.com/c/abc",
       chromeTargetId: "target-2",
     };
@@ -433,7 +426,7 @@ describe("resumeBrowserSession", () => {
   test("closes the attached client before falling back to recovery", async () => {
     const runtime = {
       chromePort: 51559,
-      chromeProfileRoot: FIXED_PROFILE_DIR,
+      chromeProfileRoot: "/tmp/oracle-reattach-fixture-profile",
       chromeHost: "127.0.0.1",
       chromeTargetId: "target-1",
       tabUrl: "https://chatgpt.com/c/abc",

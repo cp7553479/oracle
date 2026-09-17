@@ -127,8 +127,6 @@ export async function acquireBrowserTabLease(
   const processStartedAtMs = await (deps.readProcessStartTimeMs ?? readProcessStartTimeMs)(pid);
   const leaseId = randomUUID();
   const startedAt = now();
-  let warned = false;
-  let lastHeartbeatAt = 0;
 
   for (;;) {
     options.signal?.throwIfAborted();
@@ -216,14 +214,9 @@ export async function acquireBrowserTabLease(
       };
     }
 
+    // Fork policy: queued runs wait silently — no progress logging while the
+    // single slot is busy, and no rejection. The slot wait has no timeout.
     const elapsed = now() - startedAt;
-    if (!warned || now() - lastHeartbeatAt >= 30_000) {
-      options.logger?.(
-        `[browser] Waiting for ChatGPT browser slot (${maxConcurrentTabs} max, ${Math.round(elapsed / 1000)}s elapsed).`,
-      );
-      warned = true;
-      lastHeartbeatAt = now();
-    }
     if (timeoutMs > 0 && elapsed >= timeoutMs) {
       throw new Error(
         `Timed out waiting for ChatGPT browser slot after ${Math.round(elapsed / 1000)}s (${maxConcurrentTabs} max).`,

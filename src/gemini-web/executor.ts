@@ -299,9 +299,10 @@ export function createGeminiWebExecutor(
           throw new Error(formatGeminiCookieError(cookieResult.warnings));
         }
 
+        const configuredTimeoutMs = browserConfig?.timeoutMs;
         const configTimeout =
-          typeof browserConfig.timeoutMs === "number" && Number.isFinite(browserConfig.timeoutMs)
-            ? Math.max(1_000, browserConfig.timeoutMs)
+          typeof configuredTimeoutMs === "number" && Number.isFinite(configuredTimeoutMs)
+            ? Math.max(1_000, configuredTimeoutMs)
             : null;
 
         const defaultTimeoutMs = geminiOptions.youtube

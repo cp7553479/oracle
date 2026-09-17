@@ -1,4 +1,5 @@
 import { BrowserAutomationError } from "../oracle/errors.js";
+import { dismissBlockingUi } from "./actions/navigation.js";
 import type { BrowserLogger, ChromeClient } from "./types.js";
 
 type ChatGptUiWarningType = "rate_limit" | "temporary_unavailable" | "auth_or_challenge";
@@ -242,21 +243,30 @@ export async function createAssistantTimeoutError(params: {
   diagnostics?: unknown;
   cause: unknown;
 }): Promise<BrowserAutomationError> {
-  const warningError = await createChatGptUiWarningError({
-    Runtime: params.Runtime,
-    logger: params.logger,
-    runtime: params.runtime,
-    stage: "assistant-timeout",
-    waitTarget: "the assistant",
-    diagnostics: params.diagnostics,
-    cause: params.cause,
-  });
-  if (!warningError) {
+  const warnings = await collectChatGptUiWarnings(params.Runtime);
+  const blocking = warnings.find((warning) => warning.type !== "rate_limit");
+  if (blocking) {
+    params.logger(`[browser] ChatGPT UI warning detected (${blocking.type}): ${blocking.message}`);
     return new BrowserAutomationError(
-      "Assistant response timed out before completion; reattach later to capture the answer.",
-      { stage: "assistant-timeout", runtime: params.runtime, diagnostics: params.diagnostics },
+      `ChatGPT displayed a ${formatChatGptUiWarningType(blocking.type)} warning while waiting for the assistant: ${blocking.message}`,
+      {
+        stage: "assistant-timeout",
+        code: "chatgpt-ui-warning",
+        uiWarning: blocking,
+        runtime: params.runtime,
+        diagnostics: params.diagnostics,
+      },
       params.cause,
     );
   }
-  return warningError;
+  // Fork policy: a rate-limit notice is not fatal by itself. Dismiss it
+  // silently and keep the generic timeout error so the run stays reattachable.
+  if (warnings.length > 0) {
+    await dismissBlockingUi(params.Runtime, params.logger, { silent: true }).catch(() => false);
+  }
+  return new BrowserAutomationError(
+    "Assistant response timed out before completion; reattach later to capture the answer.",
+    { stage: "assistant-timeout", runtime: params.runtime, diagnostics: params.diagnostics },
+    params.cause,
+  );
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { defaultManualLoginProfileDir } from "../../src/browser/config.js";
 import { runBrowserSessionExecution } from "../../src/browser/sessionRunner.js";
 import { createRemoteBrowserExecutor } from "../../src/remote/client.js";
 import { createRemoteServer } from "../../src/remote/server.js";
@@ -234,17 +235,19 @@ describe("browser provider routing", () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toContain("GEMINI_FIXTURE");
       expect(providers.chatgpt).not.toHaveBeenCalled();
+      // Fork policy: every browser run uses the persistent default profile and
+      // clears remote-Chrome sources, regardless of host or client input.
       expect(providers.gemini).toHaveBeenCalledWith(
         expect.objectContaining({
           config: expect.objectContaining({
             manualLogin: true,
-            manualLoginProfileDir: "/host-owned-profile",
+            manualLoginProfileDir: defaultManualLoginProfileDir(),
             inlineCookies: null,
             inlineCookiesSource: null,
           }),
         }),
       );
-      expect(providers.gemini.mock.calls[0]?.[0]?.config?.remoteChrome).toBeUndefined();
+      expect(providers.gemini.mock.calls[0]?.[0]?.config?.remoteChrome).toBeNull();
     } finally {
       await server.close();
     }
@@ -265,6 +268,8 @@ describe("browser provider routing", () => {
         ];
         const env = {
           ...process.env,
+          // Fork escape hatch: these tests exercise upstream's remote-host dispatch.
+          ORACLE_ALLOW_API_ENGINE: "1",
           ORACLE_HOME_DIR: home,
           ORACLE_NO_DETACH: "1",
           ORACLE_NOTIFY: "0",

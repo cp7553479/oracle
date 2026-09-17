@@ -41,7 +41,6 @@ import {
   ensureChatMode,
   waitForResumedConversationHydration,
   installJavaScriptDialogAutoDismissal,
-  dismissBlockingUi,
   ensureModelSelection,
   clearPromptComposer,
   waitForAssistantResponse,
@@ -67,7 +66,6 @@ import {
   classifyChatGptUiWarningText,
   collectChatGptUiWarnings,
   createAssistantTimeoutError,
-  throwChatGptUiWarningIfPresent,
 } from "./uiWarnings.js";
 import {
   activateDeepResearch,

@@ -650,7 +650,9 @@ describe("summarizeModelRunsForConsult", () => {
       })) as { isError?: boolean; content: Array<{ type: "text"; text: string }> };
 
       expect(result.isError).not.toBe(true);
-      expect(result.content[0]?.text).toContain("image-aware wait/download path");
+      // Fork policy: no image-presence polling — the normal response wait is
+      // followed by one immediate download attempt.
+      expect(result.content[0]?.text).toContain("one immediate download attempt");
     } finally {
       if (prevHost === undefined) delete process.env.ORACLE_REMOTE_HOST;
       else process.env.ORACLE_REMOTE_HOST = prevHost;

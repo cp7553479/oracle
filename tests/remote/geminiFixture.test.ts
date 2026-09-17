@@ -3,16 +3,34 @@ import { readFile } from "node:fs/promises";
 import { createRemoteServer } from "../../src/remote/server.js";
 import { resolveBrowserExecutor } from "../../src/browser/executor.js";
 
-const getCookies = vi.hoisted(() =>
-  vi.fn(async () => ({
-    cookies: [
-      { name: "__Secure-1PSID", value: "synthetic-host-session", domain: ".google.com" },
-      { name: "__Secure-1PSIDTS", value: "synthetic-host-timestamp", domain: ".google.com" },
-    ],
-    warnings: [],
-  })),
-);
-vi.mock("@steipete/sweet-cookie", () => ({ getCookies }));
+// Fork policy: host-side Gemini cookies come from the persistent manual-login
+// profile via CDP instead of the host keychain, so the fixture mocks the CDP
+// session used by loadGeminiCookiesFromCDP.
+const openGeminiBrowserSession = vi.hoisted(() => vi.fn());
+vi.mock("../../src/gemini-web/browserSessionManager.js", () => ({
+  openGeminiBrowserSession,
+}));
+
+function cdpSessionWithHostCookies() {
+  return {
+    client: {
+      Network: {
+        enable: vi.fn(async () => undefined),
+        getCookies: vi.fn(async () => ({
+          cookies: [
+            { name: "__Secure-1PSID", value: "synthetic-host-session", domain: ".google.com" },
+            { name: "__Secure-1PSIDTS", value: "synthetic-host-timestamp", domain: ".google.com" },
+          ],
+        })),
+      },
+      Page: {
+        enable: vi.fn(async () => undefined),
+        navigate: vi.fn(async () => undefined),
+      },
+    },
+    close: vi.fn(async () => undefined),
+  };
+}
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,9 +55,9 @@ test("remote Gemini executes the real web client against a recorded protocol fix
     }
     throw new Error(`Unexpected fixture request: ${url}`);
   });
+  openGeminiBrowserSession.mockResolvedValue(cdpSessionWithHostCookies());
   const server = await createRemoteServer({
     host: "127.0.0.1",
-    cookieSyncDefault: true,
     logger: () => {},
   });
   try {
@@ -57,7 +75,7 @@ test("remote Gemini executes the real web client against a recorded protocol fix
       },
     });
     expect(result.answerText).toBe("ORACLE_REMOTE_GEMINI_392_OK");
-    expect(getCookies).toHaveBeenCalledOnce();
+    expect(openGeminiBrowserSession).toHaveBeenCalledOnce();
     expect(requests).toHaveLength(2);
     expect(requests.every((url) => url.startsWith("https://gemini.google.com/"))).toBe(true);
   } finally {

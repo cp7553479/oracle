@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const CLI_ENTRY = path.join(process.cwd(), "bin", "oracle-cli.ts");
+// Fork escape hatch: these tests exercise upstream's full API-diagnosis surface.
+process.env.ORACLE_ALLOW_API_ENGINE = "1";
 const CLI_TIMEOUT = 15_000;
 
 describe("provider doctor CLI", () => {

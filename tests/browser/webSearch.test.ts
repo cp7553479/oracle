@@ -49,6 +49,13 @@ describe("Web Search inline selection", () => {
     expect(matchesWebSearchMenuLabel(`GitHub ${label}`)).toBe(false);
     expect(matchesWebSearchMenuLabel(`${label} settings`)).toBe(false);
   });
+  test("recognizes localized Chinese menu labels concatenated with their descriptions", () => {
+    expect(matchesWebSearchMenuLabel("网页搜索")).toBe(true);
+    expect(matchesWebSearchMenuLabel("网页搜索查找实时新闻和信息")).toBe(true);
+    expect(matchesWebSearchMenuLabel("联网搜索")).toBe(true);
+    expect(matchesWebSearchMenuLabel("网页搜索settings")).toBe(false);
+    expect(matchesWebSearchMenuLabel("GitHub网页搜索")).toBe(false);
+  });
   test.each(["search", "github"])("requires the exact search hint, not %s", (id) => {
     const chip = new Element(
       "span",

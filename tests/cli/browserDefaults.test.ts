@@ -5,6 +5,7 @@ import {
   type BrowserDefaultsOptions,
 } from "../../src/cli/browserDefaults.js";
 import type { UserConfig } from "../../src/config.js";
+import { buildBrowserConfig } from "../../src/cli/browserConfig.js";
 
 const source = (_key: keyof BrowserDefaultsOptions) => undefined;
 
