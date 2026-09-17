@@ -49,9 +49,13 @@ fork. Upstream refreshes must reapply and verify every requirement below.
   are deliberately allowlisted here.
 - Session management and service subcommands (`status`, `session`, `serve`,
   `doctor`, `tui`, and the rest) keep their full option sets.
-- `ORACLE_ALLOW_API_ENGINE=1` bypasses both the browser forcing and the
-  whitelist. The escape hatch exists solely so upstream's API integration tests
-  can exercise their original surface.
+- When no model comes from the CLI, saved configuration, or a multi-model
+  list, root runs default to `--model latest` with Medium effort (the
+  `standard` thinking level, which clicks ChatGPT's Medium label) instead of
+  upstream's `gpt-5.5-pro` default.
+- `ORACLE_ALLOW_API_ENGINE=1` bypasses the model default, the browser forcing,
+  and the whitelist. The escape hatch exists solely so upstream's API
+  integration tests can exercise their original surface.
 
 ## Queueing and concurrency
 

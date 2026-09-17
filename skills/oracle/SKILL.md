@@ -37,9 +37,9 @@ Use the globally linked local executable (`oracle`). Never use registry
   rely on them.
 - Session management subcommands (`oracle status`, `oracle session <id>`,
   `oracle serve`, `oracle doctor`, ...) keep their full option sets.
-- 若用户没有特殊要求的情况下，不建议指定模型和思考强度。默认使用
-  `--model latest`（ChatGPT 的 Latest，Medium 思考档）；只有用户点名要求时才
-  传 `--model` 选其他目标。
+- 若用户没有特殊要求的情况下，不建议指定模型和思考强度。不传 `--model` 时
+  CLI 自动按 Latest + Medium 思考档执行（等价于显式传 `--model latest`）；
+  只有用户点名要求时才传 `--model` 选其他目标。
 
 ## Main use case (browser, Latest Medium)
 
