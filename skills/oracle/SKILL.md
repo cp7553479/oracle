@@ -37,19 +37,20 @@ Use the globally linked local executable (`oracle`). Never use registry
   rely on them.
 - Session management subcommands (`oracle status`, `oracle session <id>`,
   `oracle serve`, `oracle doctor`, ...) keep their full option sets.
+- 若用户没有特殊要求的情况下，不建议指定模型和思考强度。默认使用
+  `--model latest`（ChatGPT 的 Latest，Medium 思考档）；只有用户点名要求时才
+  传 `--model` 选其他目标。
 
-## Main use case (browser, GPT-5.6)
+## Main use case (browser, Latest Medium)
 
-Use browser mode with GPT-5.6 when the ChatGPT account exposes it. GPT-5.6 Sol
-is the base target; Pro is handled as a separate picker target for difficult or
-long-running work and is reached with `--model gpt-5-pro`.
+Default target: `--model latest` — ChatGPT's `Latest` model at its Medium
+effort. Do not pin a model or thinking effort unless the user explicitly asks
+for one.
 
-Recommended defaults:
+Special targets, only when requested:
 
-- Engine: browser (forced; `--engine browser` optional)
 - Base Sol: `--model gpt-5.6-sol`
 - Maximum reasoning: `--model gpt-5-pro`
-- Fallback: explicitly use `--model gpt-5.5-pro` when GPT-5.6 is unavailable
 - Attachments: directories/globs plus excludes; never attach secrets by default
 
 Reasoning effort and picker strategy are decided by Oracle's defaults; callers
@@ -61,6 +62,7 @@ selection but does not, by itself, prove the server-side Pro generation.
 
 ## GPT-5.6 model selection
 
+- `latest`: ChatGPT's `Latest` entry at Medium effort — the default recommendation
 - `gpt-5.6`: follow the GPT-5.6 family default
 - `gpt-5.6-sol`: pin ChatGPT's `GPT-5.6 Sol` entry
 - Browser: `gpt-5-pro` selects ChatGPT's `Pro` target
@@ -84,7 +86,7 @@ stale node.
 ## Compatibility with npm 0.15.2
 
 Do not invoke an unpatched registry release from this fork. Use the globally
-linked local executable and fall back to `--model gpt-5.5-pro` if necessary.
+linked local executable.
 
 ## Golden path
 
@@ -107,7 +109,7 @@ linked local executable and fall back to `--model gpt-5.5-pro` if necessary.
   - `oracle --model gpt-5.6-sol -p "<task>" --file "src/**"`
 
 - Write the answer to a file:
-  - `oracle --model gpt-5.5-pro -p "<task>" --file "src/**" --write-output /tmp/answer.md`
+  - `oracle --model latest -p "<task>" --file "src/**" --write-output /tmp/answer.md`
 
 - Performance trace:
   - `oracle --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
