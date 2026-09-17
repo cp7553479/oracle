@@ -1,3 +1,4 @@
+import type { ProviderNativeCaptureSummary } from "./browser/chatgptConversation.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createWriteStream, mkdirSync } from "node:fs";
@@ -71,6 +72,8 @@ export interface BrowserSessionConfig {
   keepBrowser?: boolean;
   hideWindow?: boolean;
   desiredModel?: string | null;
+  /** The caller omitted a model and inherited Oracle's browser default. */
+  modelIsImplicitDefault?: boolean;
   modelStrategy?: BrowserModelStrategy;
   debug?: boolean;
   allowCookieErrors?: boolean;
@@ -88,6 +91,8 @@ export interface BrowserSessionConfig {
   archiveConversations?: BrowserArchiveMode;
   /** Browser-only: existing ChatGPT conversation URL to resume before submitting. */
   resumeConversationUrl?: string | null;
+  /** Capture ChatGPT's own conversation document plus independent per-turn digests. */
+  captureProviderNative?: boolean;
 }
 
 export interface BrowserRecoveryTarget {
@@ -113,6 +118,8 @@ export interface BrowserRuntimeMetadata {
   conversationId?: string;
   /** True after Oracle has submitted the prompt to ChatGPT. */
   promptSubmitted?: boolean;
+  /** Fingerprint of committed user text and stable message ID; null until commitment is confirmed. */
+  submittedPromptHash?: string | null;
   /** Latest Deep Research plan captured from ChatGPT's out-of-process iframe. */
   researchPlan?: BrowserResearchPlanMetadata;
   /** PID of the controller process that launched this browser run. Helps detect orphaned sessions. */
@@ -195,6 +202,7 @@ export interface BrowserMetadata {
   archive?: BrowserArchiveResult;
   modelSelection?: BrowserModelSelectionEvidence;
   thinkingSelection?: BrowserThinkingSelectionEvidence;
+  providerNativeCapture?: ProviderNativeCaptureSummary;
   warnings?: BrowserRunWarning[];
 }
 
@@ -735,7 +743,15 @@ export async function initializeSession(
     })),
     cwd,
     mode,
-    browser: browserConfig ? { config: browserConfig } : undefined,
+    browser:
+      mode === "browser"
+        ? {
+            ...(browserConfig ? { config: browserConfig } : {}),
+            runtime: { submittedPromptHash: null },
+          }
+        : browserConfig
+          ? { config: browserConfig }
+          : undefined,
     notifications,
     options: {
       prompt: options.prompt,

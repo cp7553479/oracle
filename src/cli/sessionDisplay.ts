@@ -488,7 +488,10 @@ export async function attachSession(
   }
 
   const shouldTrimIntro =
-    initialStatus === "completed" || initialStatus === "partial" || initialStatus === "error";
+    initialStatus === "completed" ||
+    initialStatus === "partial" ||
+    initialStatus === "error" ||
+    initialStatus === "cancelled";
   if (options?.renderPrompt !== false) {
     const prompt = await readStoredPrompt(sessionId);
     if (prompt) {
@@ -620,13 +623,17 @@ export async function attachSession(
 
   await printNew();
 
-  // biome-ignore lint/nursery/noUnnecessaryConditions: deliberate infinite poll
   while (true) {
     const latest = await sessionStore.readSession(sessionId);
     if (!latest) {
       break;
     }
-    if (latest.status === "completed" || latest.status === "partial" || latest.status === "error") {
+    if (
+      latest.status === "completed" ||
+      latest.status === "partial" ||
+      latest.status === "error" ||
+      latest.status === "cancelled"
+    ) {
       await printNew();
       flushRemainder();
       if (!options?.suppressMetadata) {
@@ -658,7 +665,11 @@ export async function attachSession(
       if (!settled) {
         break;
       }
-      if (settled.status === "completed" || settled.status === "partial") {
+      if (
+        settled.status === "completed" ||
+        settled.status === "partial" ||
+        settled.status === "cancelled"
+      ) {
         continue;
       }
       await printNew();

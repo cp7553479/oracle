@@ -76,6 +76,8 @@ For API runs, `--wait` executes the request in the foreground. Local Pro browser
 
 MCP callers can make the same ownership split explicit for any local run: call `consult` with `waitForCompletion:false`, then call `wait` with the returned session id. `wait.timeoutMs` bounds only the caller's wait; timeout, request cancellation, or MCP transport closure does not cancel the detached worker. Omit the timeout to wait until a terminal status, or use `0` for an immediate snapshot.
 
+Reattachment recognizes prompt echoes even when spacing or line breaks differ, and keeps waiting for assistant content instead of treating the echoed prompt as an answer.
+
 For browser runs, ChatGPT sometimes redirects mid-page-load. The auto-reattach flags poll the existing tab without manual intervention:
 
 ```bash
@@ -140,14 +142,35 @@ Every run gets a default slug derived from the prompt. Override with `--slug "my
 
 ## Browser harvest identity
 
+`oracle session <id> --harvest` and `--live` reuse the saved Chrome transport,
+including the browser WebSocket endpoint and approval wait for attach-running
+sessions. This supports Chrome configurations without HTTP target discovery.
+If the saved tab is gone, recovery reopens the saved conversation through the
+same endpoint. Keep Chrome running with remote debugging enabled and allow its
+connection prompt when requested; transport failures identify the operation and
+endpoint instead of displaying an empty error. Transient ChatGPT status notices
+appended outside the user content do not invalidate the submitted prompt hash;
+the stable user message ID and exact prompt text must still match.
+
 Browser harvest and live-tail compare the observed conversation with saved
 runtime, archive, artifact-source, and transcript-header identities. A mismatch
 is retained under `browser.harvest.integrity` and shown as a browser warning;
 an implicit harvest fails with `conversation-identity-mismatch` before exporting
 the newly harvested answer. Existing transcripts and answer logs are preserved.
 
-Legacy browser-tab overrides are silently ignored, so reattach remains scoped to the fixed-profile
-session metadata. Unavailable recorded transcript headers or unreadable recorded conversation URLs
+Implicit harvest also waits for an assistant answer paired with the latest user
+turn, up to the saved browser input timeout. New browser sessions record a
+fingerprint of each rendered, committed user turn and its stable message ID
+before waiting for its answer, including repeated follow-ups. A mismatch preserves the original output; an unconfirmed
+submission requires waiting or explicit tab inspection.
+
+Older sessions without a fingerprint retain their existing recovery behavior,
+with a warning that only latest user/assistant pairing can be checked. Their
+submitted file context cannot be reconstructed reliably from saved metadata.
+
+Legacy browser-tab overrides are silently ignored, so reattach remains scoped to
+the fixed-profile session metadata and cannot reassign the original capture.
+Unavailable recorded transcript headers or unreadable recorded conversation URLs
 are marked `unverified`. Matching known conversation IDs
 does not by itself prove that an answer belongs to the original prompt.
 

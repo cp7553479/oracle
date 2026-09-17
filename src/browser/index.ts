@@ -1,3 +1,4 @@
+import { readSubmittedPromptFingerprint, readUserMessageIds } from "./promptFingerprint.js";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -5,6 +6,7 @@ import net from "node:net";
 import { randomUUID } from "node:crypto";
 import { claimBrowserTarget } from "./targetClaim.js";
 import { resolveBrowserConfig } from "./config.js";
+import { redactBrowserConfigForDebugLog } from "./configLogging.js";
 import { copyChromeProfile } from "./profileCopy.js";
 import { BrowserCancellation, withoutBrowserCancellation } from "./cancellation.js";
 import type {
@@ -56,7 +58,17 @@ import { INPUT_SELECTORS } from "./constants.js";
 import { uploadAttachmentViaDataTransfer } from "./actions/remoteFileTransfer.js";
 import { ensureThinkingTime } from "./actions/thinkingTime.js";
 import { throwIfAssistantUiError } from "./actions/assistantResponse.js";
+import {
+  finalizeProviderNativeCapture,
+  type ProviderNativeCaptureSummary,
+} from "./chatgptConversation.js";
 import { startThinkingStatusMonitor } from "./actions/thinkingStatus.js";
+import {
+  classifyChatGptUiWarningText,
+  collectChatGptUiWarnings,
+  createAssistantTimeoutError,
+  throwChatGptUiWarningIfPresent,
+} from "./uiWarnings.js";
 import {
   activateDeepResearch,
   captureDeepResearchTargetKeys,
@@ -68,6 +80,7 @@ import { formatElapsed } from "../oracle/format.js";
 import type {
   BrowserModelSelectionEvidence,
   BrowserThinkingSelectionEvidence,
+  SessionArtifact,
 } from "../sessionStore.js";
 import { CHATGPT_URL, DEFAULT_MODEL_STRATEGY } from "./constants.js";
 import type { LaunchedChrome } from "chrome-launcher";
@@ -143,21 +156,6 @@ export {
   sanitizeThinkingText,
   startThinkingStatusMonitorForTest,
 } from "./actions/thinkingStatus.js";
-
-function redactBrowserConfigForDebugLog(config: Record<string, unknown>): Record<string, unknown> {
-  const redacted = { ...config };
-  if (Array.isArray(config.inlineCookies)) {
-    redacted.inlineCookies = `[redacted:${config.inlineCookies.length} cookies]`;
-    redacted.inlineCookieCount = config.inlineCookies.length;
-  }
-  return redacted;
-}
-
-export function redactBrowserConfigForDebugLogForTest(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
-  return redactBrowserConfigForDebugLog(config);
-}
 
 function isCloudflareChallengeError(error: unknown): error is BrowserAutomationError {
   if (!(error instanceof BrowserAutomationError)) return false;
@@ -238,13 +236,6 @@ export function classifyPreservedBrowserErrorForTest(
   return classifyPreservedBrowserError(error, headless);
 }
 
-// NOTE: Previously, shouldSkipThinkingTimeSelection() would skip the thinking
-// time UI step when desiredModel was gpt-5.5-pro and thinkingTime was "extended",
-// assuming that selecting "Pro Extended" in the old UI already implied Extended
-// effort. This is wrong for lower-tier plans ($100/mo Pro) where selecting "Pro"
-// defaults to Standard effort. ensureThinkingTime() already handles the
-// "already-selected" case as a no-op, so always attempting it is safe.
-
 type BrowserConfigWithThinkingTime = Pick<
   ResolvedBrowserConfig,
   "researchMode" | "thinkingTime"
@@ -258,259 +249,6 @@ function shouldApplyThinkingTimeSelection(
   // Deep Research uses the same effort picker, so research mode must not
   // suppress an explicitly configured thinking-time selection.
   return config.thinkingTime !== undefined;
-}
-
-type ChatGptUiWarningType = "rate_limit" | "temporary_unavailable" | "auth_or_challenge";
-
-type ChatGptUiWarning = {
-  type: ChatGptUiWarningType;
-  message: string;
-  source?: string | null;
-  role?: string | null;
-  ariaLive?: string | null;
-  selector?: string | null;
-};
-
-const MAX_CHATGPT_UI_WARNING_CHARS = 300;
-const MAX_CHATGPT_UI_WARNINGS = 3;
-
-function classifyChatGptUiWarningText(text: string): ChatGptUiWarningType | null {
-  const normalized = text.toLowerCase();
-  if (
-    /\btoo many requests\b/.test(normalized) ||
-    /\bsending too many requests\b/.test(normalized) ||
-    /\btoo quickly\b/.test(normalized) ||
-    /\btemporarily limited access\b/.test(normalized) ||
-    /\bplease wait a few minutes\b/.test(normalized) ||
-    /\brate limit(?:ed)?\b/.test(normalized) ||
-    /\bslow down\b/.test(normalized)
-  ) {
-    return "rate_limit";
-  }
-  if (
-    /\btemporarily unavailable\b/.test(normalized) ||
-    /\bsomething went wrong\b/.test(normalized) ||
-    /\bfailed to generate\b/.test(normalized) ||
-    /\btry again later\b/.test(normalized)
-  ) {
-    return "temporary_unavailable";
-  }
-  if (
-    /\bverify you are human\b/.test(normalized) ||
-    /\bunusual activity\b/.test(normalized) ||
-    /\bcloudflare\b/.test(normalized) ||
-    /\bchallenge\b/.test(normalized) ||
-    /\blogin required\b/.test(normalized) ||
-    /\bsign in\b/.test(normalized)
-  ) {
-    return "auth_or_challenge";
-  }
-  return null;
-}
-
-function sanitizeChatGptUiWarningText(text: string): string {
-  return text
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
-    .replace(
-      /\b((?:access|auth|session)[-_ ]?token|token)\s*[:=]\s*["']?[^\s"',;]+/gi,
-      "$1=[redacted]",
-    )
-    .replace(/\b(?:sk-(?:ant-|or-)?|xai-)[A-Za-z0-9_-]{8,}\b/g, "[redacted-token]");
-}
-
-function normalizeUiWarningCandidate(value: unknown): {
-  text: string;
-  source?: string | null;
-  role?: string | null;
-  ariaLive?: string | null;
-  selector?: string | null;
-} | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  const text =
-    typeof candidate.text === "string"
-      ? sanitizeChatGptUiWarningText(candidate.text.replace(/\s+/g, " ").trim())
-      : "";
-  if (!text) return null;
-  return {
-    text: text.slice(0, MAX_CHATGPT_UI_WARNING_CHARS),
-    source: typeof candidate.source === "string" ? candidate.source : null,
-    role: typeof candidate.role === "string" ? candidate.role : null,
-    ariaLive: typeof candidate.ariaLive === "string" ? candidate.ariaLive : null,
-    selector: typeof candidate.selector === "string" ? candidate.selector : null,
-  };
-}
-
-async function collectChatGptUiWarnings(
-  Runtime: ChromeClient["Runtime"],
-): Promise<ChatGptUiWarning[]> {
-  try {
-    const { result } = await Runtime.evaluate({
-      awaitPromise: true,
-      returnByValue: true,
-      expression: `(() => {
-        const warningPattern = /too many requests|sending too many requests|too quickly|temporarily limited access|please wait a few minutes|rate limit|rate limited|slow down|try again later|temporarily unavailable|something went wrong|failed to generate|verify you are human|unusual activity|cloudflare|challenge|login required|sign in/i;
-        const selectors = [
-          '[role="alert"]',
-          '[role="status"]',
-          '[role="dialog"]',
-          '[aria-live]',
-          '[data-testid*="toast" i]',
-          '[data-testid*="banner" i]',
-          '[data-testid*="error" i]',
-          '[class*="toast" i]',
-          '[class*="banner" i]'
-        ];
-        const isVisible = (element) => {
-          if (!(element instanceof HTMLElement)) return false;
-          let current = element;
-          while (current) {
-            const currentStyle = window.getComputedStyle(current);
-            if (
-              !currentStyle ||
-              currentStyle.display === 'none' ||
-              currentStyle.visibility === 'hidden' ||
-              currentStyle.visibility === 'collapse' ||
-              Number.parseFloat(currentStyle.opacity || '1') === 0
-            ) {
-              return false;
-            }
-            current = current.parentElement;
-          }
-          const rect = element.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        };
-        const describe = (element, source, selector = null) => ({
-          text: (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 1000),
-          source,
-          selector,
-          role: element.getAttribute('role'),
-          ariaLive: element.getAttribute('aria-live')
-        });
-        const out = [];
-        const seen = new Set();
-        const warningContainers = [];
-        const overlapsWarningContainer = (element) => warningContainers.some((container) => (
-          container !== element && (container.contains(element) || element.contains(container))
-        ));
-        const add = (element, entry) => {
-          if (!entry.text || !warningPattern.test(entry.text)) return;
-          const key = entry.text + '|' + (entry.role || '') + '|' + (entry.ariaLive || '');
-          if (seen.has(key)) return;
-          seen.add(key);
-          warningContainers.push(element);
-          out.push(entry);
-        };
-        for (const selector of selectors) {
-          if (out.length >= 5) break;
-          let elements = [];
-          try {
-            elements = Array.from(document.querySelectorAll(selector));
-          } catch {
-            elements = [];
-          }
-          for (const element of elements) {
-            if (out.length >= 5) break;
-            if (overlapsWarningContainer(element)) continue;
-            if (isVisible(element)) add(element, describe(element, 'selector', selector));
-          }
-        }
-        return out.slice(0, 5);
-      })()`,
-    });
-    const rawWarnings = Array.isArray(result?.value) ? result.value : [];
-    const warnings: ChatGptUiWarning[] = [];
-    const seen = new Set<string>();
-    for (const raw of rawWarnings) {
-      const candidate = normalizeUiWarningCandidate(raw);
-      if (!candidate) continue;
-      const type = classifyChatGptUiWarningText(candidate.text);
-      if (!type) continue;
-      const key = `${type}:${candidate.text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      warnings.push({
-        type,
-        message: candidate.text,
-        source: candidate.source,
-        role: candidate.role,
-        ariaLive: candidate.ariaLive,
-        selector: candidate.selector,
-      });
-      if (warnings.length >= MAX_CHATGPT_UI_WARNINGS) break;
-    }
-    return warnings;
-  } catch {
-    return [];
-  }
-}
-
-function formatChatGptUiWarningType(type: ChatGptUiWarningType): string {
-  switch (type) {
-    case "rate_limit":
-      return "rate-limit";
-    case "temporary_unavailable":
-      return "temporary-unavailable";
-    case "auth_or_challenge":
-      return "authentication/challenge";
-  }
-}
-
-async function createChatGptUiWarningError(params: {
-  Runtime: ChromeClient["Runtime"];
-  logger: BrowserLogger;
-  runtime: unknown;
-  stage: string;
-  waitTarget: string;
-  diagnostics?: unknown;
-  cause?: unknown;
-}): Promise<BrowserAutomationError | null> {
-  const [uiWarning] = await collectChatGptUiWarnings(params.Runtime);
-  if (!uiWarning) return null;
-
-  if (uiWarning.type === "rate_limit") {
-    await dismissBlockingUi(params.Runtime, params.logger, { silent: true }).catch(() => false);
-    return null;
-  }
-
-  params.logger(`[browser] ChatGPT UI warning detected (${uiWarning.type}): ${uiWarning.message}`);
-  return new BrowserAutomationError(
-    `ChatGPT displayed a ${formatChatGptUiWarningType(uiWarning.type)} warning while waiting for ${params.waitTarget}: ${uiWarning.message}`,
-    {
-      stage: params.stage,
-      code: "chatgpt-ui-warning",
-      uiWarning,
-      runtime: params.runtime,
-      diagnostics: params.diagnostics,
-    },
-    params.cause,
-  );
-}
-
-async function createAssistantTimeoutError(params: {
-  Runtime: ChromeClient["Runtime"];
-  logger: BrowserLogger;
-  runtime: unknown;
-  diagnostics?: unknown;
-  cause: unknown;
-}): Promise<BrowserAutomationError> {
-  const warningError = await createChatGptUiWarningError({
-    Runtime: params.Runtime,
-    logger: params.logger,
-    runtime: params.runtime,
-    stage: "assistant-timeout",
-    waitTarget: "the assistant",
-    diagnostics: params.diagnostics,
-    cause: params.cause,
-  });
-  if (!warningError) {
-    return new BrowserAutomationError(
-      "Assistant response timed out before completion; reattach later to capture the answer.",
-      { stage: "assistant-timeout", runtime: params.runtime, diagnostics: params.diagnostics },
-      params.cause,
-    );
-  }
-  return warningError;
 }
 
 /**
@@ -1007,6 +745,40 @@ function formatBrowserLeaseDiagnostics(options: {
   ].join("; ");
 }
 
+/**
+ * Provider-native capture, gated on explicit opt-in.
+ *
+ * Off by default because it costs two extra authenticated requests per run and
+ * only matters when a caller intends to treat the transcript as evidence rather
+ * than as an answer. When it is on and it fails, the run is unaffected: the
+ * summary records why, and nothing throws.
+ */
+async function runProviderNativeCapture(params: {
+  Runtime: ChromeClient["Runtime"];
+  config: ResolvedBrowserConfig;
+  conversationUrl?: string | null;
+  sessionId?: string;
+  answerMarkdown?: string;
+  answerMessageId?: string;
+  logger: BrowserLogger;
+}): Promise<{ summary?: ProviderNativeCaptureSummary; artifacts: SessionArtifact[] }> {
+  if (!params.config.captureProviderNative) {
+    return { artifacts: [] };
+  }
+  const conversationId = params.conversationUrl
+    ? extractConversationIdFromUrl(params.conversationUrl)
+    : undefined;
+  return finalizeProviderNativeCapture({
+    Runtime: params.Runtime,
+    conversationId,
+    conversationUrl: params.conversationUrl,
+    sessionId: params.sessionId,
+    answerMarkdown: params.answerMarkdown,
+    answerMessageId: params.answerMessageId,
+    logger: params.logger,
+  });
+}
+
 function buildSkippedModelSelectionEvidence(
   desiredModel: string | null | undefined,
   strategy: BrowserModelSelectionEvidence["strategy"],
@@ -1079,6 +851,7 @@ async function runBrowserModeInternal(
   let lastTargetId: string | undefined;
   let lastUrl: string | undefined;
   let promptSubmitted = false;
+  let submittedPromptHash: string | null = null;
   let ownedRecoveryTarget: BrowserRunResult["ownedRecoveryTarget"];
   const targetClaimId = randomUUID();
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
@@ -1099,6 +872,7 @@ async function runBrowserModeInternal(
       tabUrl: lastUrl,
       conversationId,
       promptSubmitted,
+      submittedPromptHash,
       ownedRecoveryTarget,
       userDataDir,
       controllerPid: process.pid,
@@ -1118,10 +892,8 @@ async function runBrowserModeInternal(
     }
   };
   const markPromptSubmitted = async (): Promise<void> => {
-    if (promptSubmitted) {
-      return;
-    }
     promptSubmitted = true;
+    submittedPromptHash = null;
     await emitRuntimeHint();
     void conversationUrlMonitor?.schedule("post-submit", config.timeoutMs ?? 120_000);
   };
@@ -1301,6 +1073,7 @@ async function runBrowserModeInternal(
   const startedAt = Date.now();
   let answerText = "";
   let answerMarkdown = "";
+  let answerMessageId: string | undefined;
   let answerHtml = "";
   let runStatus: "attempted" | "complete" | "cancelled" = "attempted";
   let connectionClosedUnexpectedly = false;
@@ -1408,6 +1181,7 @@ async function runBrowserModeInternal(
                     ? extractConversationIdFromUrl(liveness.matchedUrl ?? lastUrl ?? "")
                     : undefined,
                 promptSubmitted,
+                submittedPromptHash,
                 ownedRecoveryTarget,
                 controllerPid: process.pid,
                 researchPlan,
@@ -1659,7 +1433,10 @@ async function runBrowserModeInternal(
     if (config.desiredModel && modelStrategy !== "ignore" && !isResumingConversation) {
       modelSelectionEvidence = await raceWithDisconnect(
         withRetries(
-          () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+          () =>
+            ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy, {
+              implicitDefault: config.modelIsImplicitDefault,
+            }),
           {
             retries: 2,
             delayMs: 300,
@@ -1817,6 +1594,7 @@ async function runBrowserModeInternal(
         deepResearch && client
           ? await captureDeepResearchTargetBaseline(client, logger)
           : undefined;
+      const previousUserMessageIds = await readUserMessageIds(Runtime, config.inputTimeoutMs);
       await runProviderSubmissionFlow(chatgptDomProvider, {
         prompt,
         evaluate: async () => undefined,
@@ -1826,6 +1604,15 @@ async function runBrowserModeInternal(
       });
       await markPromptSubmitted();
       const providerBaselineTurns = providerState.baselineTurns;
+      const renderedPromptHash = await readSubmittedPromptFingerprint(
+        Runtime,
+        previousUserMessageIds,
+        config.inputTimeoutMs,
+      );
+      if (renderedPromptHash) {
+        submittedPromptHash = renderedPromptHash;
+        await emitRuntimeHint();
+      }
       if (typeof providerBaselineTurns === "number" && Number.isFinite(providerBaselineTurns)) {
         baselineTurns = providerBaselineTurns;
       }
@@ -1937,6 +1724,14 @@ async function runBrowserModeInternal(
           }),
         logger,
       );
+      const providerCapture = await runProviderNativeCapture({
+        Runtime,
+        config,
+        conversationUrl: lastUrl,
+        sessionId: options.sessionId,
+        answerMarkdown: researchResult.text,
+        logger,
+      });
       const transcriptArtifact = await saveOptionalArtifact(
         () =>
           saveBrowserTranscriptArtifact({
@@ -1944,12 +1739,18 @@ async function runBrowserModeInternal(
             prompt: promptText,
             answerMarkdown: researchResult.text,
             conversationUrl: lastUrl,
-            artifacts: appendArtifacts(undefined, [reportArtifact]),
+            artifacts: appendArtifacts(
+              appendArtifacts(undefined, [reportArtifact]),
+              providerCapture.artifacts,
+            ),
             logger,
           }),
         logger,
       );
-      const savedArtifacts = appendArtifacts(undefined, [reportArtifact, transcriptArtifact]);
+      const savedArtifacts = appendArtifacts(
+        appendArtifacts(undefined, [reportArtifact, transcriptArtifact]),
+        providerCapture.artifacts,
+      );
       const archive = await maybeArchiveCompletedConversation({
         Runtime,
         logger,
@@ -1963,6 +1764,7 @@ async function runBrowserModeInternal(
         answerMarkdown: researchResult.text,
         answerHtml: researchResult.html,
         artifacts: savedArtifacts,
+        providerNativeCapture: providerCapture.summary,
         archive,
         modelSelection: modelSelectionEvidence,
         thinkingSelection: thinkingSelectionEvidence,
@@ -1977,6 +1779,7 @@ async function runBrowserModeInternal(
         tabUrl: lastUrl,
         conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
         promptSubmitted,
+        submittedPromptHash,
         ownedRecoveryTarget,
         controllerPid: process.pid,
         researchPlan,
@@ -2081,6 +1884,7 @@ async function runBrowserModeInternal(
               tabUrl: lastUrl,
               conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
               promptSubmitted,
+              submittedPromptHash,
               ownedRecoveryTarget,
               controllerPid: process.pid,
             },
@@ -2148,6 +1952,7 @@ async function runBrowserModeInternal(
               tabUrl: lastUrl,
               conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
               promptSubmitted,
+              submittedPromptHash,
               ownedRecoveryTarget,
               controllerPid: process.pid,
             };
@@ -2322,6 +2127,7 @@ async function runBrowserModeInternal(
           turnAnswerMarkdown = bestText;
         }
       }
+      answerMessageId = turnAnswer.meta.messageId ?? undefined;
       return {
         label,
         answerText: turnAnswerText,
@@ -2408,6 +2214,19 @@ async function runBrowserModeInternal(
     });
     const savedImageArtifacts = appendArtifacts(undefined, imageArtifacts.savedImages);
     const savedBrowserArtifacts = appendArtifacts(savedImageArtifacts, fileArtifacts.savedFiles);
+    const providerCapture = await runProviderNativeCapture({
+      Runtime,
+      config,
+      conversationUrl: lastUrl,
+      sessionId: options.sessionId,
+      answerMarkdown,
+      answerMessageId,
+      logger,
+    });
+    const browserArtifactsWithCapture = appendArtifacts(
+      savedBrowserArtifacts,
+      providerCapture.artifacts,
+    );
     const transcriptArtifact = await saveOptionalArtifact(
       () =>
         saveBrowserTranscriptArtifact({
@@ -2415,12 +2234,12 @@ async function runBrowserModeInternal(
           prompt: promptText,
           answerMarkdown,
           conversationUrl: lastUrl,
-          artifacts: savedBrowserArtifacts,
+          artifacts: browserArtifactsWithCapture,
           logger,
         }),
       logger,
     );
-    const savedArtifacts = appendArtifacts(savedBrowserArtifacts, [transcriptArtifact]);
+    const savedArtifacts = appendArtifacts(browserArtifactsWithCapture, [transcriptArtifact]);
     const archive = await maybeArchiveCompletedConversation({
       Runtime,
       logger,
@@ -2441,6 +2260,7 @@ async function runBrowserModeInternal(
       answerMarkdown,
       answerHtml: answerHtml.length > 0 ? answerHtml : undefined,
       artifacts: savedArtifacts,
+      providerNativeCapture: providerCapture.summary,
       generatedImages: imageArtifacts.generatedImages,
       savedImages: imageArtifacts.savedImages,
       downloadableFiles: fileArtifacts.files,
@@ -2459,6 +2279,7 @@ async function runBrowserModeInternal(
       tabUrl: lastUrl,
       conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
       promptSubmitted,
+      submittedPromptHash,
       ownedRecoveryTarget,
       controllerPid: process.pid,
     };
@@ -2491,6 +2312,7 @@ async function runBrowserModeInternal(
         chromeTargetId: lastTargetId,
         tabUrl: lastUrl,
         promptSubmitted,
+        submittedPromptHash,
         ownedRecoveryTarget,
         controllerPid: process.pid,
       };
@@ -2568,6 +2390,7 @@ async function runBrowserModeInternal(
               ? extractConversationIdFromUrl(liveness.matchedUrl ?? lastUrl ?? "")
               : undefined,
           promptSubmitted,
+          submittedPromptHash,
           ownedRecoveryTarget,
           controllerPid: process.pid,
           researchPlan,
@@ -2902,31 +2725,6 @@ async function maybeRecoverLongAssistantResponse({
   return { answerText, answerMarkdown };
 }
 
-async function _assertNavigatedToHttp(
-  runtime: ChromeClient["Runtime"],
-  _logger: BrowserLogger,
-  timeoutMs = 10_000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let lastUrl = "";
-  while (Date.now() < deadline) {
-    const { result } = await runtime.evaluate({
-      expression: 'typeof location === "object" && location.href ? location.href : ""',
-      returnByValue: true,
-    });
-    const url = typeof result?.value === "string" ? result.value : "";
-    lastUrl = url;
-    if (/^https?:\/\//i.test(url)) {
-      return url;
-    }
-    await delay(250);
-  }
-  throw new BrowserAutomationError("ChatGPT session not detected; page never left new tab.", {
-    stage: "execute-browser",
-    details: { url: lastUrl || "(empty)" },
-  });
-}
-
 export type BrowserChrome = LaunchedChrome & { host?: string };
 
 function detachKeptChromeProcess(chrome: Pick<LaunchedChrome, "process">): void {
@@ -3091,6 +2889,7 @@ async function runRemoteBrowserMode(
   let tabLease: BrowserTabLease | null = null;
   let lastUrl: string | undefined;
   let promptSubmitted = false;
+  let submittedPromptHash: string | null = null;
   let ownedRecoveryTarget: BrowserRunResult["ownedRecoveryTarget"];
   const targetClaimId = randomUUID();
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
@@ -3113,6 +2912,7 @@ async function runRemoteBrowserMode(
           tabUrl: lastUrl,
           conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
           promptSubmitted,
+          submittedPromptHash,
           ownedRecoveryTarget,
           controllerPid: process.pid,
           researchPlan,
@@ -3131,16 +2931,15 @@ async function runRemoteBrowserMode(
     }
   };
   const markPromptSubmitted = async (): Promise<void> => {
-    if (promptSubmitted) {
-      return;
-    }
     promptSubmitted = true;
+    submittedPromptHash = null;
     await emitRuntimeHint();
     void conversationUrlMonitor?.schedule("post-submit", config.timeoutMs ?? 120_000);
   };
   const startedAt = Date.now();
   let answerText = "";
   let answerMarkdown = "";
+  let answerMessageId: string | undefined;
   let answerHtml = "";
   let connectionClosedUnexpectedly = false;
   let runStatus: "attempted" | "complete" | "cancelled" = "attempted";
@@ -3177,6 +2976,8 @@ async function runRemoteBrowserMode(
           connectToExistingChatGptTab({
             host,
             port,
+            browserWSEndpoint,
+            approvalWaitMs: config.approvalWaitMs,
             ref: tabRef,
           }),
         (attached) => attached.client.close(),
@@ -3305,7 +3106,10 @@ async function runRemoteBrowserMode(
     const modelStrategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY;
     if (config.desiredModel && modelStrategy !== "ignore" && !config.resumeConversationUrl) {
       modelSelectionEvidence = await withRetries(
-        () => ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy),
+        () =>
+          ensureModelSelection(Runtime, config.desiredModel as string, logger, modelStrategy, {
+            implicitDefault: config.modelIsImplicitDefault,
+          }),
         {
           retries: 2,
           delayMs: 300,
@@ -3424,6 +3228,7 @@ async function runRemoteBrowserMode(
         deepResearch && client
           ? await captureDeepResearchTargetBaseline(client, logger)
           : undefined;
+      const previousUserMessageIds = await readUserMessageIds(Runtime, config.inputTimeoutMs);
       await runProviderSubmissionFlow(chatgptDomProvider, {
         prompt,
         evaluate: async () => undefined,
@@ -3433,6 +3238,15 @@ async function runRemoteBrowserMode(
       });
       await markPromptSubmitted();
       const providerBaselineTurns = providerState.baselineTurns;
+      const renderedPromptHash = await readSubmittedPromptFingerprint(
+        Runtime,
+        previousUserMessageIds,
+        config.inputTimeoutMs,
+      );
+      if (renderedPromptHash) {
+        submittedPromptHash = renderedPromptHash;
+        await emitRuntimeHint();
+      }
       if (typeof providerBaselineTurns === "number" && Number.isFinite(providerBaselineTurns)) {
         baselineTurns = providerBaselineTurns;
       }
@@ -3507,6 +3321,14 @@ async function runRemoteBrowserMode(
           }),
         logger,
       );
+      const providerCapture = await runProviderNativeCapture({
+        Runtime,
+        config,
+        conversationUrl: lastUrl,
+        sessionId: options.sessionId,
+        answerMarkdown: researchResult.text,
+        logger,
+      });
       const transcriptArtifact = await saveOptionalArtifact(
         () =>
           saveBrowserTranscriptArtifact({
@@ -3514,12 +3336,18 @@ async function runRemoteBrowserMode(
             prompt: promptText,
             answerMarkdown: researchResult.text,
             conversationUrl: lastUrl,
-            artifacts: appendArtifacts(undefined, [reportArtifact]),
+            artifacts: appendArtifacts(
+              appendArtifacts(undefined, [reportArtifact]),
+              providerCapture.artifacts,
+            ),
             logger,
           }),
         logger,
       );
-      const savedArtifacts = appendArtifacts(undefined, [reportArtifact, transcriptArtifact]);
+      const savedArtifacts = appendArtifacts(
+        appendArtifacts(undefined, [reportArtifact, transcriptArtifact]),
+        providerCapture.artifacts,
+      );
       const archive = await maybeArchiveCompletedConversation({
         Runtime,
         logger,
@@ -3534,6 +3362,7 @@ async function runRemoteBrowserMode(
         answerMarkdown: researchResult.text,
         answerHtml: researchResult.html,
         artifacts: savedArtifacts,
+        providerNativeCapture: providerCapture.summary,
         archive,
         modelSelection: modelSelectionEvidence,
         thinkingSelection: thinkingSelectionEvidence,
@@ -3546,6 +3375,7 @@ async function runRemoteBrowserMode(
         tabUrl: lastUrl,
         conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
         promptSubmitted,
+        submittedPromptHash,
         ownedRecoveryTarget,
         controllerPid: process.pid,
         researchPlan,
@@ -3647,6 +3477,7 @@ async function runRemoteBrowserMode(
               tabUrl: lastUrl,
               conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
               promptSubmitted,
+              submittedPromptHash,
               ownedRecoveryTarget,
               controllerPid: process.pid,
             },
@@ -3712,6 +3543,7 @@ async function runRemoteBrowserMode(
               tabUrl: lastUrl,
               conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
               promptSubmitted,
+              submittedPromptHash,
               ownedRecoveryTarget,
               controllerPid: process.pid,
             };
@@ -3849,6 +3681,7 @@ async function runRemoteBrowserMode(
           turnAnswerMarkdown = bestText;
         }
       }
+      answerMessageId = turnAnswer.meta.messageId ?? undefined;
       return {
         label,
         answerText: turnAnswerText,
@@ -3927,6 +3760,19 @@ async function runRemoteBrowserMode(
     });
     const savedImageArtifacts = appendArtifacts(undefined, imageArtifacts.savedImages);
     const savedBrowserArtifacts = appendArtifacts(savedImageArtifacts, fileArtifacts.savedFiles);
+    const providerCapture = await runProviderNativeCapture({
+      Runtime,
+      config,
+      conversationUrl: lastUrl,
+      sessionId: options.sessionId,
+      answerMarkdown,
+      answerMessageId,
+      logger,
+    });
+    const browserArtifactsWithCapture = appendArtifacts(
+      savedBrowserArtifacts,
+      providerCapture.artifacts,
+    );
     const transcriptArtifact = await saveOptionalArtifact(
       () =>
         saveBrowserTranscriptArtifact({
@@ -3934,12 +3780,12 @@ async function runRemoteBrowserMode(
           prompt: promptText,
           answerMarkdown,
           conversationUrl: lastUrl,
-          artifacts: savedBrowserArtifacts,
+          artifacts: browserArtifactsWithCapture,
           logger,
         }),
       logger,
     );
-    const savedArtifacts = appendArtifacts(savedBrowserArtifacts, [transcriptArtifact]);
+    const savedArtifacts = appendArtifacts(browserArtifactsWithCapture, [transcriptArtifact]);
     const archive = await maybeArchiveCompletedConversation({
       Runtime,
       logger,
@@ -3974,8 +3820,10 @@ async function runRemoteBrowserMode(
       tabUrl: lastUrl,
       conversationId: lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined,
       promptSubmitted,
+      submittedPromptHash,
       ownedRecoveryTarget,
       artifacts: savedArtifacts,
+      providerNativeCapture: providerCapture.summary,
       generatedImages: imageArtifacts.generatedImages,
       savedImages: imageArtifacts.savedImages,
       downloadableFiles: fileArtifacts.files,
@@ -4025,6 +3873,7 @@ async function runRemoteBrowserMode(
             ? extractConversationIdFromUrl(liveness.matchedUrl ?? lastUrl ?? "")
             : undefined,
         promptSubmitted,
+        submittedPromptHash,
         ownedRecoveryTarget,
         controllerPid: process.pid,
         researchPlan,
@@ -4091,7 +3940,6 @@ async function runRemoteBrowserMode(
 export { estimateTokenCount } from "./utils.js";
 export { resolveBrowserConfig, DEFAULT_BROWSER_CONFIG } from "./config.js";
 
-// biome-ignore lint/style/useNamingConvention: test-only export used in vitest suite
 export const __test__ = {
   assertManualLoginProfileReadyForRun,
   closeRemoteConnectionAfterRun,
