@@ -111,7 +111,7 @@ describe("oracle CLI integration", () => {
     delete env.ORACLE_ALLOW_API_ENGINE;
     const result = await execCli(
       ["--engine", "api", "--dry-run", "json", "-p", "verify forced routing"],
-      { env },
+      { env, timeout: INTEGRATION_TIMEOUT },
     );
 
     expect(result.code).toBe(0);
@@ -119,8 +119,61 @@ describe("oracle CLI integration", () => {
     expect(result.stdout).toContain("Manual-login mode");
   });
 
+  test("continues a saved browser session with --followup under the forced engine", async () => {
+    const oracleHome = await mkdtemp(path.join(os.tmpdir(), "oracle-followup-browser-"));
+    const parentDir = path.join(oracleHome, "sessions", "sess-browser-parent");
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(
+      path.join(parentDir, "meta.json"),
+      JSON.stringify({
+        id: "sess-browser-parent",
+        status: "completed",
+        mode: "browser",
+        model: "gpt-5.5",
+        options: {
+          model: "gpt-5.5",
+          browserConfig: { manualLogin: true },
+        },
+        browser: {
+          config: { manualLogin: true },
+          runtime: { tabUrl: "https://chatgpt.com/c/parent-conversation" },
+        },
+      }),
+      "utf8",
+    );
+
+    const env: NodeJS.ProcessEnv = { ...process.env, ORACLE_HOME_DIR: oracleHome };
+    delete env.ORACLE_ALLOW_API_ENGINE;
+    const continued = await execCli(
+      [
+        "--followup",
+        "sess-browser-parent",
+        "--browser-follow-up",
+        "planned second turn",
+        "--dry-run",
+        "json",
+        "-p",
+        "continue the conversation",
+      ],
+      { env, timeout: INTEGRATION_TIMEOUT },
+    );
+    expect(continued.code).toBe(0);
+    expect(continued.stdout).toContain('"engine": "browser"');
+    expect(continued.stdout).toContain('"model": "gpt-5.5"');
+    expect(continued.stdout).toContain("Browser follow-ups: 1 additional prompt(s).");
+
+    const apiOnly = await execCli(
+      ["--followup", "resp_api_only_reference", "--dry-run", "json", "-p", "continue"],
+      { env, timeout: INTEGRATION_TIMEOUT },
+    );
+    expect(apiOnly.code).not.toBe(0);
+    expect(apiOnly.stderr).toContain("--followup requires --engine api");
+
+    await rm(oracleHome, { recursive: true, force: true });
+  });
+
   test("does not expose and silently ignores the removed --copy-profile flag", async () => {
-    const help = await execCli(["--help"]);
+    const help = await execCli(["--help"], { timeout: INTEGRATION_TIMEOUT });
     expect(help.code).toBe(0);
     expect(help.stdout).not.toContain("--copy-profile");
 
@@ -128,7 +181,7 @@ describe("oracle CLI integration", () => {
     delete env.ORACLE_ALLOW_API_ENGINE;
     const ignored = await execCli(
       ["--copy-profile", "/tmp/profile", "--dry-run", "json", "-p", "test"],
-      { env },
+      { env, timeout: INTEGRATION_TIMEOUT },
     );
     expect(ignored.code).toBe(0);
     expect(ignored.stderr).toBe("");
@@ -138,7 +191,7 @@ describe("oracle CLI integration", () => {
   test(
     "does not expose and silently ignores browser profile selection flags",
     async () => {
-      const help = await execCli(["--help"]);
+      const help = await execCli(["--help"], { timeout: INTEGRATION_TIMEOUT });
       expect(help.code).toBe(0);
       expect(help.stdout).not.toContain("--browser-manual-login-profile-dir");
 

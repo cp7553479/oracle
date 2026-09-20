@@ -31,6 +31,13 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 - `--copy-profile` and the other ignored compatibility options must not be exposed in CLI help.
   Low-level configuration must clear every copied-profile, cookie, attach, remote-Chrome, and tab
   source so CLI, MCP, remote, and reattach paths cannot activate one indirectly.
+- Conversation continuation stays browser-native and is whitelisted against upstream refreshes
+  (`PRESERVED_FOLLOWUP_FLAGS` in the CLI browser profile policy): `--followup <sessionId|slug>`
+  reopens the saved ChatGPT conversation of a browser parent session, and repeatable
+  `--browser-follow-up <prompt>` queues planned same-run turns. Both must keep working through
+  upstream refreshes. `--followup-model` is accepted as a silent pass-through; browser follow-ups
+  inherit the parent session's stored model, and API-only response-id references still fail closed
+  with the engine requirement error.
 
 ## Queueing and concurrency
 

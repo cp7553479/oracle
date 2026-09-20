@@ -5,6 +5,8 @@ description: "Continue a saved ChatGPT browser conversation or an OpenAI / Azure
 
 `--followup` chains a new run onto an existing session. Oracle selects the continuation path from the parent: ChatGPT browser sessions reopen the exact saved conversation, while OpenAI and Azure Responses API sessions use the stored provider response id. You can supply an additional prompt + files, and `oracle status` shows the parent/child lineage.
 
+This fork forces the browser engine for every run: `--followup` continues saved ChatGPT browser sessions directly and `--browser-follow-up` queues planned same-run turns, while API-only continuation (response ids or API parent sessions) fails closed because the API engine is unavailable outside the test escape hatch. Browser follow-ups inherit the parent session's model, so `--followup-model` has no effect on them.
+
 ## Why followup instead of starting fresh
 
 - **Cheaper.** You don't re-pay for the original input tokens.
