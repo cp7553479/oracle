@@ -232,6 +232,19 @@ export const MODEL_CONFIGS: Record<KnownModelName, ModelConfig> = {
     supportsBackground: false,
     supportsSearch: true,
   },
+  "gemini-3.6-flash": {
+    model: "gemini-3.6-flash",
+    provider: "google",
+    tokenizer: countTokensGpt5Pro as TokenizerFn,
+    inputLimit: 1_048_576,
+    pricing: {
+      inputPerToken: 1.5 / 1_000_000,
+      outputPerToken: 9 / 1_000_000,
+    },
+    reasoning: null,
+    supportsBackground: false,
+    supportsSearch: true,
+  },
   "gemini-3.1-flash-lite": {
     model: "gemini-3.1-flash-lite",
     provider: "google",

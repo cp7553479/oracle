@@ -86,7 +86,9 @@ fork. Upstream refreshes must reapply and verify every requirement below.
   `chatgpt-throttled` failure.
 - If model selection still fails for any reason, Oracle must silently skip model selection and use
   the model currently active in the ChatGPT page. Prompt submission and answer capture must
-  continue normally.
+  continue normally. This no-stall rule covers every provider: an unrecognized or unavailable
+  model name must never block or abort a run — browser flows continue with the page's default
+  model, and Gemini web runs fall back to their supported default model.
 - Notice dismissal, rescanning, and current-model fallback must not print CLI log messages. The
   fallback may remain in structured session metadata as unverified, skipped model evidence.
 

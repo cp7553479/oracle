@@ -325,7 +325,7 @@ describe("resolveRunOptionsFromConfig", () => {
   it("uses the API model id for current Gemini API models", () => {
     const flash = resolveRunOptionsFromConfig({
       prompt: basePrompt,
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       engine: "api",
     });
     const lite = resolveRunOptionsFromConfig({
@@ -334,7 +334,7 @@ describe("resolveRunOptionsFromConfig", () => {
       engine: "api",
     });
 
-    expect(flash.runOptions.effectiveModelId).toBe("gemini-3.5-flash");
+    expect(flash.runOptions.effectiveModelId).toBe("gemini-3.6-flash");
     expect(lite.runOptions.effectiveModelId).toBe("gemini-3.1-flash-lite");
   });
 

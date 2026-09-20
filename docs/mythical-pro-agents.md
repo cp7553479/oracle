@@ -19,7 +19,7 @@ The headline frontier models — the ones marked **Pro** — are slow, expensive
 | GPT-5.1               | API or browser | `gpt-5.1`               | "GPT-5.1"                 | General                                     |
 | GPT-5.1 Codex         | API only       | `gpt-5.1-codex`         | —                         | Code generation                             |
 | Gemini 3.1 Pro        | API or browser | `gemini-3.1-pro`        | "3.1 Pro"                 | Long-context multimodal, image gen, YouTube |
-| Gemini 3.5 Flash      | API or browser | `gemini-3.5-flash`      | "3.5 Flash"               | Fast all-around Gemini work                 |
+| Gemini 3.6 Flash      | API or browser | `gemini-3.6-flash`      | "3.6 Flash"               | Fast all-around Gemini work                 |
 | Gemini 3.1 Flash-Lite | API or browser | `gemini-3.1-flash-lite` | "3.1 Flash-Lite"          | Lowest-cost, fastest Gemini work            |
 | Claude Opus 4.1       | API only       | `claude-4.1-opus`       | —                         | Deepest single-shot reasoning               |
 | Claude Sonnet 4.6     | API only       | `claude-4.6-sonnet`     | —                         | Fast Claude                                 |

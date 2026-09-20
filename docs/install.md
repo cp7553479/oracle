@@ -43,7 +43,7 @@ API mode is opt-in and reads keys from the environment. Set whichever providers 
 | ------------ | ----------------------------------------------------------------- | ------------------------------------------------------- |
 | OpenAI       | `OPENAI_API_KEY`                                                  | GPT-5.x, GPT-5.x Pro, GPT-5.1 Codex                     |
 | Azure OpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `..._DEPLOYMENT` | Same models, hosted on Azure                            |
-| Google       | `GEMINI_API_KEY`                                                  | Gemini 3.1 Pro, Gemini 3.5 Flash, Gemini 3.1 Flash-Lite |
+| Google       | `GEMINI_API_KEY`                                                  | Gemini 3.1 Pro, Gemini 3.6 Flash, Gemini 3.1 Flash-Lite |
 | Anthropic    | `ANTHROPIC_API_KEY`                                               | Claude Sonnet 4.6, Claude Opus 4.1                      |
 | OpenRouter   | `OPENROUTER_API_KEY`                                              | Any OpenRouter id (e.g. `minimax/minimax-m2`)           |
 

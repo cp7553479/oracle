@@ -296,8 +296,11 @@ export function resolveApiModel(modelValue: string): ModelName {
     );
   }
   if (normalized.includes("gemini")) {
-    if (normalized.includes("3.5") && normalized.includes("flash")) {
-      return "gemini-3.5-flash";
+    if (
+      (normalized.includes("3.5") || normalized.includes("3.6")) &&
+      normalized.includes("flash")
+    ) {
+      return "gemini-3.6-flash";
     }
     if (
       (normalized.includes("3.1") || normalized.includes("3_1")) &&
@@ -367,8 +370,11 @@ export function inferModelFromLabel(modelValue: string): ModelName {
     return "gemini-3-pro-deep-think" as ModelName;
   }
   if (normalized.includes("gemini")) {
-    if (normalized.includes("3.5") && normalized.includes("flash")) {
-      return "gemini-3.5-flash";
+    if (
+      (normalized.includes("3.5") || normalized.includes("3.6")) &&
+      normalized.includes("flash")
+    ) {
+      return "gemini-3.6-flash";
     }
     if (
       (normalized.includes("3.1") || normalized.includes("3_1")) &&

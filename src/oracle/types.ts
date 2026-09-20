@@ -18,6 +18,7 @@ export type KnownModelName =
   | "gemini-3.1-flash-lite"
   | "gemini-3.1-pro"
   | "gemini-3.5-flash"
+  | "gemini-3.6-flash"
   | "gemini-3-pro"
   | "claude-4.6-sonnet"
   | "claude-4.1-opus"

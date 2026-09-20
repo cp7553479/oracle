@@ -414,7 +414,7 @@ Prefer to keep Chrome entirely on the remote Mac (no DevTools tunneling, no manu
    ```
 
    - `--remote-host` points the CLI at the VM.
-   - `--model gemini-3.5-flash` (or another supported Gemini browser model) selects the Gemini web executor on the host. Upgrade both endpoints for remote Gemini; see [Gemini](gemini.md) for supported options. GPT models keep the ChatGPT browser path.
+   - `--model gemini-3.6-flash` (or another supported Gemini browser model) selects the Gemini web executor on the host. Upgrade both endpoints for remote Gemini; see [Gemini](gemini.md) for supported options. GPT models keep the ChatGPT browser path.
    - `--remote-token` matches the token printed by `oracle serve` (set `ORACLE_REMOTE_TOKEN` to avoid repeating it).
    - You can also set defaults in `~/.oracle/config.json` (`browser.remoteHost`, `browser.remoteToken`) so you don’t need the flags; env vars still override those when present.
    - Cookies are **not** transferred from your laptop. The service reuses the dedicated automation profile on the host.

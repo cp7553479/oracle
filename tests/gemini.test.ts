@@ -61,7 +61,8 @@ describe("Gemini Client", () => {
   });
 
   it("keeps current stable Flash model ids", () => {
-    expect(resolveGeminiModelId("gemini-3.5-flash")).toBe("gemini-3.5-flash");
+    expect(resolveGeminiModelId("gemini-3.5-flash")).toBe("gemini-3.6-flash");
+    expect(resolveGeminiModelId("gemini-3.6-flash")).toBe("gemini-3.6-flash");
     expect(resolveGeminiModelId("gemini-3.1-flash-lite")).toBe("gemini-3.1-flash-lite");
   });
 

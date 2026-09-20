@@ -4,6 +4,7 @@ import type { BrowserLogger } from "../browser/types.js";
 export type GeminiWebModelId =
   | "gemini-3.1-flash-lite"
   | "gemini-3.5-flash"
+  | "gemini-3.6-flash"
   | "gemini-3.1-pro"
   | "gemini-3-pro-deep-think";
 
@@ -25,6 +26,12 @@ const MODEL_SPECS: Record<GeminiWebModelId, GeminiWebModelSpec> = {
     capacity: 2,
   },
   "gemini-3.5-flash": {
+    hash: "56fdd199312815e2",
+    modelCode: 1,
+    thinkingCode: 1,
+    capacity: 2,
+  },
+  "gemini-3.6-flash": {
     hash: "56fdd199312815e2",
     modelCode: 1,
     thinkingCode: 1,
@@ -91,7 +98,8 @@ export function resolveGeminiWebModel(
     case "gemini-3.0-pro":
       return "gemini-3.1-pro";
     case "gemini-3.5-flash":
-      return "gemini-3.5-flash";
+    case "gemini-3.6-flash":
+      return "gemini-3.6-flash";
     case "gemini-3.1-flash-lite":
     case "gemini-3.1-flashlite":
       return "gemini-3.1-flash-lite";

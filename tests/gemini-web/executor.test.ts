@@ -181,7 +181,7 @@ describe("gemini-web executor", () => {
       log: () => {},
     });
     expect(runGeminiWebWithFallback).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gemini-3.5-flash" }),
+      expect.objectContaining({ model: "gemini-3.6-flash" }),
     );
   });
 

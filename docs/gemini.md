@@ -18,7 +18,7 @@ Oracle supports Gemini in two distinct ways:
    ```
    Use an explicit current model ID:
    ```bash
-   oracle --engine api --model gemini-3.5-flash --prompt "..."
+   oracle --engine api --model gemini-3.6-flash --prompt "..."
    ```
    Gemini 3.1 Pro is also available; Oracle dispatches it to Google's preview model id:
    ```bash
@@ -42,7 +42,7 @@ Examples:
 
 ```bash
 # Text run
-oracle --engine browser --model gemini-3.5-flash --prompt "Say OK."
+oracle --engine browser --model gemini-3.6-flash --prompt "Say OK."
 
 # Deep Think browser run (manual-login profile recommended on macOS)
 oracle --engine browser --browser-manual-login \
@@ -62,14 +62,15 @@ oracle --engine browser --model gemini-3.1-pro \
 
 Notes:
 
-- Current explicit IDs are `gemini-3.1-flash-lite`, `gemini-3.5-flash`, and `gemini-3.1-pro`.
+- Current explicit IDs are `gemini-3.1-flash-lite`, `gemini-3.6-flash` (the current Flash
+  model; `gemini-3.5-flash` is accepted as an alias), and `gemini-3.1-pro`.
 - Legacy `gemini-3-pro`, `gemini-2.5-pro`, and `gemini-2.5-flash` browser names remain accepted and map to current Gemini web models.
 - If your logged-in Gemini account can’t access the requested model, Oracle auto-falls back to Gemini 3.1 Flash-Lite and logs the fallback in verbose mode.
 - Pass `--no-gemini-fallback` to fail instead when the requested web model is unavailable.
 - Gemini web requests accept response headers up to 64 KiB automatically, including Google's large security and reporting policies; no Node options are required. These requests honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (including lowercase equivalents) and Node's TLS trust configuration.
 - This path runs fully in Node/TypeScript (no Python/venv dependency).
 - Local MCP consultations and detached workers use the same Gemini executor as the CLI and preserve the session's saved Gemini options. The explicit model key takes precedence over ChatGPT picker labels.
-- Gemini browser runs also support `--remote-host`. Upgrade both endpoints, sign into Gemini on the service host, then run `oracle --engine browser --model gemini-3.5-flash --remote-host <host:port> --remote-token <token> --prompt "Say OK."`. New runs and restarts dispatch the Gemini web executor on that host; Google cookies and browser state stay there. Host manual-login profiles and `oracle serve --browser-attach-running` are supported. Text, file attachments, YouTube prompts, thoughts, and `--no-gemini-fallback` are forwarded; image generation/editing still require a local Gemini run.
+- Gemini browser runs also support `--remote-host`. Upgrade both endpoints, sign into Gemini on the service host, then run `oracle --engine browser --model gemini-3.6-flash --remote-host <host:port> --remote-token <token> --prompt "Say OK."`. New runs and restarts dispatch the Gemini web executor on that host; Google cookies and browser state stay there. Host manual-login profiles and `oracle serve --browser-attach-running` are supported. Text, file attachments, YouTube prompts, thoughts, and `--no-gemini-fallback` are forwarded; image generation/editing still require a local Gemini run.
 - `--browser-model-strategy` only affects ChatGPT automation; Gemini web always uses the explicit Gemini model ID.
 - `gemini-3-deep-think` is browser-only for now. `--engine api` rejects it instead of silently falling back to regular Gemini Pro.
 - Oracle intentionally does not expose generic `low` / `medium` / `high` Gemini aliases. Explicit IDs keep model choice, billing, and thinking-effort configuration distinct.
@@ -80,7 +81,7 @@ Notes:
 ### Gemini API adapter
 
 - `src/oracle/gemini.ts` — adapter using `@google/genai` that returns a `ClientLike`.
-  - Model IDs: `gemini-3.1-flash-lite` and `gemini-3.5-flash` use their stable API IDs; `gemini-3.1-pro` maps to `gemini-3.1-pro-preview`; legacy `gemini-3-pro` maps to `gemini-3-pro-preview`.
+  - Model IDs: `gemini-3.1-flash-lite` and `gemini-3.6-flash` use their stable API IDs; `gemini-3.1-pro` maps to `gemini-3.1-pro-preview`; legacy `gemini-3-pro` maps to `gemini-3-pro-preview`.
   - Request mapping: `OracleRequestBody` → Gemini request; `web_search_preview` maps to Gemini search tooling.
   - Response mapping: Gemini responses → `OracleResponse`.
   - Streaming: wraps Gemini’s async iterator as `ResponseStreamLike`.
