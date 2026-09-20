@@ -13,8 +13,10 @@ command, MCP method, or native desktop adapter.
 ## Transport
 
 This fork exposes exactly one execution transport: the persistent manual-login
-browser. Every root run is forced onto it; `--engine api`, `--render`, effort
-flags, and follow-up flags are silently discarded and must not be used.
+browser. Every root run is forced onto it; `--engine api`, `--render`, effort,
+and research flags are silently discarded and must not be used. Continuation
+flags (`--followup <sessionId|slug>`, repeatable `--browser-follow-up`) stay
+available for browser conversations.
 
 - **Browser:** use the authorized signed-in browser route. Pass the requested
   model with `--model`; Oracle records model-selection evidence in the session

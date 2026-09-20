@@ -28,11 +28,14 @@ Use the globally linked local executable (`oracle`). Never use registry
 - Root runs accept only this flag surface: the prompt (`-p/--prompt`,
   `--message`, or a positional prompt), attached files (`-f/--file` and its
   `--include/--files/--path/--paths` aliases), the AI/model selection
-  (`-m/--model`, `--models`), the output/download paths (`--write-output`,
-  `--output`), the engine/manual-login flags above, `--dry-run`, and the
-  `--perf-trace` diagnostics. Every other root flag — including legacy profile,
-  cookie, attach-running, remote-Chrome, browser-tab, thinking-time,
-  follow-up/research, archive, render/copy, notify, and timeout flags — is
+  (`-m/--model`, `--models`), the conversation-continuation flags (`--followup
+<sessionId|slug>` to reopen a saved ChatGPT browser conversation, repeatable
+  `--browser-follow-up <prompt>` for planned same-run turns, and
+  `--followup-model` as a pass-through), the output/download paths
+  (`--write-output`, `--output`), the engine/manual-login flags above,
+  `--dry-run`, and the `--perf-trace` diagnostics. Every other root flag —
+  including legacy profile, cookie, attach-running, remote-Chrome, browser-tab,
+  thinking-time, research, archive, render/copy, notify, and timeout flags — is
   silently discarded without a warning or error. Do not pass them and do not
   rely on them.
 - Session management subcommands (`oracle status`, `oracle session <id>`,
