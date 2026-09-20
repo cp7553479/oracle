@@ -37,3 +37,13 @@ Browser-mode debug notes (ChatGPT URL override)
 - Double-hop nav is implemented (root then target URL), but Cloudflare may still need manual clearance or inline cookies.
 - After finishing a feature, ask whether it matters to end users; if yes, update the changelog. Read the top ~100 lines first and group related edits into one entry instead of scattering multiple bullets.
 - Beta publishing: when asked to ship a beta to npm, bump the version with a beta suffix (e.g., `0.4.4-beta.1`) before publishing; npm will not let you overwrite an existing beta tag without a new version.
+
+<!-- memory-wiki:begin -->
+
+## Memory wiki
+
+Read `/Users/vincent/.agents/skills/memory-wiki/SKILL.md` and the relevant `wiki/**/INDEX.md` for project knowledge.
+Before the final reply, persist durable user-stated facts, corrections, decisions,
+relationships and preferences even without a request to remember; skip ephemeral
+or excluded information and follow the skill's provenance rules.
+<!-- memory-wiki:end -->
