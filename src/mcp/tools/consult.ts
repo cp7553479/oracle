@@ -72,7 +72,7 @@ const consultInputShape = {
     .enum(["api", "browser"])
     .optional()
     .describe(
-      "Execution engine. `api` uses OpenAI/other providers. `browser` automates the ChatGPT web UI (supports attachments and ChatGPT-only model labels). When omitted, Oracle follows CLI defaults: config/ORACLE_ENGINE first, then `api` when OPENAI_API_KEY is set, otherwise `browser`.",
+      "Execution engine. `api` uses provider APIs. `browser` uses ChatGPT automation or the local Gemini web client according to the model. Picker labels apply to ChatGPT only. When omitted, Oracle follows CLI defaults: config/ORACLE_ENGINE first, then `api` when OPENAI_API_KEY is set, otherwise `browser`.",
     ),
   browserModelLabel: z
     .string()
@@ -361,40 +361,43 @@ export function buildConsultBrowserConfig({
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
   const modelStrategy = browserModelStrategy ?? configuredBrowser.modelStrategy;
 
-  return resolveBrowserConfig({
-    ...configuredBrowser,
-    url: configuredUrl,
-    chatgptUrl: configuredUrl,
-    cookieSync: false,
-    headless: configuredBrowser.headless ?? false,
-    hideWindow: configuredBrowser.hideWindow ?? false,
-    keepBrowser: browserKeepBrowser ?? configuredBrowser.keepBrowser ?? false,
-    manualLogin,
-    manualLoginProfileDir: defaultManualLoginProfileDir(),
-    manualLoginCookieSync: false,
-    inlineCookies: null,
-    inlineCookiesSource: null,
-    chromeProfile: null,
-    chromeCookiePath: null,
-    copyProfileSource: null,
-    attachRunning: false,
-    browserTabRef: null,
-    remoteChrome: null,
-    remoteChromeBrowserWSEndpoint: null,
-    remoteChromeProfileRoot: null,
-    thinkingTime:
-      browserThinkingTime ??
-      configuredThinkingTime ??
-      resolveDefaultBrowserThinkingTime({
-        model: runModel,
-        requestedModel: inputModel,
-        modelStrategy,
-      }),
-    modelStrategy,
-    researchMode: browserResearchMode ?? configuredBrowser.researchMode,
-    archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
-    desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
-  });
+  return {
+    ...resolveBrowserConfig({
+      ...configuredBrowser,
+      url: configuredUrl,
+      chatgptUrl: configuredUrl,
+      cookieSync: false,
+      headless: configuredBrowser.headless ?? false,
+      hideWindow: configuredBrowser.hideWindow ?? false,
+      keepBrowser: browserKeepBrowser ?? configuredBrowser.keepBrowser ?? false,
+      manualLogin,
+      manualLoginProfileDir: defaultManualLoginProfileDir(),
+      manualLoginCookieSync: false,
+      inlineCookies: null,
+      inlineCookiesSource: null,
+      chromeProfile: null,
+      chromeCookiePath: null,
+      copyProfileSource: null,
+      attachRunning: false,
+      browserTabRef: null,
+      remoteChrome: null,
+      remoteChromeBrowserWSEndpoint: null,
+      remoteChromeProfileRoot: null,
+      thinkingTime:
+        browserThinkingTime ??
+        configuredThinkingTime ??
+        resolveDefaultBrowserThinkingTime({
+          model: runModel,
+          requestedModel: inputModel,
+          modelStrategy,
+        }),
+      modelStrategy,
+      researchMode: browserResearchMode ?? configuredBrowser.researchMode,
+      archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
+      desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
+    }),
+    modelIsImplicitDefault: !inputModel && !userConfig.model && !browserModelLabel,
+  };
 }
 
 export function buildConsultDryRunResolved({
@@ -592,15 +595,6 @@ export async function runConsultTool(
     requestLog(level, { text, bytes: Buffer.byteLength(text, "utf8") }).catch(() => {});
 
   const resolvedRemote = resolveRemoteServiceConfig({ userConfig, env: process.env });
-  const imageOutputPath = runOptions.generateImage ?? runOptions.outputPath;
-  if (resolvedEngine === "browser" && resolvedRemote.host && imageOutputPath) {
-    return {
-      isError: true,
-      content: textContent(
-        "ChatGPT image output is not supported with a remote browser service: generated files are not transferred back to the MCP caller. Unset ORACLE_REMOTE_HOST to generate images locally, or omit generateImage/outputPath.",
-      ),
-    };
-  }
   let browserConfig: BrowserSessionConfig | undefined;
   if (resolvedEngine === "browser") {
     browserConfig = buildConsultBrowserConfig({

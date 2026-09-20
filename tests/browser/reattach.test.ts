@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { resumeBrowserSession, __test__ } from "../../src/browser/reattach.js";
 import * as chromeLifecycle from "../../src/browser/chromeLifecycle.js";
 import type { BrowserLogger, ChromeClient } from "../../src/browser/types.js";
+import { BrowserRunCancelledError } from "../../src/oracle/errors.js";
 
 type FakeTarget = { id?: string; targetId?: string; type?: string; url?: string };
 const FIXED_PROFILE_DIR = path.join(os.homedir(), ".oracle", "browser-profile");
@@ -25,6 +26,60 @@ type FakeClient = {
 };
 
 describe("resumeBrowserSession", () => {
+  test("rejects a cancelled recovery before launching a replacement browser", async () => {
+    const cancellation = new AbortController();
+    cancellation.abort();
+    const launchChrome = vi.fn();
+
+    await expect(
+      resumeBrowserSession({}, {}, vi.fn() as BrowserLogger, {
+        signal: cancellation.signal,
+        launchChrome: launchChrome as never,
+      }),
+    ).rejects.toThrow(BrowserRunCancelledError);
+
+    expect(launchChrome).not.toHaveBeenCalled();
+  });
+
+  test("cancels an in-flight response wait without falling back to a new browser", async () => {
+    const cancellation = new AbortController();
+    const close = vi.fn(async () => {});
+    const recoverSession = vi.fn();
+    const waitForAssistantResponse = vi.fn(() => new Promise<never>(() => undefined));
+    const runtime = {
+      chromePort: 9222,
+      chromeTargetId: "saved-tab",
+      tabUrl: "https://chatgpt.com/c/saved",
+      chromeProfileRoot: FIXED_PROFILE_DIR,
+    };
+    const evaluate = vi.fn(async ({ expression }: { expression: string }) => ({
+      result: { value: expression === "location.href" ? runtime.tabUrl : 2 },
+    }));
+    const connect = vi.fn(async () => ({
+      Runtime: { enable: vi.fn(), evaluate },
+      DOM: { enable: vi.fn() },
+      close,
+    })) as unknown as (options?: unknown) => Promise<ChromeClient>;
+
+    const logger = vi.fn() as BrowserLogger;
+    const execution = resumeBrowserSession(runtime, { timeoutMs: 60_000 }, logger, {
+      signal: cancellation.signal,
+      listTargets: vi.fn(async () => [
+        { targetId: "saved-tab", type: "page", url: runtime.tabUrl },
+      ]),
+      connect,
+      waitForConversationHydration: vi.fn(async () => 2),
+      waitForAssistantResponse,
+      recoverSession,
+    });
+    await vi.waitFor(() => expect(waitForAssistantResponse).toHaveBeenCalledOnce());
+    cancellation.abort();
+
+    await expect(execution).rejects.toThrow(BrowserRunCancelledError);
+    expect(close).toHaveBeenCalledOnce();
+    expect(recoverSession).not.toHaveBeenCalled();
+  });
+
   test("uses the saved approval wait for both browser-level reattach connections", async () => {
     const list = vi
       .spyOn(chromeLifecycle, "listRemoteChromeTargets")

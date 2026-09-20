@@ -49,6 +49,13 @@ oracle --engine browser \
 
 You can pass the same payload inline (`--browser-inline-cookies '<json or base64>'`) or via env (`ORACLE_BROWSER_COOKIES_JSON`, `ORACLE_BROWSER_COOKIES_FILE`). Cloudflare cookies (`cf_clearance`, `__cf_bm`, etc.) are only needed when you hit a challenge.
 
+When no model is supplied on the command line or in configuration, Oracle keeps
+its existing browser default. If the visible ChatGPT selection is a newer model,
+Oracle prints a model-selection warning before switching and submitting the
+prompt. Pass `--model` to choose explicitly, or `--browser-model-strategy current`
+to retain ChatGPT's selection. Explicit models, saved model preferences, and
+`current`/`ignore` strategies do not produce this warning.
+
 ## Legacy attach inputs
 
 The following upstream options are intentionally disabled in this fork. Older callers may still
@@ -77,7 +84,7 @@ Notes:
     -p "Summarize the last assistant response in one paragraph"
   ```
 - Oracle first reads local `DevToolsActivePort` metadata. If no matching metadata exists, it probes the selected local endpoint's `/json/version` (including IPv6) for the browser websocket. Each of two attempts has a one-second deadline covering headers and the complete response body, with a 500 ms pause before retrying. It then reuses the normal CDP automation flow without taking ownership of the browser profile.
-- Chrome 144+ can show an **Allow remote debugging?** prompt for **each browser connection**, including reconnects and session reattach (which lists tabs and then attaches with separate connections). Approval for one connection does not approve the next. Keep **at least one Chrome window open**: a background-only Chrome started with `--no-startup-window` cannot display the approval sheet.
+- Chrome 144+ can show an **Allow remote debugging?** prompt for each browser WebSocket. Oracle shares one connection to the same browser endpoint for its process lifetime, including target discovery, page sessions, and successive `oracle serve` requests. Completing or cancelling a request detaches its page session while retaining the connection. An actual browser disconnect permits a new connection. Separate CLI processes still need separate approval; use one long-running `oracle serve` host to share approval across client commands. Keep **at least one Chrome window open** so Chrome can display the approval sheet.
 - Oracle waits 20 seconds per approval by default. Use `--browser-approval-wait 5m` to allow five minutes, `ORACLE_BROWSER_APPROVAL_WAIT=5m`, or `browser.approvalWaitMs: 300000` in configuration. Durations accept milliseconds or `ms`/`s`/`m`/`h` units; they must be positive. CLI flags override the environment, which overrides saved CLI configuration. Session reattach uses the saved wait (or the environment/default for older sessions). The service host controls its own approval wait. Oracle logs when each connection starts waiting and every 15 seconds until it connects or fails; click Allow for each prompt. It keeps a pending connection open rather than issuing parallel approval requests.
 - Attach mode always opens a fresh Oracle-owned tab and closes only that tab after a successful run.
 - Cookie sync, Chrome launch flags, and profile lifecycle flags are skipped because the browser is already running.
@@ -119,7 +126,7 @@ Notes:
 - If a controller dies while reserving a tab for retirement, the reservation remains in place to prevent another run from racing a pending close. The saved answer remains available; choose a new tab instead of reusing the reserved target.
 - `--browser-model-strategy <select|current|ignore>`: control ChatGPT model selection. `select` (default) switches to the requested model; `current` keeps the active model and logs its label; `ignore` skips the picker entirely. (Ignored for Gemini web runs.)
 - Temporary Chat can reduce account-sidebar clutter for one-shot browser consults, but it is a different ChatGPT workflow: Oracle skips archive attempts there and the local transcript/artifacts are the durable record. Verify live behavior before relying on Project Sources, Deep Research reports, or multi-turn persistence.
-- `--browser-thinking-time <light|standard|extended|extra-high|pro|heavy>`: set the ChatGPT thinking-time intensity (Thinking/Pro models only). On GPT-5.6 Sol, `extra-high` selects Extra High; a `heavy` request accepts an already-selected Pro pill but otherwise selects only a matching Heavy row. The generic current-Pro aliases (`gpt-5-pro`, `gpt-5.1-pro`, `gpt-5.2-pro`, and `gpt-5.4-pro`) follow ChatGPT's current Pro target and select GPT-5.6 Sol with Pro effort automatically. Use the explicit `--model gpt-5.5-pro` to pin the historical GPT-5.5 target, or pass another thinking-time value to override the alias default. The direct slider waits for its keyboard control to mount and become visible before sending a tier-changing keystroke. Because Pro is expensive and rate-limited, `pro` fails closed: an unconfirmed selection aborts the run rather than quietly submitting at a cheaper tier. Effort rows are matched in English, German (`Sofort`/`Mittel`/`Hoch`/`Sehr hoch`), Japanese, Chinese, and Korean (`즉시`/`중간`/`높음`/`매우 높음`); when the requested tier has no row in the current UI language, Oracle keeps the effort already selected in the tab instead of switching the model. In ChatGPT's unified Intelligence picker Oracle opens `Advanced` → `Model` first, verifies the requested version, then opens `Advanced` → `Effort`; if either opener label is not recognized it declines to guess which control to use. You can also set a default in `~/.oracle/config.json` via `browser.thinkingTime`.
+- `--browser-thinking-time <light|standard|extended|extra-high|pro|heavy>`: set the ChatGPT thinking-time intensity (Thinking/Pro models only). On GPT-5.6 Sol, `extra-high` selects Extra High; a `heavy` request accepts an already-selected Pro pill but otherwise selects only a matching Heavy row. The generic current-Pro aliases (`gpt-5-pro`, `gpt-5.1-pro`, `gpt-5.2-pro`, and `gpt-5.4-pro`) follow ChatGPT's current Pro target and select GPT-5.6 Sol with Pro effort automatically. Use the explicit `--model gpt-5.5-pro` to pin the historical GPT-5.5 target, or pass another thinking-time value to override the alias default. The direct slider waits for its keyboard control to mount and become visible before sending a tier-changing keystroke. It supports both the five-tier layout and the quota-limited four-tier layout, whose maximum remains Extra High; requesting Pro on the four-tier layout reports it unavailable before sending input or submitting. Because Pro is expensive and rate-limited, `pro` fails closed: an unconfirmed selection aborts the run rather than quietly submitting at a cheaper tier. Effort rows are matched in English, German (`Sofort`/`Mittel`/`Hoch`/`Sehr hoch`), Japanese, Chinese, and Korean (`즉시`/`중간`/`높음`/`매우 높음`); when the requested tier has no row in the current UI language, Oracle keeps the effort already selected in the tab instead of switching the model. In ChatGPT's unified Intelligence picker Oracle opens `Advanced` → `Model` first, verifies the requested version, then opens `Advanced` → `Effort`; if either opener label is not recognized it declines to guess which control to use. You can also set a default in `~/.oracle/config.json` via `browser.thinkingTime`.
 - When a thinking tier is requested, `browser.thinkingSelection` records the requested level, observed selected label, verification status, strict-failure policy, and capture time. `oracle status <id>` displays this separately from model-selection evidence, and remote runs retain it in the structured result. An unverified result does not claim a selected tier; strict Pro requests still stop before submission when selection cannot be confirmed. This is UI evidence at `capturedAt`, not proof of backend effort or of later UI state.
 - GPT-5.5 Pro Extended is verified from the selected item in ChatGPT's standalone Pro/Thinking effort pill or compatible Intelligence/model-picker menu. A run **fails closed** if Extended cannot be confirmed rather than silently submitting at a weaker effort. Detection failures write a bounded, redacted model-picker diagnostic to the normal session log.
 - In the direct-slider picker without an Advanced → Effort submenu, Oracle adjusts the five-tier slider with arrow keys and verifies its associated tier announcement and numeric value together. A rightmost thumb without a confirmed `Pro` label never satisfies a Pro request; unknown ranges or inconsistent feedback fail verification.
@@ -132,6 +139,7 @@ Notes:
 - `ORACLE_CHATGPT_ACCOUNT_EMAIL`: exact saved-account email to select if ChatGPT shows its “Welcome back” account picker. Set it on the machine running browser automation. Oracle never logs the address; without it, Oracle selects only a single unambiguous saved account and fails closed when several are present.
 - `--browser-cookie-sync` explicitly copies cookies from live Chrome into the temporary automation profile. Prefer `--browser-manual-login` (persistent automation profile + user-driven login), inline cookies, or attach-running mode; copied ChatGPT session tokens may rotate in the automation browser and invalidate the live Chrome session. `--browser-no-cookie-sync` remains as a compatibility override for configurations that enabled copying.
 - `--browser-headless`, `--browser-hide-window`, `--browser-keep-browser`, and the global `-v/--verbose` flag control the launcher and diagnostics. On macOS, Oracle records a locally launched window before positioning it off-screen, then restores that recorded placement on a later visible run. Windows without Oracle's saved marker—including valid negative-coordinate placements on another display—remain untouched; attach-running and remote Chrome windows are never repositioned by this policy.
+- Verbose browser diagnostics replace inline cookie payloads with a cookie count, including the saved session log.
 - `--copy-profile` is not available in this fork. Use the persistent manual-login profile directory to switch accounts.
 - `--browser-url`: override ChatGPT base URL if needed.
 - `--browser-attachments <auto|never|always>`: control how `--file` inputs are delivered in browser mode. Default `auto` pastes text contents inline up to ~60k characters and uploads larger or raw files. `never` requires inline-compatible text inputs and rejects raw/binary files.
@@ -143,7 +151,7 @@ Notes:
 - `--browser-bundle-files`: force one browser upload bundle, including when `auto` would otherwise paste small files inline. With `auto` or `zip`, it contains all resolved attachments. Explicit `text` can flatten only text/source files, leaving native attachments separate. Without this flag, Oracle already bundles multiple text/source uploads while leaving images, PDFs, archives, and other native attachments separate when the 10-attachment limit permits. Generated `oracle-browser-bundle-*` directories are deleted after the run or dry-run.
 - `--browser-bundle-format <auto|text|zip>`: choose the bundle format. `auto` keeps the established flattened-text bundle for text-only uploads and uses a byte-preserving ZIP when raw/native files are present; `text` always flattens; `zip` always archives. ZIP inputs are capped at 128 MiB because bundle creation is in-memory. Oracle adds a short composer instruction telling ChatGPT to extract ZIP bundles into its sandbox before inspection.
 - sqlite bindings: automatic rebuilds now require `ORACLE_ALLOW_SQLITE_REBUILD=1`. Without it, the CLI logs instructions instead of running `pnpm rebuild` on your behalf.
-- `--model gpt-6-pro` (or `gpt-6`, `gpt-6-astra`, `latest`): GPT-6 Astra. ChatGPT shows it as the **Latest** model of the advanced picker rather than as a named entry; `gpt-6-pro` also selects the Pro power tier by default (composer pill "6 Pro"), and Oracle only reports it as selected when that radio is checked or the pill reads "6 …" (never "5.6 …").
+- `--model gpt-6-pro` (or `gpt-6`, `gpt-6-astra`, `latest`): GPT-6 Astra. ChatGPT shows it as the **Latest** model of the advanced picker rather than as a named entry; `gpt-6-pro` also selects the Pro power tier by default (composer pill "6 Pro"), and Oracle only reports it as selected when that radio is checked or the pill reads "6 …" (never "5.6 …"). An explicit CLI `--model gpt-6-pro` keeps its Pro effort even when saved browser settings specify another tier; an explicit `--browser-thinking-time` still wins, and config-only model/effort preferences remain unchanged.
 - `--model`: the same GPT-5.6 aliases work in API and browser mode. Use `gpt-5.6` for the current GPT-5.6 default or `gpt-5.6-sol` to pin Sol; browser mode maps either alias to the `GPT-5.6 Sol` picker entry, while API mode sends the corresponding first-party OpenAI model ID. GPT-5.2 base, Instant, and Thinking aliases remain available through the API but browser mode rejects them because ChatGPT retired those picker entries. Legacy Pro aliases (`gpt-5-pro`, etc.) still resolve to the GPT-5.6 Sol target.
 - Live Chrome cookie copying is disabled by default. The recommended migration is `--browser-manual-login`, which keeps token rotation inside a dedicated persistent automation profile. To retain the old launcher behavior, pass `--browser-cookie-sync` or set `browser.cookieSync=true` in the user config; Oracle warns about the live-session invalidation risk. When enabled, cookie copy is mandatory—if Oracle cannot copy cookies, the run exits early. Oracle copies a small ChatGPT auth/Cloudflare allowlist to avoid oversized request headers; use `--browser-cookie-names` only when you need to override that set.
 - Attach-running mode is mutually exclusive with launcher-owned flags such as `--browser-manual-login`, `--browser-chrome-profile`, `--browser-cookie-path`, `--browser-hide-window`, `--browser-keep-browser`, and `--browser-port`. `--remote-chrome` is allowed in attach-running mode, but only as the local host:port hint used for metadata discovery and the endpoint fallback. `--browser-chrome-path` is accepted but ignored.
@@ -393,7 +401,7 @@ Prefer to keep Chrome entirely on the remote Mac (no DevTools tunneling, no manu
    ```
 
    Use `--host`, `--port`, or `--token` to override the defaults if needed.
-   On first use, sign in to ChatGPT in the dedicated automation Chrome window. The service keeps that profile for later runs.
+   On first use, sign in to ChatGPT or Gemini in the dedicated automation Chrome window, according to the models you use. The service keeps that profile for later runs.
 
 2. **Run from your laptop**
 
@@ -406,6 +414,7 @@ Prefer to keep Chrome entirely on the remote Mac (no DevTools tunneling, no manu
    ```
 
    - `--remote-host` points the CLI at the VM.
+   - `--model gemini-3.5-flash` (or another supported Gemini browser model) selects the Gemini web executor on the host. Upgrade both endpoints for remote Gemini; see [Gemini](gemini.md) for supported options. GPT models keep the ChatGPT browser path.
    - `--remote-token` matches the token printed by `oracle serve` (set `ORACLE_REMOTE_TOKEN` to avoid repeating it).
    - You can also set defaults in `~/.oracle/config.json` (`browser.remoteHost`, `browser.remoteToken`) so you don’t need the flags; env vars still override those when present.
    - Cookies are **not** transferred from your laptop. The service reuses the dedicated automation profile on the host.
@@ -459,3 +468,45 @@ Restart all browser controllers together after upgrading: older live controllers
 used a different lock-timeout recovery rule. Existing stored lease records remain
 readable. Native Windows shared-profile Chrome is detached from its launching
 controller; this does not change temporary or copied-profile launch policy.
+
+### Provider-native conversation evidence
+
+`--browser-capture-provider-native` additionally saves ChatGPT's full conversation
+JSON, verbatim, and an evidence JSON file in the session's `artifacts/` directory.
+It is off by default. Set `browser.captureProviderNative: true` in your user
+config to enable it; `--no-browser-capture-provider-native` overrides that preference.
+Project configs and remote bridge clients cannot enable this export. Direct
+remote-Chrome runs use the same capture path as local Chrome.
+
+The raw record may include prior turns, alternate branches, attachments, and
+provider metadata, beyond the current answer. Files use owner-only permissions
+on POSIX and follow normal session retention/cleanup. `--write-artifacts` can
+export them with other session artifacts; copies have their own retention.
+Treat the full raw record as conversation data when sharing it.
+
+Capture uses ChatGPT's undocumented conversation endpoint from the authenticated
+page and reuses Oracle's existing Chrome connection. Two independent fetches
+produce the raw record and in-page SHA-256 digests. The second body never crosses
+the browser boundary. Document hashes may differ because provider metadata
+changes; this alone is not an answer-fidelity failure.
+
+The evidence format is `oracle.provider-native-capture-evidence/v1`, with
+`text-fields-v1` normalization: string-only text parts and thought contents join
+with two newlines; code/execution output use `text`; reasoning recaps use
+`content`. Mixed multimodal and unknown content have null digests, while their
+original bytes remain in the raw record. This format does not claim compatibility
+with external Python JSON normalization.
+
+`browser.providerNativeCapture` in session metadata records `matched`, `divergent`,
+or `unknown`. A match requires the captured assistant's message ID on the active
+provider branch and exact UTF-8 text, optionally trimming Oracle's surrounding
+whitespace. User turns, earlier answers, and alternate branches cannot substitute
+for that message. Deep Research reports without an assistant message ID, unsupported
+content, missing IDs, and failed evidence fetches report `unknown`.
+
+The existing copy-button/DOM answer is still returned. Capture is optional evidence
+and never fails the answer: temporary chats, bot challenges, invalid responses,
+disconnects, and write failures record a typed reason. Fetching/draining has a
+30-second total budget and an 8 MiB limit per document. Tokens stay in the page;
+logs and failure summaries contain fixed reasons rather than response bodies or
+exception details. The raw artifact is unchanged provider data, not a redacted transcript.

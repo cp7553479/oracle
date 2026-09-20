@@ -242,7 +242,10 @@ export function createGeminiWebExecutor(
 
     log?.("[gemini-web] Starting Gemini web executor (TypeScript)");
 
-    const model: GeminiWebModelId = resolveGeminiWebModel(browserConfig.desiredModel, log);
+    const model: GeminiWebModelId = resolveGeminiWebModel(
+      runOptions.model ?? runOptions.config?.desiredModel,
+      log,
+    );
     const generateImagePath = resolveInvocationPath(geminiOptions.generateImage);
     const editImagePath = resolveInvocationPath(geminiOptions.editImage);
     const outputPath = resolveInvocationPath(geminiOptions.outputPath);
@@ -290,13 +293,14 @@ export function createGeminiWebExecutor(
     const httpClient: IGeminiExecutionClient = {
       mode: "http",
       execute: async () => {
+        runOptions.signal?.throwIfAborted();
         const cookieResult = await loadGeminiCookies(browserConfig, log);
         if (!hasRequiredGeminiCookies(cookieResult.cookieMap)) {
           throw new Error(formatGeminiCookieError(cookieResult.warnings));
         }
 
         const configTimeout =
-          typeof browserConfig.timeoutMs === "number" && Number.isFinite(browserConfig.timeoutMs)
+          typeof browserConfig?.timeoutMs === "number" && Number.isFinite(browserConfig.timeoutMs)
             ? Math.max(1_000, browserConfig.timeoutMs)
             : null;
 
@@ -309,6 +313,9 @@ export function createGeminiWebExecutor(
         const timeoutMs = Math.min(configTimeout ?? defaultTimeoutMs, 600_000);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const deliverySignal = runOptions.signal
+          ? AbortSignal.any([controller.signal, runOptions.signal])
+          : controller.signal;
 
         let response: GeminiWebResponse;
 
@@ -320,7 +327,7 @@ export function createGeminiWebExecutor(
               model,
               cookieMap: cookieResult.cookieMap,
               chatMetadata: null,
-              signal: controller.signal,
+              signal: deliverySignal,
               allowModelFallback: geminiOptions.allowModelFallback,
             });
             const editPrompt = `Use image generation tool to ${prompt}`;
@@ -330,7 +337,7 @@ export function createGeminiWebExecutor(
               model,
               cookieMap: cookieResult.cookieMap,
               chatMetadata: intro.metadata,
-              signal: controller.signal,
+              signal: deliverySignal,
               allowModelFallback: geminiOptions.allowModelFallback,
             });
             response = {
@@ -345,7 +352,7 @@ export function createGeminiWebExecutor(
               out,
               cookieResult.cookieMap,
               resolvedOutputPath,
-              controller.signal,
+              deliverySignal,
             );
             response.has_images = imageSave.saved;
             response.image_count = imageSave.imageCount;
@@ -361,7 +368,7 @@ export function createGeminiWebExecutor(
               model,
               cookieMap: cookieResult.cookieMap,
               chatMetadata: null,
-              signal: controller.signal,
+              signal: deliverySignal,
               allowModelFallback: geminiOptions.allowModelFallback,
             });
             response = {
@@ -374,7 +381,7 @@ export function createGeminiWebExecutor(
               out,
               cookieResult.cookieMap,
               generateImagePath,
-              controller.signal,
+              deliverySignal,
             );
             response.has_images = imageSave.saved;
             response.image_count = imageSave.imageCount;
@@ -390,7 +397,7 @@ export function createGeminiWebExecutor(
               model,
               cookieMap: cookieResult.cookieMap,
               chatMetadata: null,
-              signal: controller.signal,
+              signal: deliverySignal,
               allowModelFallback: geminiOptions.allowModelFallback,
             });
             response = {

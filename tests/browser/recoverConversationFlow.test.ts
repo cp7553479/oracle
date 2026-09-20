@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { SessionMetadata } from "../../src/sessionStore.js";
 
 const meta = {
@@ -34,6 +34,12 @@ const logger = (_message: string) => {};
 describe("recoverConversationTab flow", () => {
   beforeEach(() => {
     vi.resetModules();
+    // These one-millisecond budgets exercise branches, not scheduler performance.
+    vi.useFakeTimers({ toFake: ["Date"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test("opens the saved URL in an existing Chrome endpoint before launching another profile", async () => {

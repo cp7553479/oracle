@@ -6,6 +6,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 const {
   launchChrome,
   connectWithNewTab,
+  connectToRemoteChrome,
+  resolveAttachRunningConnection,
   closeTab,
   readDevToolsPort,
   writeDevToolsActivePort,
@@ -15,6 +17,8 @@ const {
 } = vi.hoisted(() => ({
   launchChrome: vi.fn(),
   connectWithNewTab: vi.fn(),
+  connectToRemoteChrome: vi.fn(),
+  resolveAttachRunningConnection: vi.fn(),
   closeTab: vi.fn(async () => undefined),
   readDevToolsPort: vi.fn(async () => null),
   writeDevToolsActivePort: vi.fn(async () => undefined),
@@ -26,8 +30,11 @@ const {
 vi.mock("../../src/browser/chromeLifecycle.js", () => ({
   launchChrome,
   connectWithNewTab,
+  connectToRemoteChrome,
   closeTab,
 }));
+
+vi.mock("../../src/browser/attachRunning.js", () => ({ resolveAttachRunningConnection }));
 
 vi.mock("../../src/browser/profileState.js", () => ({
   readDevToolsPort,
@@ -47,6 +54,8 @@ describe("openGeminiBrowserSession", () => {
 
     launchChrome.mockReset();
     connectWithNewTab.mockReset();
+    connectToRemoteChrome.mockReset();
+    resolveAttachRunningConnection.mockReset();
     closeTab.mockClear();
     readDevToolsPort.mockReset();
     writeDevToolsActivePort.mockClear();

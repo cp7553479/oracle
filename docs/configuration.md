@@ -34,6 +34,7 @@ JSON5 parsing, so trailing commas and comments are allowed.
     timeoutMs: 1200000,
     inputTimeoutMs: 30000,
     attachmentTimeoutMs: 90000, // wait for file upload/readiness before clicking Send (default: 45s)
+    captureProviderNative: false, // opt in to full ChatGPT conversation evidence (user config only)
     cookieSync: false, // ignored silently; cookie copying is disabled
     cookieSyncWaitMs: 0, // ignored silently
     assistantRecheckDelayMs: 0, // wait this long after timeout, then retry capture (0 = disabled)

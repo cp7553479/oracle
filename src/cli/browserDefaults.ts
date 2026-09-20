@@ -8,8 +8,10 @@ import type {
   BrowserModelStrategy,
   BrowserResearchMode,
 } from "../browser/types.js";
+import { isGpt6ProAlias } from "./browserConfig.js";
 
 export interface BrowserDefaultsOptions {
+  model?: string;
   remoteChrome?: string;
   copyProfile?: string;
   chatgptUrl?: string;
@@ -39,6 +41,7 @@ export interface BrowserDefaultsOptions {
   browserModelStrategy?: BrowserModelStrategy;
   browserThinkingTime?: ThinkingTimeLevel;
   browserResearch?: BrowserResearchMode;
+  browserCaptureProviderNative?: boolean;
   browserArchive?: BrowserArchiveMode;
   browserManualLogin?: boolean;
   browserManualLoginCookieSync?: boolean;
@@ -60,6 +63,7 @@ export function applyBrowserDefaultsFromConfig(
   };
   const currentModelRequestedByCli =
     options.browserModelStrategy === "current" && getSource("browserModelStrategy") === "cli";
+  const gpt6ProRequestedByCli = getSource("model") === "cli" && isGpt6ProAlias(options.model);
 
   const configuredChatgptUrl = browser.chatgptUrl ?? browser.url;
   const cliChatgptSet = options.chatgptUrl !== undefined || options.browserUrl !== undefined;
@@ -132,10 +136,17 @@ export function applyBrowserDefaultsFromConfig(
   }
   if (
     !currentModelRequestedByCli &&
+    !gpt6ProRequestedByCli &&
     isUnset("browserThinkingTime") &&
     browser.thinkingTime !== undefined
   ) {
     options.browserThinkingTime = normalizeThinkingTimeLevel(browser.thinkingTime) ?? undefined;
+  }
+  if (
+    isUnset("browserCaptureProviderNative") &&
+    typeof browser.captureProviderNative === "boolean"
+  ) {
+    options.browserCaptureProviderNative = browser.captureProviderNative;
   }
   if (isUnset("browserResearch") && browser.researchMode !== undefined) {
     options.browserResearch = browser.researchMode;

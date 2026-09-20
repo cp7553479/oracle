@@ -4,7 +4,9 @@
 
 ### Fork policy
 
-- Sync upstream `67253e7b`; force browser/manual-login with the persistent `~/.oracle/browser-profile`, and silently ignore legacy profile, cookie, copy, attach-running, remote-Chrome, and browser-tab inputs from every entry point. Preserve the single-slot queue, silent current-model fallback, completed-target cleanup, and Gemini large-header recovery.
+- Sync upstream `1866b14` (0.21.2-unreleased, absorbing 0.20.1–0.21.1); force browser/manual-login with the persistent `~/.oracle/browser-profile`, and silently ignore legacy profile, cookie, copy, attach-running, remote-Chrome, and browser-tab inputs from every entry point. Preserve the single-slot queue, silent current-model fallback, completed-target cleanup, rate-limit notice dismissal, and the no-image-polling completion path.
+
+## 0.21.1 - 2026-09-14
 
 ## 0.20.0 - 2026-09-07
 
