@@ -21,15 +21,12 @@ import {
   connectToRemoteChromeTarget,
   listRemoteChromeTargets,
 } from "./chromeLifecycle.js";
-import {
-  defaultManualLoginProfileDir,
-  resolveBrowserApprovalWait,
-  resolveBrowserConfig,
-} from "./config.js";
+import { resolveBrowserApprovalWait, resolveBrowserConfig } from "./config.js";
 import { clearStaleChatGptConversationCookies, syncCookies } from "./cookies.js";
 import { CHATGPT_URL } from "./constants.js";
 import { buildConversationTurnListExpression } from "./conversationTurns.js";
 import { cleanupStaleProfileState } from "./profileState.js";
+import { readDevToolsActivePortInfo } from "./detect.js";
 import {
   pickTarget,
   extractConversationIdFromUrl,
@@ -110,17 +107,13 @@ async function resumeBrowserSessionInternal(
     await close?.().catch(() => undefined);
   };
 
-  if (!runtimeUsesFixedManualLoginProfile(runtime)) {
-    return recoverSession(runtime, config);
-  }
-
   if (!runtime.chromePort && !runtime.chromeBrowserWSEndpoint) {
     logger("No running Chrome detected; reopening browser to locate the session.");
     return recoverSession(runtime, config);
   }
 
   try {
-    const liveRuntime = runtime;
+    const liveRuntime = (await refreshAttachRuntime(runtime).catch(() => runtime)) ?? runtime;
     const host = liveRuntime.chromeHost ?? "127.0.0.1";
     const port =
       liveRuntime.chromePort ?? inferPortFromBrowserWSEndpoint(liveRuntime.chromeBrowserWSEndpoint);
@@ -313,15 +306,25 @@ async function resumeBrowserSessionInternal(
   }
 }
 
-function runtimeUsesFixedManualLoginProfile(runtime: BrowserRuntimeMetadata): boolean {
-  if (!runtime.chromeProfileRoot) return false;
-  if (path.resolve(runtime.chromeProfileRoot) !== path.resolve(defaultManualLoginProfileDir())) {
-    return false;
+async function refreshAttachRuntime(
+  runtime: BrowserRuntimeMetadata,
+): Promise<BrowserRuntimeMetadata | null> {
+  if (!runtime.chromeProfileRoot) {
+    return runtime;
   }
-  const host = runtime.chromeHost?.trim().toLowerCase();
-  return (
-    !host || host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]"
-  );
+  const host = runtime.chromeHost ?? "127.0.0.1";
+  const activePort = await readDevToolsActivePortInfo(runtime.chromeProfileRoot, {
+    host,
+  });
+  if (!activePort) {
+    return runtime;
+  }
+  return {
+    ...runtime,
+    chromeHost: host,
+    chromePort: activePort.port,
+    chromeBrowserWSEndpoint: activePort.browserWSEndpoint,
+  };
 }
 
 function inferPortFromBrowserWSEndpoint(browserWSEndpoint?: string): number | undefined {

@@ -19,33 +19,61 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 ## Mandatory browser execution policy
 
 - Every root CLI run must behave as though `--engine browser --manual-browser-login` were appended
-  after all user, environment, and configuration arguments.
+  after all user, environment, and configuration arguments. `--manual-login`, `--manual-browser-login`,
+  and `--browser-manual-login` are compatible spellings of the same required behavior.
 - Browser runs must reuse only the persistent signed-in profile at `~/.oracle/browser-profile`.
   Legacy profile-selection, cookie-injection/copy, attach-running, remote-Chrome, and browser-tab
   CLI options must be silently consumed and ignored at every command entry point: they must not
   print a notice, report an error, block, or stop the task. Equivalent environment, configuration,
   MCP, remote, and stored-session inputs must also be discarded without changing this path or
   bypassing default manual login.
-- `--manual-login`, `--manual-browser-login`, and `--browser-manual-login` are compatible names for
-  the required manual-login behavior.
 - `--copy-profile` and the other ignored compatibility options must not be exposed in CLI help.
   Low-level configuration must clear every copied-profile, cookie, attach, remote-Chrome, and tab
   source so CLI, MCP, remote, and reattach paths cannot activate one indirectly.
 - Conversation continuation stays browser-native and is whitelisted against upstream refreshes
-  (`PRESERVED_FOLLOWUP_FLAGS` in the CLI browser profile policy): `--followup <sessionId|slug>`
+  (allowlisted in `src/cli/cliArgWhitelist.ts`): `--followup <sessionId|slug>`
   reopens the saved ChatGPT conversation of a browser parent session, and repeatable
   `--browser-follow-up <prompt>` queues planned same-run turns. Both must keep working through
   upstream refreshes. `--followup-model` is accepted as a silent pass-through; browser follow-ups
   inherit the parent session's stored model, and API-only response-id references still fail closed
   with the engine requirement error.
 
+## Root CLI argument whitelist
+
+- Root `oracle` runs accept only the consultation surface: the prompt
+  (`-p/--prompt`, `--message`, or the positional prompt), attached files
+  (`-f/--file` plus `--include`, `--files`, `--path`, `--paths`), the AI/model
+  selection (`-m/--model`, `--models`), the conversation-continuation flags
+  (`--followup`, `--followup-model`, repeatable `--browser-follow-up`), the
+  output/download paths (`--write-output`, `--output`), the engine/manual-login
+  flags, `--dry-run`, the `--perf-trace` diagnostics, the internal session
+  plumbing (`--exec-session`, `--session`, `--status`), and meta flags
+  (`--help`, `--version`, `--debug-help`).
+- Every other root flag is silently discarded together with its values: no
+  notice, no error, no exit-code change, no dependence on whether the caller
+  passes it. This includes effort, research, archive, render/copy,
+  notification, timeout, provider, profile, cookie, attach, remote-Chrome, and
+  browser-tab flags. New upstream root flags default to discarded until they
+  are deliberately allowlisted here.
+- Session management and service subcommands (`status`, `session`, `serve`,
+  `doctor`, `tui`, and the rest) keep their full option sets.
+- When no model comes from the CLI, saved configuration, or a multi-model
+  list, root runs default to `--model latest` with Medium effort (the
+  `standard` thinking level, which clicks ChatGPT's Medium label) instead of
+  upstream's `gpt-5.5-pro` default.
+- `ORACLE_ALLOW_API_ENGINE=1` bypasses the model default, the browser forcing,
+  and the whitelist. The escape hatch exists solely so upstream's API
+  integration tests can exercise their original surface.
+
 ## Queueing and concurrency
 
 - Oracle browser work uses one shared execution slot per persistent profile.
 - At most one task may run at a time. Additional tasks must remain queued until the active task
   releases the slot.
-- Queue waiting has no timeout. Configuration or remote input must not raise the concurrency limit
-  or introduce a finite queue timeout.
+- Queue waiting has no timeout, prints nothing about the wait, and never
+  rejects a run: identical prompts are queued behind the active run instead of
+  being blocked by the duplicate-prompt guard. Configuration or remote input
+  must not raise the concurrency limit or introduce a finite queue timeout.
 - Success, failure, cancellation, and reattach completion must all release the slot.
 
 ## ChatGPT model selection and blocking notices

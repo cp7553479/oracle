@@ -39,21 +39,20 @@ describe("tabLeaseRegistry", { timeout: process.platform === "win32" ? 30_000 : 
         );
       }
       let resolved = false;
+      const waitLogger = vi.fn();
       pendingLease = acquireBrowserTabLease(dir, {
         maxConcurrentTabs: 3,
         pollMs: 25,
         timeoutMs: 1000,
-        logger,
+        logger: waitLogger,
       }).then((lease) => {
         resolved = true;
         return lease;
       });
 
-      await vi.waitFor(() => {
-        expect(logger).toHaveBeenCalledWith(
-          expect.stringContaining("Waiting for ChatGPT browser slot"),
-        );
-      });
+      // Fork policy: queued runs wait silently without progress logging.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(waitLogger).not.toHaveBeenCalled();
       expect(resolved).toBe(false);
 
       await leases.shift()?.release();

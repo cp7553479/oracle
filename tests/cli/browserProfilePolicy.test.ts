@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  PRESERVED_FOLLOWUP_FLAGS,
-  stripDisabledBrowserProfileArgs,
-} from "../../src/cli/browserProfilePolicy.js";
+import { stripDisabledBrowserProfileArgs } from "../../src/cli/browserProfilePolicy.js";
 
 describe("stripDisabledBrowserProfileArgs", () => {
   test("silently consumes profile-affecting compatibility flags", () => {
@@ -48,21 +45,5 @@ describe("stripDisabledBrowserProfileArgs", () => {
   test("preserves prompt text after the option terminator", () => {
     const argv = ["-p", "before", "--", "--copy-profile", "/tmp/prompt-text"];
     expect(stripDisabledBrowserProfileArgs(argv)).toEqual(argv);
-  });
-
-  test("keeps followup continuation flags with their values", () => {
-    const argv = [
-      "--followup",
-      "browser-session-slug",
-      "--followup-model",
-      "gpt-5.5-pro",
-      "--browser-follow-up",
-      "turn two",
-      "--browser-follow-up=turn three",
-      "-p",
-      "hello",
-    ];
-    expect(stripDisabledBrowserProfileArgs(argv)).toEqual(argv);
-    expect(PRESERVED_FOLLOWUP_FLAGS).toEqual(["--followup", "--browser-follow-up"]);
   });
 });

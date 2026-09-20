@@ -1,6 +1,6 @@
 ---
 name: oracle-advisor
-description: Request a second-model consultation with explicit API, browser, or render transport and per-run provenance. Use when transport choice or model/effort evidence is part of the request; the existing oracle skill remains the browser-first workflow.
+description: Request a second-model consultation through Oracle's fixed browser transport with per-run provenance. Use when model evidence or transport provenance is part of the request; the existing oracle skill remains the browser-first workflow.
 ---
 
 # Oracle advisor
@@ -10,65 +10,53 @@ advice; the calling agent remains responsible for checking it and making edits.
 This skill reuses the existing Oracle CLI and MCP tools. It does not add a new
 command, MCP method, or native desktop adapter.
 
-## Select the allowed transport
+## Transport
 
-Honor the caller's transport, model, effort, files, output requirements, and
-choice of a fresh consultation or an explicit follow-up. Existing authorization
-persists; do not ask again when a permitted route is already clear.
+This fork exposes exactly one execution transport: the persistent manual-login
+browser. Every root run is forced onto it; `--engine api`, `--render`, effort
+flags, and follow-up flags are silently discarded and must not be used.
 
-- **API:** use an explicitly configured and authorized provider. Pass
-  `--engine api` and the requested model; preserve required reasoning settings.
-- **Browser:** use the authorized signed-in browser route. Pass
-  `--engine browser`; confirm the requested model and effort through Oracle's
-  selection evidence. Browser availability alone does not authorize a fallback.
-- **Render:** use `--render` to prepare a bundle for manual handoff. This creates
-  no model answer or completed consultation; report the bundle as ready to send.
-- **Native desktop:** unavailable in this skill. Chat, Work, and Codex sharing a
-  UI is not evidence of an agent-callable delegation interface. Do not improvise
-  private IPC, cookie extraction, or UI automation as a native adapter.
+- **Browser:** use the authorized signed-in browser route. Pass the requested
+  model with `--model`; Oracle records model-selection evidence in the session
+  metadata. Browser availability alone does not authorize a fallback.
+- **API, render, and native desktop:** unavailable as caller-selected routes in
+  this fork. Do not improvise private IPC, cookie extraction, or UI automation
+  as an adapter, and do not pass flags to reach them.
 
-If the requested route is unavailable, use an alternative only when the caller
-has already allowed it. Otherwise explain the missing capability and ask for
-the transport choice. Never silently reduce the required model or effort.
+If the request cannot be satisfied through the browser route, explain the
+missing capability instead of reducing the required model or effort silently.
 
 ## Run the consultation
 
-Inspect `oracle --help --verbose` for the installed version. For an execution
-route, preview the exact bundle with the chosen engine and `--dry-run full`;
-for render, inspect the rendered bundle directly. Use `--files-report` for token
-estimates. A preview's predicted route is not execution evidence. Include the problem,
-relevant constraints, and the requested answer format in the prompt. Send only
-the selected task context, with credentials excluded.
+Inspect `oracle --help` for the installed version. Preview the exact bundle
+with `--dry-run full` before executing; a preview's predicted route is not
+execution evidence. Include the problem, relevant constraints, and the
+requested answer format in the prompt. Send only the selected task context,
+with credentials excluded.
 
-Examples using an installed Oracle:
+Example using the installed Oracle:
 
 ```bash
-oracle --engine api --model gpt-5.4 --wait \
-  --prompt "Review this package metadata for compatibility risks." --file package.json
-
-oracle --engine browser --model gpt-5.6-sol --browser-thinking-time pro \
-  --prompt "Review this package metadata for compatibility risks." --file package.json
-
-oracle --render \
+oracle --model gpt-5.6-sol \
   --prompt "Review this package metadata for compatibility risks." --file package.json
 ```
 
-MCP callers can use `consult` with explicit `engine`, `model`, and browser
-controls, and inspect `sessions` with `detail:true`. If a call detaches or times
-out, inspect its existing session before retrying; do not create a duplicate
-consultation. Use `--followup <session-id>` only when continuing that conversation
-is intended. Preserve a browser conversation with the existing explicit
-archive/keep controls when the caller requests it.
+MCP callers can use `consult` with an explicit `model`, and inspect `sessions`
+with `detail:true`. If a call detaches or times out, inspect its existing
+session (`oracle status`, `oracle session <id>`) before retrying; do not create
+a duplicate consultation. New submissions with the same prompt queue behind the
+active run instead of being rejected.
 
 ## Return evidence with the advice
 
-Keep required model and effort separate. Report the answer (or the incomplete state), transport, session reference,
-available conversation reference, requested model/effort, observed or effective
-values, and the evidence supporting each observation. Use session metadata and
-logs; mark missing observations as unknown.
+Keep required model and effort separate. Report the answer (or the incomplete
+state), the session reference, available conversation reference, requested
+model, observed or effective values, and the evidence supporting each
+observation. Use session metadata and logs; mark missing observations as
+unknown.
 
-A configured API model is a requested/effective route, not independent proof of
-the backend that served it. A browser picker label proves UI selection, not
+A configured model is a requested/effective route, not independent proof of the
+backend that served it. A browser picker label proves UI selection, not
 server-side execution identity. A completed answer alone cannot prove an effort
 constraint. If a required constraint is contradicted or remains unverified,
 report that the consultation did not satisfy it, even if text was returned.

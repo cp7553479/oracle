@@ -4,9 +4,55 @@
 
 ### Fork policy
 
-- Sync upstream `1866b14` (0.21.2-unreleased, absorbing 0.20.1–0.21.1); force browser/manual-login with the persistent `~/.oracle/browser-profile`, and silently ignore legacy profile, cookie, copy, attach-running, remote-Chrome, and browser-tab inputs from every entry point. Preserve the single-slot queue, silent current-model fallback, completed-target cleanup, rate-limit notice dismissal, and the no-image-polling completion path.
+- Sync upstream through 0.21.2-unreleased. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
+- Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
+- Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
 
 ## 0.21.1 - 2026-09-14
+
+**Highlights:** Live Gemini answers work out of the box.
+
+- Gemini: accept Google's large security and reporting response headers automatically so live web answers work without a Node header-limit workaround, including through remote hosts.
+- Remote: dispatch Gemini browser models through the host's Gemini web executor for new runs and restarts, preserve host-only authentication and Gemini text options, and support the host's running Chrome connection. Fixes #392; thanks @solomonneas.
+
+## 0.21.0 - 2026-09-14
+
+**Highlights:** Opt-in ChatGPT conversation records and independent turn digests provide evidence of answer fidelity.
+
+- Browser: optionally save ChatGPT’s verbatim conversation record and independent turn digests, with answer fidelity evidence and best-effort fallback; thanks @frontierkodiak.
+
+## 0.20.3 - 2026-09-13
+
+**Highlights:** Gemini is selected consistently across CLI, MCP, and detached workers; cookie values are redacted from verbose logs.
+
+- Browser: select Gemini consistently for local CLI, MCP, and detached workers, preserve saved Gemini options and HTTP cancellation, and reject unsupported remote Gemini requests before submission.
+- Browser: redact inline cookie values in verbose session logs while preserving credentials for execution.
+- Browser: recognize prompt echoes across whitespace changes, preserve literal backslashes, and share prompt-preview matching between sidebar lookup and recovery.
+- Dependencies: update Google GenAI to 2.22.0, Zod to 4.6.2, and the Chrome DevTools protocol snapshot; refresh transitive dependencies within the two-day release-age policy.
+- Dependencies: refresh OpenAI, Chrome DevTools protocol, Hono, Vite, and pnpm; remove unused SDK/type packages while retaining Node >=24 and the two-day release-age policy.
+- Tests: complete the Vitest 5 migration, keep runner and V8 coverage versions aligned, and verify Node 24 and 26 across Linux, macOS, and Windows with coverage on Linux; retain the Node >=24 runtime floor.
+
+## 0.20.2 - 2026-09-11
+
+**Highlights:** Fewer Chrome approval prompts, reliable browser harvest recovery, and generated-image delivery across remote hosts.
+
+- Browser: reuse one DevTools connection per browser endpoint and Oracle process across discovery, page sessions, and service requests, while keeping cancellation local and reconnecting after a real disconnect. Fixes #484.
+- Browser: recover saved attach-running conversations through refreshed browser WebSocket metadata, keep transient status notices out of prompt verification, and report actionable harvest errors. Fixes #482.
+- Remote: transfer generated images to the requested client path and numbered siblings, require image-capable hosts before submission, and omit host-only save locations from answers; thanks @malvarezcastillo.
+- Browser: warn before an implicit default switches away from a visibly newer selected model, including delayed picker rendering, while preserving explicit models, saved preferences, and current-model behavior. Fixes #375.
+- Browser: recognize the exact Korean Latest label (`최신`) during selection and verification; thanks @thisisjun786.
+- Dependencies: update Zod to 4.6.1 while retaining Node >=24 and the two-day release-age policy.
+
+## 0.20.1 - 2026-09-11
+
+**Highlights:** Safer browser recovery and cancellation, with reliable effort selection across saved defaults and quota-limited accounts.
+
+- Browser: verify new-session harvests against the committed user turn, preserve original output on mismatch, and retain legacy recovery with an explicit unverified warning; thanks @pdurlej.
+- CLI: cancel detached browser consultations with truthful terminal status, preserve kept tabs, and remove late cancellation requests after completion; thanks @pdurlej.
+- Browser: verify Extra High on quota-limited four-tier effort sliders and reject unavailable Pro before input or submission. Fixes #472; thanks @ventianima-lab.
+- CLI: preserve explicitly requested Pro effort over saved browser defaults while retaining explicit effort overrides and config-only preferences; thanks @pdurlej.
+- Browser: retry unavailable controller identity probes instead of caching failures for the process lifetime, and stabilize native Windows lease verification.
+- Dependencies: refresh OpenAI, Zod, Inquirer, TokenTally, Node types, formatting/lint tooling, and the pinned Chrome DevTools protocol while retaining Node >=24 and the two-day release-age policy.
 
 ## 0.20.0 - 2026-09-07
 

@@ -6,43 +6,55 @@ description: "Oracle second-model review: bundle prompts/files, debug, refactor,
 # Oracle (CLI) — best use
 
 Oracle bundles a prompt and selected files into a one-shot request so another
-model can answer with real repository context through the API or browser. A
-prompt is required; attach files only when they add necessary context. Treat
-responses as advisory and verify them against the codebase and tests.
+model can answer with real repository context through the browser. A prompt is
+required; attach files only when they add necessary context. Treat responses as
+advisory and verify them against the codebase and tests.
 
 ## Fork execution policy
 
-Use the globally linked local executable. Every invocation must begin with:
+Use the globally linked local executable (`oracle`). Never use registry
+`npx`/`pnpm dlx` commands or `--copy-profile`.
 
-```bash
-oracle --manual-login --engine browser
-```
+- Every root run is forced onto the persistent manual-login browser path;
+  `--engine browser` and the manual-login behavior are applied automatically.
+  Passing `--engine browser`, `--manual-login`, or `--browser-manual-login`
+  explicitly is accepted but never changes the outcome.
+- Only one browser task runs at a time. Additional calls are queued silently —
+  they are never rejected — until the active task releases the single slot.
+  Identical prompts queue too; reattach to a stored session instead of
+  submitting duplicates.
+- Oracle closes the browser it launched when the run finishes, is cancelled, or
+  is reattached and harvested.
+- Root runs accept only this flag surface: the prompt (`-p/--prompt`,
+  `--message`, or a positional prompt), attached files (`-f/--file` and its
+  `--include/--files/--path/--paths` aliases), the AI/model selection
+  (`-m/--model`, `--models`), the output/download paths (`--write-output`,
+  `--output`), the engine/manual-login flags above, `--dry-run`, and the
+  `--perf-trace` diagnostics. Every other root flag — including legacy profile,
+  cookie, attach-running, remote-Chrome, browser-tab, thinking-time,
+  follow-up/research, archive, render/copy, notify, and timeout flags — is
+  silently discarded without a warning or error. Do not pass them and do not
+  rely on them.
+- Session management subcommands (`oracle status`, `oracle session <id>`,
+  `oracle serve`, `oracle doctor`, ...) keep their full option sets.
+- 若用户没有特殊要求的情况下，不建议指定模型和思考强度。不传 `--model` 时
+  CLI 自动按 Latest + Medium 思考档执行（等价于显式传 `--model latest`）；
+  只有用户点名要求时才传 `--model` 选其他目标。
 
-The CLI enforces the equivalent persistent manual-login browser configuration
-internally. Never use registry `npx`/`pnpm dlx` commands or `--copy-profile`.
-Only one browser task runs at a time; later calls wait in the browser queue.
-Reattach harvesting closes its recovered target/browser when finished.
-Legacy profile, cookie, attach-running, remote-Chrome, and browser-tab flags are
-silent compatibility no-ops. Do not use them.
+## Main use case (browser, Latest Medium)
 
-## Main use case (browser, GPT-5.6)
+Default target: `--model latest` — ChatGPT's `Latest` model at its Medium
+effort. Do not pin a model or thinking effort unless the user explicitly asks
+for one.
 
-Use browser mode with GPT-5.6 when the ChatGPT account exposes it. GPT-5.6 Sol
-and GPT-5.6 Sol Pro are distinct targets: base Sol uses the Extra High effort
-setting, while Pro is a separate picker target for difficult or long-running
-work.
+Special targets, only when requested:
 
-Recommended defaults:
-
-- Engine: browser (`--engine browser`)
 - Base Sol: `--model gpt-5.6-sol`
-- Default reasoning: `--browser-thinking-time medium` unless the user explicitly requests another level
-- Base Sol maximum reasoning: `--browser-thinking-time extra-high` (Extra High)
-- Explicit Pro effort on GPT-5.6 Sol: `--browser-thinking-time pro` (fails closed if Pro cannot be confirmed)
-- Browser GPT-5.5 with Pro effort: `--model gpt-5.5 --browser-thinking-time pro`
-- API Pro maximum reasoning: `--model gpt-5.6-sol --reasoning-mode pro --reasoning-effort max`
-- Fallback: explicitly use `--model gpt-5.5-pro` when GPT-5.6 is unavailable
+- Maximum reasoning: `--model gpt-5-pro`
 - Attachments: directories/globs plus excludes; never attach secrets by default
+
+Reasoning effort and picker strategy are decided by Oracle's defaults; callers
+cannot steer them with flags in this fork.
 
 GPT-5.6 availability is account-dependent. Confirm the base Sol picker and
 retain model-selection evidence. A bare `Pro` picker label proves picker
@@ -50,75 +62,57 @@ selection but does not, by itself, prove the server-side Pro generation.
 
 ## GPT-5.6 model selection
 
-This version supports GPT-5.6 on both surfaces, but Pro selection differs:
-
+- `latest`: ChatGPT's `Latest` entry at Medium effort — the default recommendation
 - `gpt-5.6`: follow the GPT-5.6 family default
 - `gpt-5.6-sol`: pin ChatGPT's `GPT-5.6 Sol` entry
 - Browser: `gpt-5-pro` selects ChatGPT's `Pro` target
-- API: `--reasoning-mode pro` enables Pro execution on `gpt-5.6-sol`; pair it with `--reasoning-effort max` for maximum reasoning
 
 For base Sol, use:
 
 ```bash
-oracle --manual-login --engine browser --model gpt-5.6-sol \
-  --browser-thinking-time medium \
-  -p "<task>" --file "src/**"
+oracle --model gpt-5.6-sol -p "<task>" --file "src/**"
 ```
 
 Do not use `--model "GPT-5.6 Sol Pro"`. Pro is intentionally handled as a
-browser picker target and an API reasoning mode. Browser label validation rejects unknown future
-variants such as `gpt-5.6-luna` instead of silently falling back to Sol; API
-runs preserve such provider model IDs unchanged.
+browser picker target. Browser label validation rejects unknown future
+variants such as `gpt-5.6-luna` instead of silently falling back to Sol.
 
-Browser mode maps these aliases to ChatGPT's Sol picker. API and multi-model
-runs preserve the corresponding first-party OpenAI model IDs; provider-qualified
-and unrelated custom IDs remain pass-through values.
-
-The GPT-5.6 browser support depends on the unified Intelligence picker. It
-recognizes the current English and Chinese effort labels, avoids matching
-`高` inside `极高`, and re-queries the composer pill after React replaces it so
-selection verification cannot rely on a detached stale node.
+Browser mode maps these aliases to ChatGPT's Sol picker. The picker
+verification recognizes the current English, Chinese, and Korean Latest/effort
+labels, avoids matching `高` inside `极高`, and re-queries the composer pill
+after React replaces it so selection verification cannot rely on a detached
+stale node.
 
 ## Compatibility with npm 0.15.2
 
 Do not invoke an unpatched registry release from this fork. Use the globally
-linked local executable and fall back to `--model gpt-5.5-pro` if necessary.
-
-After upgrading to a release containing the GPT-5.6 model-selection and
-unified-picker changes, verify all of the following before removing the
-fallback guidance: `--help --verbose` exposes the new options, browser dry-run
-resolves both aliases to GPT-5.6 Sol, API routing selects first-party OpenAI,
-and a live browser run records strict GPT-5.6 selection evidence.
+linked local executable.
 
 ## Golden path
 
 1. Pick the smallest file set that still contains the truth.
-2. Preview the bundle with `--dry-run` and `--files-report`.
-3. Use the mandatory manual-login/browser prefix.
+2. Preview the bundle with `--dry-run`.
+3. Pass the prompt, files, and model only.
 4. If a run detaches or times out, reattach to the stored session instead of
    starting a duplicate.
 
 ## Commands
 
 - Show help:
-  - `oracle --manual-login --engine browser --help --verbose`
+  - `oracle --help`
 
 - Preview without calling a model:
-  - `oracle --manual-login --engine browser --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
-  - `oracle --manual-login --engine browser --dry-run full -p "<task>" --file "src/**"`
-
-- Inspect token usage:
-  - `oracle --manual-login --engine browser --dry-run summary --files-report -p "<task>" --file "src/**"`
+  - `oracle --dry-run summary -p "<task>" --file "src/**" --file "!**/*.test.*"`
+  - `oracle --dry-run full -p "<task>" --file "src/**"`
 
 - Browser run:
-  - `oracle --manual-login --engine browser --model gpt-5.6-sol --browser-thinking-time medium -p "<task>" --file "src/**"`
+  - `oracle --model gpt-5.6-sol -p "<task>" --file "src/**"`
 
-- Manual paste fallback:
-  - `oracle --manual-login --engine browser --render-markdown --copy-markdown -p "<task>" --file "src/**"`
-  - `--render` is an alias for `--render-markdown`.
+- Write the answer to a file:
+  - `oracle --model latest -p "<task>" --file "src/**" --write-output /tmp/answer.md`
 
 - Performance trace:
-  - `oracle --manual-login --engine browser --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
+  - `oracle --perf-trace --perf-trace-path /tmp/oracle-perf.json --dry-run summary -p "<task>" --file "src/**"`
 
 ## Attaching files
 
@@ -135,30 +129,26 @@ comma-separated entries.
 - Files over 1 MB are rejected by default; configure
   `ORACLE_MAX_FILE_SIZE_BYTES` or `maxFileSizeBytes` when necessary.
 
-Keep total input under roughly 196k tokens. Use `--files-report` or
-`--dry-run json` to identify oversized inputs. Never attach `.env` files,
-private keys, auth tokens, or other secrets unless they have been redacted and
-are essential to the question.
+Keep total input under roughly 196k tokens. Use `--dry-run json` to identify
+oversized inputs. Never attach `.env` files, private keys, auth tokens, or
+other secrets unless they have been redacted and are essential to the question.
 
 ## Engines and browser controls
 
-- This fork's root CLI always selects browser/manual-login regardless of `OPENAI_API_KEY`.
+- This fork's root CLI always selects browser/manual-login regardless of
+  `OPENAI_API_KEY`.
 - Browser supports GPT models through ChatGPT and Gemini models through Gemini
-  web. API-only models include `gpt-5.1-codex`.
-- Current model families include GPT-5.5/5.4/5.2/5.1, Gemini 3.x, and Claude
-  4.x; availability depends on engine and provider.
-- Browser attachments use `--browser-attachments auto|never|always`.
-- Browser uploads keep one text/source file native and bundle multiple
-  text/source files. `auto` keeps flattened text for text-only uploads; use
-  `--browser-bundle-format zip` for a filesystem tree, or `--browser-bundle-files`
-  to force every resolved attachment into one bundle.
-- Oracle always launches or recovers its fixed persistent browser profile; callers cannot select a
-  different profile, cookie source, existing tab, attached browser, or remote Chrome endpoint.
-- Use `--browser-model-strategy select|current|ignore` to control picker
-  behavior.
-- Use `--browser-follow-up "<prompt>"` for another turn in the same browser
-  conversation, or `--followup <sessionId|responseId>` for a stored run.
-- Use `--browser-research deep` only when Deep Research is explicitly wanted.
+  web. API-only models include `gpt-5.1-codex` and Claude models; they are
+  routed through the API automatically when requested with `--model`.
+- Current model families include GPT-5.6/5.5/5.4/5.2/5.1, Gemini 3.x, and
+  Claude 4.x; availability depends on the signed-in accounts.
+- File delivery (inline paste vs native upload) and upload bundling are chosen
+  automatically by Oracle; callers cannot steer them with flags in this fork.
+- Oracle always launches or recovers its fixed persistent browser profile;
+  callers cannot select a different profile, cookie source, existing tab,
+  attached browser, or remote Chrome endpoint.
+- Model-picker behavior defaults to selecting the requested model and silently
+  falls back to ChatGPT's current model when selection cannot be verified.
 
 ## Sessions and recovery
 
@@ -166,13 +156,12 @@ are essential to the question.
   `ORACLE_HOME_DIR`.
 - Browser artifacts include `transcript.md` and, when available, research
   reports and generated images.
-- List recent sessions with `oracle --manual-login --engine browser status --hours 72`.
-- Attach with `oracle --manual-login --engine browser session <id> --render`.
-- Use `--slug "<3-5 words>"` for readable session IDs.
-- If a run times out, reattach; do not re-run it. Use `--force` only when a
-  genuinely new identical run is intended.
+- List recent sessions with `oracle status --hours 72`.
+- Attach with `oracle session <id> --render`.
+- If a run times out, reattach; do not re-run it. Identical prompts queue
+  behind the active run instead of being rejected.
 - Successful non-project browser one-shots are archived automatically by
-  default; override with `--browser-archive never|always`.
+  default.
 
 ## Prompt template
 

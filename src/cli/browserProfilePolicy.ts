@@ -31,16 +31,6 @@ const REQUIRED_MANUAL_LOGIN_FLAGS = new Set([
   "--manual-login",
 ]);
 
-/**
- * Conversation-continuation flags that stay functional under the forced browser
- * engine and must survive upstream refreshes without being stripped or
- * repurposed. `--followup` reopens a saved ChatGPT browser conversation;
- * `--browser-follow-up` queues planned same-run turns. `--followup-model` is
- * accepted as a pass-through but only the API lineage reader consumes it —
- * browser follow-ups inherit the parent session's stored model.
- */
-export const PRESERVED_FOLLOWUP_FLAGS = ["--followup", "--browser-follow-up"] as const;
-
 /** Silently remove legacy inputs that could replace the fixed login profile. */
 export function stripDisabledBrowserProfileArgs(argv: string[]): string[] {
   const result: string[] = [];

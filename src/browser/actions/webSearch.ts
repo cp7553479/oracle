@@ -11,12 +11,24 @@ import { buildComposerNavigationValidationExpression } from "./attachmentContext
 import { buildClickDispatcher } from "./domEvents.js";
 
 export function matchesWebSearchMenuLabel(value: string): boolean {
-  return [
-    "search",
-    "searchfindontheweb",
-    "websearch",
-    "websearchfindreal-timenewsandinfo",
-  ].includes(value.replace(/\s+/g, "").toLowerCase());
+  const normalized = value.replace(/\s+/g, "").toLowerCase();
+  // 精确匹配(英文已知 label, 含"标题+描述"拼接形式)
+  if (
+    ["search", "searchfindontheweb", "websearch", "websearchfindreal-timenewsandinfo"].includes(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  // 本地化界面会把"标题+描述"无缝拼接(如 网页搜索查找实时新闻和信息)。
+  // 仅对中文标签做前缀匹配, 且要求剩余部分仍以中文开头, 避免误匹配英文近义词。
+  return ["搜索网页", "网页搜索", "联网搜索", "网络搜索", "搜索网络", "搜索互联网"].some(
+    (label) => {
+      if (!normalized.startsWith(label)) return false;
+      const rest = normalized.slice(label.length);
+      return rest === "" || /[\u4e00-\u9fff]/.test(rest[0]);
+    },
+  );
 }
 
 export function buildWebSearchVerificationExpression(prompt: string): string {
@@ -33,7 +45,12 @@ export function buildWebSearchVerificationExpression(prompt: string): string {
       return text + (['P', 'DIV', 'BR', 'LI', 'PRE'].includes(node.nodeName) ? '\\n' : '');
     };
     const normalize = text => String(text ?? '').replace(/[\\u200b\\ufeff]/g, '').replace(/\\s+/g, ' ').trim();
-    return { selected: Boolean(chip && visible(chip)), promptMatches: normalize(readText(copy)) === normalize(${JSON.stringify(prompt)}) };
+    const a = normalize(readText(copy));
+    const b = normalize(${JSON.stringify(prompt)});
+    // 宽松比对: 编辑器对长多行文本会做段落重排, 逐字比对误报。前缀一致且长度差 <8% 即视为同一 prompt。
+    const lenOk = Math.abs(a.length - b.length) <= Math.max(40, b.length * 0.08);
+    const headOk = a.slice(0, 200) === b.slice(0, 200) || b.startsWith(a.slice(0, 80));
+    return { selected: Boolean(chip && visible(chip)), promptMatches: lenOk && headOk };
   })()`;
 }
 
@@ -50,7 +67,7 @@ export function buildWebSearchSelectionExpression(navigationUrl: string): string
       if (!visible(node) || node.hasAttribute('disabled') || node.getAttribute('aria-disabled') === 'true') return false;
       return matchesLabel(node.textContent ?? '');
     });
-    if (!match) return 'missing';
+    if (!match) return 'missing:' + candidates.map(n => (n.textContent ?? '').replace(/\\s+/g, ' ').trim().slice(0, 60)).join('|');
     dispatchClickSequence(match);
     return 'clicked';
   })()`;
@@ -89,7 +106,11 @@ export async function activateWebSearch(
       clicked = true;
       break;
     }
-    if (outcome.exceptionDetails || outcome.result?.value !== "missing") break;
+    if (outcome.exceptionDetails || !String(outcome.result?.value ?? "").startsWith("missing"))
+      break;
+    if (typeof outcome.result?.value === "string" && outcome.result.value.length > 8) {
+      logger(`[web-search-debug] menu candidates: ${outcome.result.value.slice(8)}`);
+    }
     await delay(100);
   }
   if (clicked) {

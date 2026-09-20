@@ -158,9 +158,6 @@ is retained under `browser.harvest.integrity` and shown as a browser warning;
 an implicit harvest fails with `conversation-identity-mismatch` before exporting
 the newly harvested answer. Existing transcripts and answer logs are preserved.
 
-Legacy browser-tab overrides are silently ignored, so reattach remains scoped to the fixed-profile
-session metadata.
-
 Implicit harvest also waits for an assistant answer paired with the latest user
 turn, up to the saved browser input timeout. New browser sessions record a
 fingerprint of each rendered, committed user turn and its stable message ID
@@ -171,8 +168,10 @@ Older sessions without a fingerprint retain their existing recovery behavior,
 with a warning that only latest user/assistant pairing can be checked. Their
 submitted file context cannot be reconstructed reliably from saved metadata.
 
-Unavailable recorded transcript headers or unreadable recorded conversation URLs are marked
-`unverified`. Matching known conversation IDs
+Legacy browser-tab overrides are silently ignored, so reattach remains scoped to
+the fixed-profile session metadata and cannot reassign the original capture.
+Unavailable recorded transcript headers or unreadable recorded conversation URLs
+are marked `unverified`. Matching known conversation IDs
 does not by itself prove that an answer belongs to the original prompt.
 
 ## Naming conventions

@@ -92,6 +92,7 @@ import {
 } from "../src/cli/perfTrace.js";
 import { resolveBrowserFollowupReference } from "../src/cli/followup.js";
 import { stripDisabledBrowserProfileArgs } from "../src/cli/browserProfilePolicy.js";
+import { filterRootRunArgs } from "../src/cli/cliArgWhitelist.js";
 import { BrowserRunCancelledError } from "../src/oracle/errors.js";
 
 interface CliOptions extends OptionValues {
@@ -243,7 +244,11 @@ const legacyNormalizedArgv = profilePolicyArgv.map((arg, index) => {
 const rawCliArgs = legacyNormalizedArgv.slice(2);
 const hasCliEntrypointArg = rawCliArgs[0] === CLI_ENTRYPOINT;
 const originalUserCliArgs = hasCliEntrypointArg ? rawCliArgs.slice(1) : rawCliArgs;
-const perfTraceArgs = normalizePerfTraceArgs(originalUserCliArgs);
+// Fork policy: root runs accept only the consultation surface (prompt, files,
+// model selection, output paths). Every other option is silently discarded;
+// subcommand invocations pass through untouched.
+const whitelistFilteredArgs = filterRootRunArgs(originalUserCliArgs);
+const perfTraceArgs = normalizePerfTraceArgs(whitelistFilteredArgs);
 const userCliArgs = perfTraceArgs.args;
 const normalizedArgv = [
   ...legacyNormalizedArgv.slice(0, 2),
@@ -1690,6 +1695,18 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const userConfig = (await loadUserConfig()).config;
   const helpRequested = rawCliArgs.some((arg: string) => arg === "--help" || arg === "-h");
   const multiModelProvided = Array.isArray(options.models) && options.models.length > 0;
+  // Fork default: when no model comes from the CLI or saved config, target
+  // ChatGPT's Latest at Medium effort ("standard" is the canonical level that
+  // clicks the Medium picker label) instead of upstream's gpt-5.5-pro default.
+  if (
+    process.env.ORACLE_ALLOW_API_ENGINE !== "1" &&
+    !options.model &&
+    !multiModelProvided &&
+    !userConfig.model
+  ) {
+    options.model = "latest";
+    options.browserThinkingTime = "standard";
+  }
   const optionUsesDefault = (name: string): boolean => {
     // Commander reports undefined for untouched options, so treat undefined/default the same
     const source = program.getOptionValueSource?.(name);
@@ -2217,7 +2234,9 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const duplicateBlocked = await shouldBlockDuplicatePrompt({
     prompt: resolvedOptions.prompt,
     browserFollowUps: resolvedOptions.browserFollowUp,
-    force: options.force,
+    // Fork policy: identical prompts queue behind the active run instead of
+    // being rejected; the single-slot lock serializes execution.
+    force: true,
     sessionStore,
     log: console.log,
   });

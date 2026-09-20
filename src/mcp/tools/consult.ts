@@ -361,43 +361,41 @@ export function buildConsultBrowserConfig({
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
   const modelStrategy = browserModelStrategy ?? configuredBrowser.modelStrategy;
 
-  return {
-    ...resolveBrowserConfig({
-      ...configuredBrowser,
-      url: configuredUrl,
-      chatgptUrl: configuredUrl,
-      cookieSync: false,
-      headless: configuredBrowser.headless ?? false,
-      hideWindow: configuredBrowser.hideWindow ?? false,
-      keepBrowser: browserKeepBrowser ?? configuredBrowser.keepBrowser ?? false,
-      manualLogin,
-      manualLoginProfileDir: defaultManualLoginProfileDir(),
-      manualLoginCookieSync: false,
-      inlineCookies: null,
-      inlineCookiesSource: null,
-      chromeProfile: null,
-      chromeCookiePath: null,
-      copyProfileSource: null,
-      attachRunning: false,
-      browserTabRef: null,
-      remoteChrome: null,
-      remoteChromeBrowserWSEndpoint: null,
-      remoteChromeProfileRoot: null,
-      thinkingTime:
-        browserThinkingTime ??
-        configuredThinkingTime ??
-        resolveDefaultBrowserThinkingTime({
-          model: runModel,
-          requestedModel: inputModel,
-          modelStrategy,
-        }),
-      modelStrategy,
-      researchMode: browserResearchMode ?? configuredBrowser.researchMode,
-      archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
-      desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
-    }),
+  return resolveBrowserConfig({
+    ...configuredBrowser,
+    url: configuredUrl,
+    chatgptUrl: configuredUrl,
+    cookieSync: false,
+    headless: configuredBrowser.headless ?? false,
+    hideWindow: configuredBrowser.hideWindow ?? false,
+    keepBrowser: browserKeepBrowser ?? configuredBrowser.keepBrowser ?? false,
+    manualLogin,
+    manualLoginProfileDir: defaultManualLoginProfileDir(),
+    manualLoginCookieSync: false,
+    inlineCookies: null,
+    inlineCookiesSource: null,
+    chromeProfile: null,
+    chromeCookiePath: null,
+    copyProfileSource: null,
+    attachRunning: false,
+    browserTabRef: null,
+    remoteChrome: null,
+    remoteChromeBrowserWSEndpoint: null,
+    remoteChromeProfileRoot: null,
+    thinkingTime:
+      browserThinkingTime ??
+      configuredThinkingTime ??
+      resolveDefaultBrowserThinkingTime({
+        model: runModel,
+        requestedModel: inputModel,
+        modelStrategy,
+      }),
+    modelStrategy,
+    researchMode: browserResearchMode ?? configuredBrowser.researchMode,
+    archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
+    desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
     modelIsImplicitDefault: !inputModel && !userConfig.model && !browserModelLabel,
-  };
+  });
 }
 
 export function buildConsultDryRunResolved({
