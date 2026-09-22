@@ -255,6 +255,7 @@ describe("summarizeModelRunsForConsult", () => {
           userConfig: { browser: { modelStrategy: explicit ? "select" : modelStrategy } },
           env: {},
           runModel: "gpt-6-astra",
+          inputModel: "latest",
           browserModelStrategy: explicit ? modelStrategy : undefined,
         });
         expect(config.modelStrategy).toBe(modelStrategy);
@@ -266,7 +267,7 @@ describe("summarizeModelRunsForConsult", () => {
   test("selects Latest through MCP including explicit strategy overrides", () => {
     expect(
       buildConsultBrowserConfig({ userConfig: {}, env: {}, runModel: "gpt-6-astra" }),
-    ).toMatchObject({ desiredModel: "Latest" });
+    ).toMatchObject({ desiredModel: "Latest", thinkingTime: "standard" });
     expect(
       buildConsultBrowserConfig({
         userConfig: { browser: { modelStrategy: "current" } },

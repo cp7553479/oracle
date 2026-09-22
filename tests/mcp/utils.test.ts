@@ -10,6 +10,18 @@ describe("mapConsultToRunOptions", () => {
     setOracleHomeDirOverrideForTest(null);
   });
 
+  test("defaults model-free browser consults to Latest", () => {
+    const { runOptions, resolvedEngine } = mapConsultToRunOptions({
+      prompt: "Use the default browser model for this review.",
+      files: [],
+      engine: "browser",
+      env: {},
+    });
+
+    expect(resolvedEngine).toBe("browser");
+    expect(runOptions.model).toBe("gpt-6-astra");
+  });
+
   test("passes multi-model selections through to run options", () => {
     const env: NodeJS.ProcessEnv = {};
     env.OPENAI_API_KEY = "sk-test";

@@ -465,7 +465,7 @@ export async function createRemoteServer(
       const runBrowser =
         deps.runBrowser ??
         (await resolveBrowserExecutor({
-          model: model ?? "gpt-5.5",
+          model: model ?? "latest",
           youtube:
             typeof payload.options.youtube === "string" ? payload.options.youtube : undefined,
           geminiShowThoughts: payload.options.geminiShowThoughts === true,

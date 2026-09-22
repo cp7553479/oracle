@@ -47,10 +47,21 @@ describe("resolveRunOptionsFromConfig", () => {
     expect(runOptions.model).toBe("gemini-3.1-pro");
   });
 
-  it("defaults to gpt-5.5-pro when model not provided", () => {
-    const { runOptions } = resolveRunOptionsFromConfig({
+  it("defaults browser calls to Latest when model not provided", () => {
+    const { runOptions, resolvedEngine } = resolveRunOptionsFromConfig({
       prompt: basePrompt,
+      engine: "browser",
     });
+    expect(resolvedEngine).toBe("browser");
+    expect(runOptions.model).toBe("gpt-6-astra");
+  });
+
+  it("preserves the API default when model not provided", () => {
+    const { runOptions, resolvedEngine } = resolveRunOptionsFromConfig({
+      prompt: basePrompt,
+      engine: "api",
+    });
+    expect(resolvedEngine).toBe("api");
     expect(runOptions.model).toBe(DEFAULT_MODEL);
   });
 

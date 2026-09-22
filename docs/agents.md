@@ -3,17 +3,19 @@ title: Coding Agents
 description: "Use Oracle from Claude Code, Codex, Cursor, and any other coding agent — as a CLI, as an MCP server, or as a one-shot skill."
 ---
 
-Oracle is built to be called _by_ coding agents as much as by humans. The flow is always the same: the agent gathers context, hands the bundle to a stronger Pro model, gets a second opinion back.
+Oracle is built to be called _by_ coding agents as much as by humans. The flow is always the same: the agent gathers context, hands the bundle to ChatGPT, and gets a second opinion back. In this fork, a model-free root call selects ChatGPT Latest with Medium effort.
 
 ## The 30-second wiring
 
 Drop this into the project's `AGENTS.md` or `CLAUDE.md`:
 
 ```
-- Oracle bundles a prompt plus the right files so a Pro model (GPT-5.5 Pro,
-  Gemini 3 Pro, Claude Opus) can answer with real repo context. Use when stuck,
+- Oracle bundles a prompt plus the right files so ChatGPT Latest can answer with
+  real repo context. Use when stuck,
   debugging hard bugs, doing architecture review, or cross-validating a plan.
-- Run `npx -y @steipete/oracle --help` once per session before first use.
+- Run the globally linked `oracle --help` once per session before first use.
+- Do not pass `--model` or a thinking-effort flag unless the user explicitly
+  requests a non-default target.
 ```
 
 That's enough for most agents to discover and use Oracle correctly. The patterns below cover the deeper integrations.
@@ -32,17 +34,21 @@ contract. The existing `skills/oracle` workflow remains available unchanged.
 oracle bridge claude-config --local-browser > .mcp.json
 ```
 
-That writes a `.mcp.json` configured for the local browser path, so Claude Code can call `oracle.consult` and `oracle.sessions` without any API keys. Use the MCP `consult` tool with `preset: "chatgpt-pro-heavy"` for ChatGPT GPT-5.5 Pro with Pro Extended thinking. Add `dryRun: true` to inspect the resolved bundle before sending.
+That writes a `.mcp.json` configured for the local browser path, so Claude Code can call `oracle.consult` and `oracle.sessions` without any API keys. Omit `model`, `preset`, and thinking-effort inputs to use Latest with Medium effort. Add `dryRun: true` to inspect the resolved bundle before sending; use `preset: "chatgpt-pro-heavy"` only when the user explicitly requests the legacy GPT-5.5 Pro target.
 
 See [MCP](mcp.md) for connection details and other clients.
 
 ### As a skill
 
-Copy the bundled skill into `~/.claude/skills/`:
+Copy the bundled skill into the agent's shared skill directory. Existing
+host-specific copies must be refreshed too, because an older copy can keep
+passing an explicit GPT-5.5 model and override the CLI default:
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -R skills/oracle ~/.claude/skills/oracle
+for root in ~/.agents/skills ~/.claude/skills ~/.codex/skills ~/.openclaw/skills; do
+  mkdir -p "$root/oracle"
+  rsync -a --delete skills/oracle/ "$root/oracle/"
+done
 ```
 
 Then reference `oracle` in `CLAUDE.md`. Claude Code will load `SKILL.md` whenever the trigger conditions match (debugging, refactor, design check).
@@ -55,7 +61,8 @@ persistent profile and queue one at a time.
 
 ## Codex
 
-Copy the same skill into the Codex skills folder:
+Codex can use the same shared skill. If the installation expects a Codex-local
+copy instead, install the repository version there:
 
 ```bash
 mkdir -p ~/.codex/skills
@@ -64,7 +71,9 @@ cp -R skills/oracle ~/.codex/skills/oracle
 
 Then reference it in `AGENTS.md`. Codex will pick it up automatically.
 
-For Codex slash prompts, drop a wrapper in `~/.codex/prompts/oracle.md` that calls Oracle with your preferred defaults (engine, model, follow-up flags).
+For Codex slash prompts, drop a wrapper in `~/.codex/prompts/oracle.md` that
+calls the globally linked `oracle` command without a model unless the user asks
+for a specific target.
 
 ## Cursor
 
@@ -83,18 +92,19 @@ Or use the [one-click install](https://cursor.com/en-US/install-mcp?name=oracle&
 
 ## Generic CLI usage from any agent
 
-When the agent has shell access, the simplest hand-off is the bundle-on-clipboard fallback:
+When the agent has shell access, the simplest hand-off is a direct call:
 
 ```bash
-oracle --render --copy -p "$TASK" --file "$RELEVANT_FILES"
+oracle -p "$TASK" --file "$RELEVANT_FILES"
 ```
 
-…then the agent (or a human) pastes into whichever Pro model they have access to. No keys, no MCP, works everywhere.
+The fork forces the persistent manual-login browser path and defaults to Latest
+with Medium effort. No API key or model flag is needed.
 
 For autonomous dry-runs, use the JSON preview to inspect the resolved bundle before spending model time:
 
 ```bash
-oracle --dry-run json --model gpt-5.5-pro -p "$TASK" --file "$RELEVANT_FILES"
+oracle --dry-run json -p "$TASK" --file "$RELEVANT_FILES"
 ```
 
 Completed runs persist answers, usage, cost, session ids, model choices, and lineage under `~/.oracle/sessions/<id>/`. Exit code is non-zero on failure.

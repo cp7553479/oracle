@@ -106,15 +106,22 @@ function waitForChildOutput(child: CliChild, timeoutMs: number): Promise<void> {
 }
 
 describe("oracle CLI integration", () => {
-  test("defaults to Latest Medium when no model is provided", async () => {
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    delete env.ORACLE_ALLOW_API_ENGINE;
-    const result = await execCli(["--dry-run", "json", "-p", "default model check"], { env });
+  test(
+    "defaults to Latest Medium when no model is provided",
+    async () => {
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      delete env.ORACLE_ALLOW_API_ENGINE;
+      const result = await execCli(["--dry-run", "json", "-p", "default model check"], {
+        env,
+        timeout: INTEGRATION_TIMEOUT,
+      });
 
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('"engine": "browser"');
-    expect(result.stdout).toContain('"model": "gpt-6-astra"');
-  });
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain('"engine": "browser"');
+      expect(result.stdout).toContain('"model": "gpt-6-astra"');
+    },
+    INTEGRATION_TIMEOUT,
+  );
 
   test(
     "forces browser/manual-login routing over an explicit API request",

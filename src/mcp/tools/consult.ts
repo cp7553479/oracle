@@ -360,6 +360,7 @@ export function buildConsultBrowserConfig({
   const manualLogin = true;
   const configuredThinkingTime = normalizeThinkingTimeLevel(configuredBrowser.thinkingTime);
   const modelStrategy = browserModelStrategy ?? configuredBrowser.modelStrategy;
+  const modelIsImplicitDefault = !inputModel && !userConfig.model && !browserModelLabel;
 
   return resolveBrowserConfig({
     ...configuredBrowser,
@@ -385,6 +386,7 @@ export function buildConsultBrowserConfig({
     thinkingTime:
       browserThinkingTime ??
       configuredThinkingTime ??
+      (modelIsImplicitDefault ? "standard" : undefined) ??
       resolveDefaultBrowserThinkingTime({
         model: runModel,
         requestedModel: inputModel,
@@ -394,7 +396,7 @@ export function buildConsultBrowserConfig({
     researchMode: browserResearchMode ?? configuredBrowser.researchMode,
     archiveConversations: browserArchive ?? configuredBrowser.archiveConversations,
     desiredModel: desiredModelLabel || mapModelToBrowserLabel(runModel),
-    modelIsImplicitDefault: !inputModel && !userConfig.model && !browserModelLabel,
+    modelIsImplicitDefault,
   });
 }
 

@@ -58,7 +58,8 @@ export function resolveRunOptionsFromConfig({
     .map((entry) => normalizeModelOption(entry))
     .filter(Boolean);
 
-  const cliModelArg = normalizeModelOption(model ?? userConfig?.model) || DEFAULT_MODEL;
+  const requestedModel = normalizeModelOption(model ?? userConfig?.model);
+  const cliModelArg = requestedModel || (resolvedEngine === "browser" ? "latest" : DEFAULT_MODEL);
   const isGpt6Pro = isGpt6ProAlias(cliModelArg);
   const apiModel =
     isGpt6Pro && (resolvedEngine === "browser" || browserEngineRequested)
