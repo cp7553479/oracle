@@ -845,10 +845,11 @@ function buildCompletionVisibilityExpression(
       return true;
     }
     // 2026-09 layout: no testid'd action bar. Completion is announced by a
-    // persistent page status ("Response complete" / localized) and by the
-    // per-turn feedback widget that only renders once the turn is finished.
+    // persistent page status ("Response complete" / localized "回复已完成" /
+    // "回答已完成") and by the per-turn feedback widget that only renders once
+    // the turn is finished.
     const pageText = String(document.body?.innerText ?? '');
-    if (/(?:response complete|回复已完成)/i.test(pageText)) {
+    if (/(?:response complete|(?:回复|回答|响应)?已完成)/i.test(pageText)) {
       const stopVisible = Array.from(
         document.querySelectorAll('${STOP_BUTTON_SELECTORS.join(",")}'),
       ).some((node) => {
