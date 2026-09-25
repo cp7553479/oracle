@@ -1143,35 +1143,26 @@ function buildChromeFlags(
   debugBindAddress?: string | null,
   hideWindow = false,
 ): string[] {
+  // The persistent manual-login profile must launch like a plain Chrome: any
+  // extra flag (field trials, disabled subsystems, forced locale, mock
+  // keychain) can write state into the profile that later makes a normal
+  // launch complain with "Something went wrong while opening your profile"
+  // and invites "browser may not be secure" verdicts at sign-in. Keep only
+  // what the automation itself needs; chrome-launcher adds
+  // --remote-debugging-port and --user-data-dir on its own. The model/effort
+  // matchers stay language-tolerant, so no forced locale is passed.
   const flags = [
-    "--disable-background-networking",
-    "--disable-background-timer-throttling",
-    "--disable-breakpad",
-    "--disable-client-side-phishing-detection",
-    "--disable-default-apps",
-    "--disable-hang-monitor",
-    "--disable-popup-blocking",
-    "--disable-prompt-on-repost",
-    "--disable-sync",
-    "--disable-translate",
-    "--metrics-recording-only",
     "--no-first-run",
-    "--safebrowsing-disable-auto-update",
-    "--disable-features=TranslateUI,AutomationControlled",
-    "--mute-audio",
-    "--window-size=1280,720",
-    // Chrome that *we* launch is pinned to English, so ChatGPT renders the labels
-    // our selectors were written against. This does not make English the only case
-    // to handle: --browser-attach-running and --remote-chrome never build these
-    // flags (see controlPlan.ts), so those runs inherit the user's own Chrome
-    // locale, and a ChatGPT account language setting can localize the UI even here.
-    // That is why the model/effort matchers must stay language-tolerant.
-    "--lang=en-US",
-    "--accept-lang=en-US,en",
+    "--no-default-browser-check",
+    // A backgrounded or occluded window must keep running its timers, or
+    // assistant streaming stalls while the user works in another app.
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
   ];
 
-  // Linux/WSL automation hosts have no Keychain; macOS must keep the real one
-  // (see resolveChromeLaunchOptions) so persistent logins stay decryptable.
+  // Keychain-less automation hosts (Linux without a secret service) cannot
+  // use the real password store; everywhere else launches like plain Chrome.
   if (process.platform !== "win32" && !isWsl() && process.platform !== "darwin") {
     flags.push("--password-store=basic", "--use-mock-keychain");
   }
@@ -1210,16 +1201,13 @@ function resolveChromeLaunchOptions(
   chromeFlags: string[],
   usingCopiedProfile: boolean,
 ): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
-  // macOS: the manual-login profile must always use the real Keychain for
-  // cookie encryption. Mixing mock-keychain launches (chrome-launcher's
-  // defaults and buildChromeFlags both add --password-store=basic
-  // --use-mock-keychain) with real-keychain ones silently invalidates the
-  // stored cookies — a login made through one cannot be decrypted by the
-  // other, which looks like "logins never persist" and is also what Google
-  // sign-in flags as an insecure browser. Linux keeps the basic store: CI and
-  // headless hosts have no Keychain to use.
-  if (!usingCopiedProfile && process.platform !== "darwin") {
-    return { chromeFlags, ignoreDefaultFlags: false };
+  if (!usingCopiedProfile) {
+    // Persistent manual-login profile: launch bare. The launcher's default
+    // flags (field trials, mock keychain, subsystem disables) must never
+    // touch this profile — they are what makes a later plain launch report
+    // "Something went wrong while opening your profile" and discards logins
+    // made through a real-Keychain window.
+    return { chromeFlags, ignoreDefaultFlags: true };
   }
   return {
     chromeFlags: [...Launcher.defaultFlags(), ...chromeFlags].filter(

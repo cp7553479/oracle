@@ -121,7 +121,7 @@ describe("maybeReuseRunningChrome", () => {
           expect(existsSync(lock)).toBe(true);
         }
         expect(logger).toHaveBeenCalledWith(
-          expect.stringContaining("skipping profile lock cleanup"),
+          expect.stringContaining("keeping profile state"),
         );
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
