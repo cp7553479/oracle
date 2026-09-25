@@ -38,17 +38,19 @@ describe("profileState", () => {
         await writeFile(lock, "x");
       }
 
-      // Alive pid => keep locks
+      // Alive pid => keep locks AND the port files: the live browser still
+      // owns them, and a probe flake must not push a second instance onto the
+      // locked profile.
       await profileState.writeChromePid(dir, process.pid);
       await profileState.cleanupStaleProfileState(dir, undefined, {
         lockRemovalMode: "if_oracle_pid_dead",
       });
-      expect(existsSync(path.join(dir, "DevToolsActivePort"))).toBe(false);
+      expect(existsSync(path.join(dir, "DevToolsActivePort"))).toBe(true);
       for (const lock of lockFiles) {
         expect(existsSync(lock)).toBe(true);
       }
 
-      // Dead pid => remove locks
+      // Dead pid => remove locks and port files
       for (const lock of lockFiles) {
         await writeFile(lock, "x");
       }
@@ -58,6 +60,7 @@ describe("profileState", () => {
       await profileState.cleanupStaleProfileState(dir, undefined, {
         lockRemovalMode: "if_oracle_pid_dead",
       });
+      expect(existsSync(path.join(dir, "DevToolsActivePort"))).toBe(false);
       for (const lock of lockFiles) {
         expect(existsSync(lock)).toBe(false);
       }

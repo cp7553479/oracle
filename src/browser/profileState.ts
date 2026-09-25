@@ -480,6 +480,17 @@ export async function cleanupStaleProfileState(
   logger?: ProfileStateLogger,
   options: { lockRemovalMode?: "never" | "if_oracle_pid_dead" } = {},
 ): Promise<void> {
+  // A live recorded Chrome still owns the profile: its DevToolsActivePort may
+  // be temporarily unreachable (probe flake) but the browser itself is fine,
+  // and deleting its port file would push the next run into launching a
+  // second instance on a locked profile. Only clear port files once the
+  // recorded pid is gone.
+  const recordedPid = await readChromePid(userDataDir);
+  if (recordedPid && isProcessAlive(recordedPid)) {
+    logger?.(`Chrome pid ${recordedPid} still alive; keeping profile state`);
+    return;
+  }
+
   for (const candidate of getDevToolsActivePortPaths(userDataDir)) {
     try {
       await rm(candidate, { force: true });
@@ -494,7 +505,7 @@ export async function cleanupStaleProfileState(
     return;
   }
 
-  const pid = await readChromePid(userDataDir);
+  const pid = recordedPid;
   if (!pid) {
     return;
   }

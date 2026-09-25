@@ -1170,7 +1170,9 @@ function buildChromeFlags(
     "--accept-lang=en-US,en",
   ];
 
-  if (process.platform !== "win32" && !isWsl()) {
+  // Linux/WSL automation hosts have no Keychain; macOS must keep the real one
+  // (see resolveChromeLaunchOptions) so persistent logins stay decryptable.
+  if (process.platform !== "win32" && !isWsl() && process.platform !== "darwin") {
     flags.push("--password-store=basic", "--use-mock-keychain");
   }
 
@@ -1208,7 +1210,15 @@ function resolveChromeLaunchOptions(
   chromeFlags: string[],
   usingCopiedProfile: boolean,
 ): { chromeFlags: string[]; ignoreDefaultFlags: boolean } {
-  if (!usingCopiedProfile) {
+  // macOS: the manual-login profile must always use the real Keychain for
+  // cookie encryption. Mixing mock-keychain launches (chrome-launcher's
+  // defaults and buildChromeFlags both add --password-store=basic
+  // --use-mock-keychain) with real-keychain ones silently invalidates the
+  // stored cookies — a login made through one cannot be decrypted by the
+  // other, which looks like "logins never persist" and is also what Google
+  // sign-in flags as an insecure browser. Linux keeps the basic store: CI and
+  // headless hosts have no Keychain to use.
+  if (!usingCopiedProfile && process.platform !== "darwin") {
     return { chromeFlags, ignoreDefaultFlags: false };
   }
   return {
