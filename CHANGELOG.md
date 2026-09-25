@@ -5,6 +5,7 @@
 ### Fork policy
 
 - Browser: adapt conversation capture to ChatGPT's 2026-09 layout — turns are keyed by `data-turn-key`/`data-content-search-turn-key` with sr-only `data-conversation-role` headings instead of `conversation-turn` testids; commit verification, answer capture, and the role-heading text leak are handled with additive selectors so older layouts keep working.
+- Browser: attachment sends no longer stall at "Attachments never reached the exact ready send button" — upload readiness now recognizes the layout's `img[alt]` preview tiles (`composer-attachment-surface`) and the attachment send path resolves the send button through the standard selector ladder instead of the retired `send-button` testid.
 - Default model: model-free runs now target ChatGPT Latest at Instant effort (the `light` thinking level) instead of Medium.
 - Agents: make model-free MCP and remote-browser calls use ChatGPT Latest with the default effort like the root CLI, and align the installation guide with the globally linked CLI so stale skill copies and GPT-5.5 examples cannot override that default.
 - Sync upstream through 0.21.3. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.

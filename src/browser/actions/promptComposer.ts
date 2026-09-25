@@ -459,6 +459,10 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
       '[data-testid*="attachment"]',
       '[data-testid*="upload"]',
       '[data-testid*="file"]',
+      // 2026-09 layout: the uploaded preview is an img whose alt carries the
+      // filename, wrapped in a composer-attachment-surface container.
+      'img[alt]',
+      '[class*="composer-attachment"]',
       '[aria-label*="Remove file"]',
       'button[aria-label*="Remove file"]',
       '[aria-label*="remove file"]',
@@ -508,7 +512,7 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
       const pieces = [];
       const pushAttrs = (el) => {
         if (!el || typeof el.getAttribute !== 'function') return;
-        for (const attr of ['aria-label', 'title', 'data-testid', 'data-tooltip', 'data-tooltip-content']) {
+        for (const attr of ['aria-label', 'title', 'alt', 'data-testid', 'data-tooltip', 'data-tooltip-content']) {
           const v = el.getAttribute(attr);
           if (v) pieces.push(v);
         }
@@ -764,9 +768,28 @@ async function activateExactAttachmentSendButton(
   attachmentNavigationUrl?: string,
   attachmentNames: AttachmentReadyInput[] = [],
 ): Promise<boolean> {
+  // 2026-09 ChatGPT layout: the composer's send button has no data-testid; it
+  // is a form submit control with an aria-label. Resolve it through the same
+  // selector ladder the plain-text path uses so attachment sends keep working.
+  const sendButtonResolverJs = `const resolveSendButton = () => {
+    for (const selector of ${JSON.stringify(SEND_BUTTON_SELECTORS)}) {
+      for (const node of Array.from(document.querySelectorAll(selector))) {
+        if (!(node instanceof HTMLElement)) continue;
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const enabled = !node.hasAttribute('disabled') &&
+          node.getAttribute('aria-disabled') !== 'true' &&
+          node.getAttribute('data-disabled') !== 'true' &&
+          style.pointerEvents !== 'none' && style.display !== 'none' && style.visibility !== 'hidden';
+        if (rect.width > 0 && rect.height > 0 && enabled) return node;
+      }
+    }
+    return null;
+  };`;
   const probe = await Runtime.evaluate({
     expression: `(() => {
-      const button = document.querySelector('button[data-testid="send-button"]');
+      ${sendButtonResolverJs}
+      const button = resolveSendButton();
       if (!(button instanceof HTMLElement)) return { status: 'absent' };
       const rect = button.getBoundingClientRect();
       const style = window.getComputedStyle(button);
@@ -808,7 +831,8 @@ async function activateExactAttachmentSendButton(
   try {
     const boundary = await Runtime.evaluate({
       expression: `(() => {
-        const button = document.querySelector('button[data-testid="send-button"]');
+        ${sendButtonResolverJs}
+        const button = resolveSendButton();
         const check = () => {
           const navigation = ${buildComposerNavigationValidationExpression(attachmentNavigationUrl)};
           const rect = button?.getBoundingClientRect();
@@ -816,7 +840,7 @@ async function activateExactAttachmentSendButton(
           return {
             ...navigation,
             focused: button instanceof HTMLElement && document.activeElement === button &&
-              document.querySelector('button[data-testid="send-button"]') === button &&
+              resolveSendButton() === button &&
               !button.hasAttribute('disabled') && button.getAttribute('aria-disabled') !== 'true' &&
               button.getAttribute('data-disabled') !== 'true' && rect.width > 0 && rect.height > 0 &&
               style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none',
@@ -852,7 +876,7 @@ async function activateExactAttachmentSendButton(
         };
         const onClick = event => {
           if (!guard.sawKeyDown || !(event.target instanceof Node) ||
-              !(button.contains(event.target) || event.target instanceof Element && event.target.closest('button[data-testid="send-button"]'))) return;
+              !(button.contains(event.target) || event.target instanceof Element && event.target.closest(${JSON.stringify(SEND_BUTTON_SELECTORS.join(","))}))) return;
           const state = safeCheck();
           if (guard.blocked || !state.contextMatches || !state.focused || !state.attachmentsReady) cancel(event, guard.blocked ?? state);
           detach();
