@@ -241,6 +241,7 @@ export async function runBrowserPreview(
       const previewPayload = {
         model: runOptions.model,
         engine: "browser" as const,
+        thinkingTime: browserConfig?.thinkingTime,
         composerText: artifacts.composerText,
         attachments: attachmentSummary,
         inlineFileCount: artifacts.inlineFileCount,

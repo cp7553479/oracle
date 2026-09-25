@@ -81,6 +81,49 @@ describe("remote browser service", () => {
     },
   );
 
+  test.skipIf(!CAN_LISTEN_LOCALHOST)(
+    "defaults model-free remote runs to Instant effort without overriding client effort",
+    async () => {
+      const seen: Array<{ thinkingTime?: string }> = [];
+      const server = await createRemoteServer(
+        {
+          host: "127.0.0.1",
+          port: 0,
+          token: "instant-default",
+          logger: () => {},
+        },
+        {
+          runBrowser: async (options) => {
+            seen.push({ thinkingTime: options.config?.thinkingTime });
+            return {
+              answerText: "fixture",
+              answerMarkdown: "fixture",
+              tookMs: 1,
+              answerTokens: 1,
+              answerChars: 7,
+            };
+          },
+        },
+      );
+      const submit = (browserConfig: Record<string, unknown>) =>
+        fetch(`http://127.0.0.1:${server.port}/runs`, {
+          method: "POST",
+          headers: { Authorization: "Bearer instant-default", "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: "fixture", attachments: [], browserConfig, options: {} }),
+        });
+      try {
+        const implicit = await submit({});
+        expect(implicit.status).toBe(200);
+        const explicit = await submit({ thinkingTime: "extended" });
+        expect(explicit.status).toBe(200);
+        expect(seen[0]?.thinkingTime).toBe("light");
+        expect(seen[1]?.thinkingTime).toBe("extended");
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
   test.skipIf(!CAN_LISTEN_LOCALHOST).each([true, false])(
     "enforces the host endpoint and wait over client injection (attachRunning=%s)",
     async (attachRunning) => {

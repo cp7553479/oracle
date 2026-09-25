@@ -267,7 +267,7 @@ describe("summarizeModelRunsForConsult", () => {
   test("selects Latest through MCP including explicit strategy overrides", () => {
     expect(
       buildConsultBrowserConfig({ userConfig: {}, env: {}, runModel: "gpt-6-astra" }),
-    ).toMatchObject({ desiredModel: "Latest", thinkingTime: "standard" });
+    ).toMatchObject({ desiredModel: "Latest", thinkingTime: "light" });
     expect(
       buildConsultBrowserConfig({
         userConfig: { browser: { modelStrategy: "current" } },

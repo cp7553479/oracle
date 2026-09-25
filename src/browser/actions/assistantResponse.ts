@@ -1279,7 +1279,15 @@ function buildAssistantExtractor(functionName: string): string {
       if (!isAssistantTurn(turn)) {
         continue;
       }
-      const messageRoot = turn.querySelector(ASSISTANT_SELECTOR) ?? turn;
+      // 2026-09 layout: the role marker can be an sr-only heading ("ChatGPT
+      // said:"); the turn content lives on its parent, not the heading itself.
+      const roleMatch = turn.querySelector(ASSISTANT_SELECTOR);
+      const srOnlyRole = Boolean(roleMatch?.classList?.contains?.("sr-only")) && Boolean(roleMatch?.parentElement);
+      const messageRoot = srOnlyRole ? roleMatch.parentElement : (roleMatch ?? turn);
+      // The sr-only heading still leaks into innerText; strip only that known
+      // label so legitimate answers starting with the same words stay intact.
+      const stripRoleHeading = (value) =>
+        srOnlyRole ? String(value || "").replace(/^\\s*chatgpt said:\\s*/i, "") : value;
       expandCollapsibles(messageRoot);
       const preferred =
         (messageRoot.matches?.('.markdown') || messageRoot.matches?.('[data-message-content]') ? messageRoot : null) ||
@@ -1295,7 +1303,7 @@ function buildAssistantExtractor(functionName: string): string {
       }
       const innerText = contentRoot?.innerText ?? '';
       const textContent = contentRoot?.textContent ?? '';
-      const text = innerText.trim().length > 0 ? innerText : textContent;
+      const text = stripRoleHeading(innerText.trim().length > 0 ? innerText : textContent);
       const html = contentRoot?.innerHTML ?? '';
       const messageId = messageRoot.getAttribute('data-message-id');
       const turnId = messageRoot.getAttribute('data-testid');

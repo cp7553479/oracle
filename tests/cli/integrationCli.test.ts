@@ -107,7 +107,7 @@ function waitForChildOutput(child: CliChild, timeoutMs: number): Promise<void> {
 
 describe("oracle CLI integration", () => {
   test(
-    "defaults to Latest Medium when no model is provided",
+    "defaults to Latest Instant when no model is provided",
     async () => {
       const env: NodeJS.ProcessEnv = { ...process.env };
       delete env.ORACLE_ALLOW_API_ENGINE;
@@ -119,6 +119,7 @@ describe("oracle CLI integration", () => {
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('"engine": "browser"');
       expect(result.stdout).toContain('"model": "gpt-6-astra"');
+      expect(result.stdout).toContain('"thinkingTime": "light"');
     },
     INTEGRATION_TIMEOUT,
   );

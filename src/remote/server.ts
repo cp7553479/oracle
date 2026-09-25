@@ -449,6 +449,13 @@ export async function createRemoteServer(
         ...hostBrowserConfig,
         keepBrowser: true,
       });
+      // Fork default: model-free remote runs resolve to ChatGPT's Latest; give
+      // them the Instant effort ("light") unless the client asked for one.
+      // `model` is undefined only when the client sent no model and no
+      // non-default picker label, which is the ChatGPT implicit-default path.
+      if (model === undefined && payload.browserConfig.thinkingTime === undefined) {
+        payload.browserConfig.thinkingTime = "light";
+      }
 
       const clientSession =
         typeof payload.options.sessionId === "string"
@@ -465,7 +472,9 @@ export async function createRemoteServer(
       const runBrowser =
         deps.runBrowser ??
         (await resolveBrowserExecutor({
-          model: model ?? "latest",
+          // "latest" is not a provider-routable model id; the normalized alias
+          // for ChatGPT's Latest picker entry is gpt-6-astra.
+          model: model ?? "gpt-6-astra",
           youtube:
             typeof payload.options.youtube === "string" ? payload.options.youtube : undefined,
           geminiShowThoughts: payload.options.geminiShowThoughts === true,

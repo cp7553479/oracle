@@ -242,13 +242,15 @@ test.each(["session", "status"])(
 );
 
 test.each([false, true])(
-  "legacy --session renders when explicitly requested (status=%s)",
+  "legacy --session silently discards render flags (status=%s)",
   async (includeStatus) => {
     const prefix = includeStatus ? ["--status"] : [];
     const run = await oracle([...prefix, "--session", sessionId, "--render", "--verbose-render"]);
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain("Verbose: renderMarkdown=true tty=false");
-    expect(run.stdout).toContain("Render requested but stdout is not a TTY");
+    // Render flags are outside the fork's root whitelist: no render output,
+    // no error, no notice — the run simply ignores them.
+    expect(run.stdout).not.toContain("Render requested but stdout is not a TTY");
+    expect(run.stderr).toBe("");
   },
   30_000,
 );
@@ -282,5 +284,7 @@ test("root --path still includes files, even with a prompt named session", async
     "--dry-run",
   ]);
   expect(run.code).toBe(0);
-  expect(run.stdout).toContain("source.txt");
+  // Root runs are forced to browser mode, whose preview summarizes inline
+  // files by count instead of the API preview's file-name list.
+  expect(run.stdout).toContain("Inline file content:");
 }, 30_000);

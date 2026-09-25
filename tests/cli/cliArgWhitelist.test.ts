@@ -35,6 +35,27 @@ describe("filterRootRunArgs", () => {
     expect(filterRootRunArgs(["--browser-thinking-time=pro", "-p", "hi"])).toEqual(["-p", "hi"]);
   });
 
+  test("drops legacy profile and cookie flags together with their values", () => {
+    expect(filterRootRunArgs(["--browser-chrome-profile", "Work", "-p", "hi"])).toEqual(["-p", "hi"]);
+    expect(
+      filterRootRunArgs(["--browser-cookie-path", "/tmp/Cookies", "-p", "hi"]),
+    ).toEqual(["-p", "hi"]);
+    expect(filterRootRunArgs(["--browser-cookie-wait", "3s", "-p", "hi"])).toEqual(["-p", "hi"]);
+    expect(
+      filterRootRunArgs(["--browser-inline-cookies", "eyJhIjoxfQ==", "-p", "hi"]),
+    ).toEqual(["-p", "hi"]);
+    expect(
+      filterRootRunArgs(["--browser-inline-cookies-file", "/tmp/cookies.json", "-p", "hi"]),
+    ).toEqual(["-p", "hi"]);
+    expect(
+      filterRootRunArgs(["--browser-manual-login-profile-dir", "/tmp/p", "-p", "hi"]),
+    ).toEqual(["-p", "hi"]);
+    expect(
+      filterRootRunArgs(["--browser-allow-cookie-errors", "-p", "hi"]),
+    ).toEqual(["-p", "hi"]);
+    expect(filterRootRunArgs(["--browser-no-cookie-sync", "-p", "hi"])).toEqual(["-p", "hi"]);
+  });
+
   test("silently drops disallowed boolean flags", () => {
     expect(filterRootRunArgs(["--browser-keep-browser", "-p", "hi"])).toEqual(["-p", "hi"]);
     expect(filterRootRunArgs(["--verbose", "--force", "-p", "hi"])).toEqual(["-p", "hi"]);

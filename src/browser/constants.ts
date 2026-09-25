@@ -32,15 +32,20 @@ export const ANSWER_SELECTORS = [
   '[data-turn="assistant"] .markdown',
   '[data-message-author-role="assistant"]',
   '[data-turn="assistant"]',
+  '[data-conversation-role="assistant"]',
 ];
 
 export const CONVERSATION_TURN_SELECTOR =
   'article[data-testid^="conversation-turn"], div[data-testid^="conversation-turn"], section[data-testid^="conversation-turn"], ' +
   "article[data-message-author-role], div[data-message-author-role], section[data-message-author-role], " +
-  "article[data-turn], div[data-turn], section[data-turn]";
-export const CONVERSATION_TURN_CONTAINER_SELECTOR = '[data-testid^="conversation-turn"]';
+  // 2026-09 ChatGPT layout: turns are anonymous divs keyed by data-turn-key
+  // (outer, one per turn) and data-content-search-turn-key (inner grouping).
+  "article[data-turn], div[data-turn], section[data-turn], " +
+  "div[data-turn-key], div[data-content-search-turn-key]";
+export const CONVERSATION_TURN_CONTAINER_SELECTOR =
+  '[data-testid^="conversation-turn"], [data-turn-key]';
 export const ASSISTANT_ROLE_SELECTOR =
-  '[data-message-author-role="assistant"], [data-turn="assistant"]';
+  '[data-message-author-role="assistant"], [data-turn="assistant"], [data-conversation-role="assistant"]';
 export const CLOUDFLARE_SCRIPT_SELECTOR = 'script[src*="/challenge-platform/"]';
 export const CLOUDFLARE_TITLE = "just a moment";
 export const PROMPT_PRIMARY_SELECTOR = "#prompt-textarea";

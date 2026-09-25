@@ -37,4 +37,10 @@ describe("conversation turn expressions", () => {
 
     expect(evaluate(buildConversationTurnListExpression(), responses)).toEqual(legacyTurns);
   });
+
+  test("matches the 2026-09 data-turn-key layout in both selector tiers", () => {
+    expect(CONVERSATION_TURN_CONTAINER_SELECTOR).toContain("[data-turn-key]");
+    expect(CONVERSATION_TURN_SELECTOR).toContain("div[data-turn-key]");
+    expect(CONVERSATION_TURN_SELECTOR).toContain("div[data-content-search-turn-key]");
+  });
 });

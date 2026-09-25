@@ -386,7 +386,7 @@ export function buildConsultBrowserConfig({
     thinkingTime:
       browserThinkingTime ??
       configuredThinkingTime ??
-      (modelIsImplicitDefault ? "standard" : undefined) ??
+      (modelIsImplicitDefault ? "light" : undefined) ??
       resolveDefaultBrowserThinkingTime({
         model: runModel,
         requestedModel: inputModel,

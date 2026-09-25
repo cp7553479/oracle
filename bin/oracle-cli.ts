@@ -1713,8 +1713,8 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const userConfig = (await loadUserConfig()).config;
   const multiModelProvided = Array.isArray(options.models) && options.models.length > 0;
   // Fork default: when no model comes from the CLI or saved config, target
-  // ChatGPT's Latest at Medium effort ("standard" is the canonical level that
-  // clicks the Medium picker label) instead of upstream's gpt-5.5-pro default.
+  // ChatGPT's Latest at Instant effort ("light" is the canonical level that
+  // clicks the Instant picker label) instead of upstream's gpt-5.5-pro default.
   if (
     process.env.ORACLE_ALLOW_API_ENGINE !== "1" &&
     !options.model &&
@@ -1722,7 +1722,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     !userConfig.model
   ) {
     options.model = "latest";
-    options.browserThinkingTime = "standard";
+    options.browserThinkingTime = "light";
   }
   const optionUsesDefault = (name: string): boolean => {
     // Commander reports undefined for untouched options, so treat undefined/default the same

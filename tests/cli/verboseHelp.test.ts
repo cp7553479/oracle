@@ -33,13 +33,15 @@ test.each([
   ["--verbose", "--help"],
   ["-h", "--verbose"],
 ])(
-  "shows advanced help for %j",
+  "keeps root help concise when --verbose is discarded for %j",
   async (...args) => {
     const output = await help(args);
     expect(output).toContain("Usage:");
-    expect(output).toContain("Advanced Options");
-    expect(output).toContain("Browser Options");
-    expect(output).toContain("--browser-cookie-path");
+    // The fork whitelist drops --verbose on root runs, so the advanced
+    // sections stay hidden; --debug-help remains the explicit entrypoint.
+    expect(output).not.toContain("Advanced Options");
+    expect(output).not.toContain("Browser Options");
+    expect(output).not.toContain("--browser-cookie-path");
   },
   20_000,
 );
