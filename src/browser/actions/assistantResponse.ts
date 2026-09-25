@@ -943,6 +943,36 @@ async function waitForCondition<T>(
   return null;
 }
 
+// Reads the transcript straight off the page text instead of DOM hooks: the
+// sr-only accessibility headings ("You said:" / "ChatGPT said:") segment turns
+// and survive layout changes that erase testids and class names. Used as the
+// last-resort extractor when turn/markdown extraction finds nothing — most
+// importantly at the response-timeout boundary, so a finished answer on the
+// page is still returned instead of erroring.
+function buildPageTextExtractorJs(fnName: string): string {
+  return `const ${fnName} = () => {
+    const raw = (document.body?.innerText ?? '').trim();
+    if (!raw) return null;
+    const lines = raw.split('\\n');
+    let lastAssistant = -1;
+    let lastUser = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i].trim().toLowerCase();
+      if (line === 'chatgpt said:' || line === 'chatgpt said') lastAssistant = i;
+      else if (line === 'you said:' || line === 'you said') lastUser = i;
+    }
+    if (lastAssistant < 0 || lastUser > lastAssistant) return null;
+    let end = lines.length;
+    for (let i = lastAssistant + 1; i < lines.length; i += 1) {
+      const line = lines[i].trim().toLowerCase();
+      if (line.startsWith('chatgpt can make mistakes')) { end = i; break; }
+    }
+    const block = lines.slice(lastAssistant + 1, end).join('\\n').trim();
+    if (!block) return null;
+    return { text: block, html: '', turnIndex: -1, source: 'page-text' };
+  };`;
+}
+
 function buildAssistantSnapshotExpression(
   minTurnIndex?: number,
   expectedConversationId?: string,
@@ -985,6 +1015,12 @@ function buildAssistantSnapshotExpression(
     const fallback = extractFallback();
     if (fallback && !isPlaceholder(fallback) && !isActiveThinkingStatus(fallback)) {
       return fallback;
+    }
+    // Last resort: read the transcript straight from the page text.
+    ${buildPageTextExtractorJs("extractFromPageText")}
+    const pageText = extractFromPageText();
+    if (pageText && !isPlaceholder(pageText) && !isActiveThinkingStatus(pageText)) {
+      return pageText;
     }
     return null;
   })()`;
@@ -1081,6 +1117,18 @@ function buildResponseObserverExpression(
           }
         };
 
+        // Deadline path: before giving up, read the transcript straight off the
+        // page text so a finished-but-undetected answer is still returned.
+        const pageTextCandidate = () => {
+          const pageRaw = extractFromPageText();
+          return pageRaw &&
+            !isAnswerNowPlaceholder(pageRaw) &&
+            !isActiveThinkingStatus(pageRaw)
+            ? pageRaw
+            : null;
+        };
+        ${buildPageTextExtractorJs("extractFromPageText")}
+
         const observerCallback = () => {
           if (cleanedUp) return;
           try {
@@ -1106,8 +1154,13 @@ function buildResponseObserverExpression(
               cleanup();
               resolve(extracted);
             } else if (Date.now() > deadline) {
+              const pageText = pageTextCandidate();
               cleanup();
-              reject(new Error('Response timeout'));
+              if (pageText) {
+                resolve(pageText);
+              } else {
+                reject(new Error('Response timeout'));
+              }
             }
           } catch (error) {
             cleanup();
@@ -1119,8 +1172,13 @@ function buildResponseObserverExpression(
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
         timeoutId = setTimeout(() => {
+          const pageText = pageTextCandidate();
           cleanup();
-          reject(new Error('Response timeout'));
+          if (pageText) {
+            resolve(pageText);
+          } else {
+            reject(new Error('Response timeout'));
+          }
         }, ${timeoutMs});
       });
 
@@ -1301,9 +1359,20 @@ function buildAssistantExtractor(functionName: string): string {
       if (!contentRoot) {
         continue;
       }
+      // Long conversations virtualize turns (content-visibility); off-screen
+      // content reports an empty innerText. Bring the turn into view and fall
+      // back to textContent, which reads detached-from-render text.
+      try { contentRoot.scrollIntoView?.({ block: 'nearest', behavior: 'instant' }); } catch {}
       const innerText = contentRoot?.innerText ?? '';
       const textContent = contentRoot?.textContent ?? '';
-      const text = stripRoleHeading(innerText.trim().length > 0 ? innerText : textContent);
+      const innerTrimmed = stripRoleHeading(innerText).trim();
+      const textTrimmed = stripRoleHeading(textContent).trim();
+      // Prefer the rendered text unless the DOM text is clearly richer — a sign
+      // the rendered half is still virtualized away.
+      const text =
+        innerTrimmed.length > 0 && (textTrimmed.length <= 80 || innerTrimmed.length * 2 >= textTrimmed.length)
+          ? innerTrimmed
+          : textTrimmed;
       const html = contentRoot?.innerHTML ?? '';
       const messageId = messageRoot.getAttribute('data-message-id');
       const turnId = messageRoot.getAttribute('data-testid');

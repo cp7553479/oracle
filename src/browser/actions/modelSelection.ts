@@ -415,7 +415,13 @@ function buildModelSelectionExpression(
     const findModelButton = () => {
       const explicit = document.querySelector(BUTTON_SELECTOR);
       if (explicit) return explicit;
-      return Array.from(document.querySelectorAll('button.__composer-pill')).find(looksLikeModelPill) ?? null;
+      const pill = Array.from(document.querySelectorAll('button.__composer-pill')).find(looksLikeModelPill);
+      if (pill) return pill;
+      // 2026-09 layout: the picker is an unclassed composer button ("Select
+      // ChatGPT model") whose menu holds the model radios and the effort slider.
+      // The token filter keeps unrelated menu buttons (plus, dictate) out.
+      return Array.from(document.querySelectorAll('button[aria-haspopup="menu"]'))
+        .find(looksLikeModelPill) ?? null;
     };
 
     const closeMenu = () => {

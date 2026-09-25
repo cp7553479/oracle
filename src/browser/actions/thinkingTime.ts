@@ -471,7 +471,16 @@ function buildThinkingTimeExpression(
     const INTELLIGENCE_MENU_SELECTOR = '[data-testid="composer-intelligence-picker-content"]';
     const PRO_EFFORT_TRIGGER_SELECTOR = '[data-testid="composer-intelligence-pro-thinking-effort-trigger"]';
 
-    const findModelButton = () => document.querySelector(MODEL_BUTTON_SELECTOR);
+    const findModelButton = () => {
+      const explicit = document.querySelector(MODEL_BUTTON_SELECTOR);
+      if (explicit) return explicit;
+      // 2026-09 layout: the picker is an unclassed "Select ChatGPT model" button.
+      return Array.from(document.querySelectorAll('form button[aria-haspopup="menu"]'))
+        .find((node) => hasToken(
+          normalize((node.getAttribute?.('aria-label') ?? '') + ' ' + (node.textContent ?? '')),
+          'chatgpt',
+        )) ?? null;
+    };
     const findTrailingButtons = () => Array.from(document.querySelectorAll(TRAILING_SELECTOR));
     const KIND_NOT_FOUND = { kindNotFound: true };
 
@@ -701,6 +710,9 @@ function buildThinkingTimeExpression(
       if (!isVisible(menu)) return false;
       if (menu.getAttribute?.('data-testid') === 'composer-intelligence-picker-content') return true;
       if (menu.querySelector?.(INTELLIGENCE_MENU_SELECTOR)) return true;
+      // 2026-09 unified picker: one menu holds the model radios, the effort
+      // slider, and a single menuitem naming the active tier.
+      if (menu.querySelector?.('[role="slider"]') && countEffortLevels(menu) >= 1) return true;
       const label = menu.querySelector?.('.__menu-label, [class*="menu-label"]');
       const labelText = normalize(label?.textContent ?? '');
       return (
@@ -1190,6 +1202,94 @@ function buildThinkingTimeExpression(
       return finish(failure('selection-unverified'));
     };
 
+    // 2026-09 layout: the picker menu holds the effort slider inline next to a
+    // "Select model" menuitem whose text names the active tier (Instant, Medium,
+    // ...). The slider thumb accepts focus and arrow keys directly. Identify this
+    // layout strictly (visible slider with a 0..3/4 range plus a parsable tier
+    // label) so older menus fall through untouched.
+    const selectUnifiedPickerSlider = async (menu) => {
+      // The slider thumb mounts with a 0x0 rect and only gains its size after
+      // the menu's layout pass; poll briefly instead of rejecting on sight.
+      // Rect-only visibility: the thumb can carry aria-hidden while remaining
+      // fully focusable for programmatic keyboard interaction.
+      const readThumb = () => {
+        const scope = menu && menu.isConnected ? menu : document;
+        const node = scope.querySelector?.('[role="slider"]');
+        if (!(node instanceof HTMLElement)) return null;
+        const rect = node.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        const maximum = Number(node.getAttribute('aria-valuemax') ?? '');
+        const minimum = Number(node.getAttribute('aria-valuemin') ?? '');
+        if (minimum !== 0 || ![3, 4].includes(maximum)) return null;
+        return { thumb: node, minimum, maximum };
+      };
+      let slider = readThumb();
+      const thumbDeadline = performance.now() + 5000;
+      while (!slider && performance.now() < thumbDeadline) {
+        await sleep(100);
+        slider = readThumb();
+      }
+      if (!slider) return null;
+      const { thumb, minimum, maximum } = slider;
+      const levels = ['light', 'standard', 'extended', 'extra-high', 'pro'];
+      const tierFromLabel = (value) => {
+        const label = normalize(value);
+        if (!label) return null;
+        return levels.find((level) =>
+          (TARGET_LEVEL_TOKENS[level] ?? []).some((token) => normalize(token) === label),
+        ) ?? null;
+      };
+      const readTierItemText = () => {
+        for (const item of Array.from(menu.querySelectorAll('[role="menuitem"]'))) {
+          const text = normalize(item.textContent ?? '');
+          if (text && tierFromLabel(text)) return text;
+        }
+        return '';
+      };
+      const read = () => {
+        const now = Number(thumb.getAttribute('aria-valuenow') ?? '');
+        if (!Number.isFinite(now) || now < minimum || now > maximum) return null;
+        const tierText = readTierItemText();
+        const level = tierFromLabel(tierText);
+        return level ? { index: now, level, label: tierText } : null;
+      };
+      const finish = (result) => { closeOpenMenus(); return result; };
+      let current = read();
+      const readyDeadline = performance.now() + MAX_WAIT_MS;
+      while (!current && performance.now() < readyDeadline) {
+        await sleep(100);
+        current = read();
+      }
+      if (!current) return finish(failure('selection-unverified'));
+      const targetIndex = levels.indexOf(TARGET_LEVEL);
+      if (targetIndex < 0) return finish(failure('option-not-found'));
+      const unavailable = () => finish(failure('option-disabled', {
+        label: 'Pro', notice: 'the available four-tier effort slider does not include Pro',
+      }));
+      if (targetIndex > maximum) return unavailable();
+      if (current.level === TARGET_LEVEL) return finish({ status: 'already-selected', label: current.label });
+      const moveDeadline = performance.now() + MAX_WAIT_MS;
+      for (let attempt = 0; attempt < 5 && performance.now() < moveDeadline; attempt += 1) {
+        if (isOptionDisabled(thumb)) return finish(failure('option-disabled', { label: current.label }));
+        const previousIndex = current.index;
+        const key = targetIndex > previousIndex ? 'ArrowRight' : 'ArrowLeft';
+        thumb.focus?.();
+        thumb.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true }));
+        thumb.dispatchEvent(new KeyboardEvent('keyup', { key, code: key, bubbles: true, cancelable: true }));
+        current = null;
+        const stepDeadline = performance.now() + 2000;
+        while (performance.now() < stepDeadline) {
+          await sleep(100);
+          const next = read();
+          if (next && next.index !== previousIndex) { current = next; break; }
+        }
+        if (!current) return finish(failure('selection-unverified'));
+        if (targetIndex > maximum) return unavailable();
+        if (current.level === TARGET_LEVEL) return finish({ status: 'switched', label: current.label });
+      }
+      return finish(failure('selection-unverified'));
+    };
+
     // Current ChatGPT exposes a standalone Pro or Thinking composer pill whose
     // controlled menu contains the effort levels. Prefer this ownership boundary
     // before probing older model-picker layouts.
@@ -1197,6 +1297,9 @@ function buildThinkingTimeExpression(
       'form button.__composer-pill',
       '[data-testid="composer-footer-actions"] button.__composer-pill',
       '.__composer-pill-composite button.__composer-pill',
+      // 2026-09 layout: one unclassed picker button ("Select ChatGPT model")
+      // owns the model radios and the effort slider in a single menu.
+      'form button[aria-haspopup="menu"]',
     ];
     const findComposerEffortPill = () => {
       const seen = new Set();
@@ -1323,6 +1426,19 @@ function buildThinkingTimeExpression(
       while (performance.now() < deadline) {
         const menu = findVisibleEffortMenu(composerEffortPill);
         if (menu) {
+          // The direct-slider path returns a failure result (not null) when its
+          // legacy containers never mount, which would short-circuit newer
+          // layouts. Probe its containers first and give the unified picker a
+          // chance only when they are absent.
+          const directSliderContainersPresent = Boolean(
+            menu.querySelector?.(
+              '[data-model-selection-view="true"], [data-testid="composer-model-picker-slider-simple-view"], [data-model-reasoning-effort-slider]',
+            ),
+          );
+          if (!directSliderContainersPresent) {
+            const unifiedResult = await selectUnifiedPickerSlider(menu);
+            if (unifiedResult) return unifiedResult;
+          }
           const sliderResult = await selectDirectEffortSlider(menu);
           if (sliderResult) return sliderResult;
           const proEffortResult = await selectProEffortFromSubmenu();
