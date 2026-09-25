@@ -4,10 +4,31 @@
 
 ### Fork policy
 
-- Agents: make model-free MCP and remote-browser calls use ChatGPT Latest with Medium effort like the root CLI, and align the installation guide with the globally linked CLI so stale skill copies and GPT-5.5 examples cannot override that default.
-- Sync upstream through 0.21.2-unreleased. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
+- Default model: model-free runs now target ChatGPT Latest at Instant effort (the `light` thinking level) instead of Medium.
+- Agents: make model-free MCP and remote-browser calls use ChatGPT Latest with the default effort like the root CLI, and align the installation guide with the globally linked CLI so stale skill copies and GPT-5.5 examples cannot override that default.
+- Sync upstream through 0.21.3. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
 - Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
 - Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
+
+### Upstream
+
+- Browser: warn when a configured Chrome executable cannot replace a running shared profile, explain how to switch safely, and share reuse handling with Project Sources; fixes #510, thanks @Sogl.
+
+## 0.21.3 - 2026-09-24
+
+**Highlights:** Reliable session flags, preserved file aliases, and IPv6 Chrome profile probes.
+
+- CLI: honor session model and rendering flags, serve cookie sync, and background bridge startup; keep bridge credentials out of child-process arguments and rotate them on ordinary restarts; thanks @vincent-peng.
+- CLI: restore `session <id> --path` while preserving the root `--path` file alias, including flags before the subcommand; fixes #509, thanks @vincent-peng.
+- Browser: preserve reachable IPv6 Chrome profiles and release failed DevTools probe timers promptly; thanks @devYRPauli.
+
+## 0.21.2 - 2026-09-22
+
+**Highlights:** Reliable process identity on localized systems and working verbose CLI help.
+
+- Browser: preserve process identity and stale-lock recovery on non-English systems by normalizing process timestamps; thanks @zianai.
+- CLI: show advanced options with `--help --verbose` and `-h --verbose` in either flag order, without starting a session; fixes #500, thanks @postoso.
+- Dependencies: refresh provider SDKs, terminal rendering and progress, token pricing, and browser tooling while retaining Node >=24 and compatible Gemini HTTP dispatch; thanks @dependabot.
 
 ## 0.21.1 - 2026-09-14
 
