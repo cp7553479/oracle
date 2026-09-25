@@ -1161,6 +1161,10 @@ async function launchManualLoginChrome(
       port: debugPort,
       userDataDir: profileDir,
       startingUrl: url,
+      // Launcher defaults (field trials, mock keychain, subsystem disables)
+      // must not touch the persistent manual-login profile; the explicit
+      // flags below are all this launch needs.
+      ignoreDefaultFlags: true,
       chromeFlags: [
         "--no-first-run",
         "--no-default-browser-check",
