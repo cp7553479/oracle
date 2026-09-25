@@ -841,7 +841,32 @@ function buildCompletionVisibilityExpression(
 
     if (lastAssistantTurn.querySelector('${FINISHED_ACTIONS_SELECTOR}')) return true;
     const markdowns = lastAssistantTurn.querySelectorAll('.markdown');
-    return Array.from(markdowns).some((node) => (node.textContent || '').trim() === 'Done');
+    if (Array.from(markdowns).some((node) => (node.textContent || '').trim() === 'Done')) {
+      return true;
+    }
+    // 2026-09 layout: no testid'd action bar. Completion is announced by a
+    // persistent page status ("Response complete" / localized) and by the
+    // per-turn feedback widget that only renders once the turn is finished.
+    const pageText = String(document.body?.innerText ?? '');
+    if (/(?:response complete|回复已完成)/i.test(pageText)) {
+      const stopVisible = Array.from(
+        document.querySelectorAll('${STOP_BUTTON_SELECTORS.join(",")}'),
+      ).some((node) => {
+        const rect = node.getBoundingClientRect?.();
+        return rect && rect.width > 0 && rect.height > 0;
+      });
+      if (!stopVisible) return true;
+    }
+    const feedbackWidget = lastAssistantTurn.querySelector('aside') ||
+      Array.from(document.querySelectorAll('aside')).find((node) => {
+        const rect = node.getBoundingClientRect?.();
+        return rect && rect.width > 0 && rect.height > 0;
+      });
+    if (feedbackWidget) {
+      const feedbackText = String(feedbackWidget.textContent ?? '').toLowerCase();
+      if (feedbackText.includes('helpful') || feedbackText.includes('有帮助')) return true;
+    }
+    return false;
   })()`;
 }
 
@@ -893,7 +918,8 @@ function normalizeAssistantSnapshot(snapshot: AssistantSnapshot | null): {
     return null;
   }
   // Ignore user echo turns that can show up in project view fallbacks.
-  if (normalized.startsWith("you said")) {
+  // Covers the localized heading ("你说：") as well as the English one.
+  if (normalized.startsWith("you said") || /^你说[：:]/.test(text.trim())) {
     return null;
   }
   return {
@@ -958,14 +984,14 @@ function buildPageTextExtractorJs(fnName: string): string {
     let lastUser = -1;
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i].trim().toLowerCase();
-      if (line === 'chatgpt said:' || line === 'chatgpt said') lastAssistant = i;
-      else if (line === 'you said:' || line === 'you said') lastUser = i;
+      if (line === 'chatgpt said:' || line === 'chatgpt said' || line === 'chatgpt 说：' || line === 'chatgpt 说:') lastAssistant = i;
+      else if (line === 'you said:' || line === 'you said' || line === '你说：' || line === '你说:') lastUser = i;
     }
     if (lastAssistant < 0 || lastUser > lastAssistant) return null;
     let end = lines.length;
     for (let i = lastAssistant + 1; i < lines.length; i += 1) {
       const line = lines[i].trim().toLowerCase();
-      if (line.startsWith('chatgpt can make mistakes')) { end = i; break; }
+      if (line.startsWith('chatgpt can make mistakes') || line.startsWith('chatgpt 可能会出错')) { end = i; break; }
     }
     const block = lines.slice(lastAssistant + 1, end).join('\\n').trim();
     if (!block) return null;
@@ -1344,8 +1370,11 @@ function buildAssistantExtractor(functionName: string): string {
       const messageRoot = srOnlyRole ? roleMatch.parentElement : (roleMatch ?? turn);
       // The sr-only heading still leaks into innerText; strip only that known
       // label so legitimate answers starting with the same words stay intact.
+      // Covers the localized heading ("ChatGPT 说：") as well as the English one.
       const stripRoleHeading = (value) =>
-        srOnlyRole ? String(value || "").replace(/^\\s*chatgpt said:\\s*/i, "") : value;
+        srOnlyRole
+          ? String(value || "").replace(/^\\s*chatgpt\\s*(?:said|说)\\s*[：:]?\\s*/i, "")
+          : value;
       expandCollapsibles(messageRoot);
       const preferred =
         (messageRoot.matches?.('.markdown') || messageRoot.matches?.('[data-message-content]') ? messageRoot : null) ||

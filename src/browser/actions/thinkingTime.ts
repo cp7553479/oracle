@@ -319,7 +319,7 @@ function buildThinkingTimeExpression(
 
     // Multilingual matchers: English level token + observed localized variants.
     const LEVEL_TOKENS = {
-      light: ['light', 'instant', 'sofort', 'leicht', '最速', '轻', '极速', '즉시'],
+      light: ['light', 'instant', 'sofort', 'leicht', '最速', '轻', '极速', '즉시', '即时'],
       standard: ['standard', 'medium', 'mittel', '中程度', '标准', '中', '중간'],
       extended: ['extended', 'high', 'hoch', 'erweitert', '高い', '扩展', '深度', '加强', '高', '높음'],
       'extra-high': ['extra high', 'sehr hoch', '非常に高い', '極高', '极高', '매우 높음'],
@@ -711,8 +711,18 @@ function buildThinkingTimeExpression(
       if (menu.getAttribute?.('data-testid') === 'composer-intelligence-picker-content') return true;
       if (menu.querySelector?.(INTELLIGENCE_MENU_SELECTOR)) return true;
       // 2026-09 unified picker: one menu holds the model radios, the effort
-      // slider, and a single menuitem naming the active tier.
-      if (menu.querySelector?.('[role="slider"]') && countEffortLevels(menu) >= 1) return true;
+      // slider, and a single menuitem naming the active tier. countEffortLevels
+      // tokenizes latin only, so localized tier names ("即时") need the raw
+      // text checked as well; the model-radio rows are a locale-independent
+      // signature for menus whose current tier is version-prefixed ("6Pro").
+      if (menu.querySelector?.('[role="slider"]')) {
+        if (countEffortLevels(menu) >= 1) return true;
+      }
+      if (menu.querySelectorAll?.('[role="menuitemradio"]').length >= 2) {
+        const rawMenuText = String(menu?.textContent ?? '').toLowerCase();
+        const tierTokens = [].concat(...Object.values(LEVEL_TOKENS), ['pro']);
+        if (tierTokens.some((token) => rawMenuText.includes(String(token).toLowerCase()))) return true;
+      }
       const label = menu.querySelector?.('.__menu-label, [class*="menu-label"]');
       const labelText = normalize(label?.textContent ?? '');
       return (
@@ -1233,10 +1243,18 @@ function buildThinkingTimeExpression(
       const { thumb, minimum, maximum } = slider;
       const levels = ['light', 'standard', 'extended', 'extra-high', 'pro'];
       const tierFromLabel = (value) => {
-        const label = normalize(value);
-        if (!label) return null;
+        const raw = String(value ?? '').trim().replace(/^\\s*\\d+\\s*/, '');
+        if (!raw) return null;
+        const label = normalize(raw);
+        if (label) {
+          return levels.find((level) =>
+            (TARGET_LEVEL_TOKENS[level] ?? []).some((token) => normalize(token) === label),
+          ) ?? null;
+        }
+        // CJK labels normalize to an empty latin string; compare raw text so
+        // "即时" does not collapse onto the first level's empty normalization.
         return levels.find((level) =>
-          (TARGET_LEVEL_TOKENS[level] ?? []).some((token) => normalize(token) === label),
+          (TARGET_LEVEL_TOKENS[level] ?? []).some((token) => String(token).trim() === raw),
         ) ?? null;
       };
       const readTierItemText = () => {
@@ -1312,15 +1330,18 @@ function buildThinkingTimeExpression(
           // A 5.6 Pro model pill is not Astra Latest's 6-prefixed effort owner.
           // Keep this rejection ahead of the generic compatibility matcher.
           if (isSolModelPillForLatest(button.textContent ?? '')) continue;
-          const label = normalize(
+          const rawLabel =
             (button.getAttribute?.('aria-label') ?? '') + ' ' +
             (button.getAttribute?.('data-testid') ?? '') + ' ' +
-            (button.textContent ?? ''),
-          );
+            (button.textContent ?? '');
+          const label = normalize(rawLabel);
+          // Localized pickers name the control "思考强度" (thinking effort); the
+          // latin tokenizer erases CJK, so check the raw string as well.
+          const thinkingSignal = hasToken(label, 'thinking') || /思考/.test(rawLabel);
           if (
-            (TARGET_MODEL_KIND === 'pro' && hasToken(label, 'pro') && !hasToken(label, 'thinking')) ||
-            (TARGET_MODEL_KIND === 'thinking' && hasToken(label, 'thinking') && !hasToken(label, 'pro')) ||
-            (!TARGET_MODEL_KIND && hasToken(label, 'thinking')) ||
+            (TARGET_MODEL_KIND === 'pro' && hasToken(label, 'pro') && !thinkingSignal) ||
+            (TARGET_MODEL_KIND === 'thinking' && thinkingSignal && !hasToken(label, 'pro')) ||
+            (!TARGET_MODEL_KIND && thinkingSignal) ||
             // Astra Latest prefixes a supported effort label with "6" (for
             // example, "6 Pro" or textContent-concatenated "6Pro"). This is
             // recognized only for the exact Latest target; selection still

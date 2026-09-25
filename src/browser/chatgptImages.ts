@@ -428,6 +428,95 @@ export async function saveChatGptGeneratedImages(params: {
   };
 }
 
+/**
+ * 2026-09 layout: generated images render as blob: URLs inside the assistant
+ * turn ("已生成图像 N" / localized). The legacy estuary/file_ link scan misses
+ * them, so fetch the bytes in the page and persist them from the node side.
+ */
+async function saveBlobImageArtifacts(params: {
+  Runtime: ChromeClient["Runtime"];
+  logger?: BrowserLogger;
+  targetPath: string;
+}): Promise<SavedBrowserImage[]> {
+  const expression = `(async () => {
+    const images = Array.from(document.querySelectorAll('img[src^="blob:"]')).filter((img) => {
+      const alt = String(img.getAttribute('alt') || '').toLowerCase();
+      return /已生成|generated image/.test(alt);
+    });
+    const out = [];
+    for (const img of images) {
+      try {
+        const response = await fetch(img.src);
+        const buffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        const mimeType = response.type || 'image/png';
+        out.push({
+          src: img.src,
+          alt: img.getAttribute('alt') || '',
+          mimeType,
+          width: img.naturalWidth || Math.round(img.getBoundingClientRect().width) || 0,
+          height: img.naturalHeight || Math.round(img.getBoundingClientRect().height) || 0,
+          dataBase64: btoa(binary),
+        });
+      } catch {}
+    }
+    return out;
+  })()`;
+  const evaluation = await params.Runtime.evaluate({
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  }).catch(() => undefined);
+  const found = (evaluation?.result?.value ?? []) as Array<{
+    src: string;
+    alt: string;
+    mimeType: string;
+    width: number;
+    height: number;
+    dataBase64: string;
+  }>;
+  if (!Array.isArray(found) || found.length === 0) {
+    return [];
+  }
+  const saved: SavedBrowserImage[] = [];
+  for (const [index, image] of found.entries()) {
+    try {
+      const buffer = Buffer.from(image.dataBase64, "base64");
+      const target = index === 0 ? params.targetPath : insertSuffix(params.targetPath, index + 1);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, buffer);
+      params.logger?.(`[browser] Saved generated blob image to ${target}`);
+      saved.push({
+        kind: "image",
+        path: target,
+        label: index === 0 ? "Generated image" : `Generated image ${index + 1}`,
+        mimeType: image.mimeType,
+        sizeBytes: buffer.length,
+        sourceUrl: image.src,
+        url: image.src,
+        alt: image.alt,
+        width: image.width,
+        height: image.height,
+      });
+    } catch (error) {
+      params.logger?.(
+        `[browser] Failed to save generated blob image: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return saved;
+}
+
+function insertSuffix(filePath: string, suffix: number): string {
+  const parsed = path.parse(filePath);
+  return path.join(parsed.dir, `${parsed.name}-${suffix}${parsed.ext}`);
+}
+
 async function saveGeneratedImageButtonArtifacts(params: {
   Browser?: ChromeClient["Browser"];
   Client?: ChromeClient;
@@ -536,6 +625,14 @@ export async function collectGeneratedImageArtifacts(params: {
 
   if (explicitTargetPath && generatedImages.length === 0) {
     const targetPath = path.resolve(explicitTargetPath);
+    const blobImages = await saveBlobImageArtifacts({
+      Runtime: params.Runtime,
+      logger: params.logger,
+      targetPath,
+    });
+    if (blobImages.length > 0) {
+      return formatButtonImageArtifacts(blobImages, latestAnswerText);
+    }
     const buttonImages = await saveGeneratedImageButtonArtifacts({
       Browser: params.Browser,
       Client: params.Client,
@@ -581,6 +678,14 @@ export async function collectGeneratedImageArtifacts(params: {
   });
   if (!saved.saved) {
     if (explicitTargetPath) {
+      const blobImages = await saveBlobImageArtifacts({
+        Runtime: params.Runtime,
+        logger: params.logger,
+        targetPath: path.resolve(explicitTargetPath),
+      });
+      if (blobImages.length > 0) {
+        return formatButtonImageArtifacts(blobImages, latestAnswerText);
+      }
       const buttonImages = await saveGeneratedImageButtonArtifacts({
         Browser: params.Browser,
         Client: params.Client,
