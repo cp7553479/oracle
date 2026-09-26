@@ -466,5 +466,9 @@ export function inferModelFromLabel(modelValue: string): ModelName {
   if (normalized.includes("instant") || normalized.includes("fast")) {
     return "gpt-5.2-instant";
   }
-  return "gpt-5.2";
+  // Unrecognized ids pass through untouched: silently rewriting them to a
+  // retired default turns a typo into a hard error on the browser path.
+  // The fork's no-stall rule lets browser runs continue on the page's
+  // current model when selection cannot find the requested id.
+  return normalized as ModelName;
 }

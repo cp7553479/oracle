@@ -350,10 +350,10 @@ describe("inferModelFromLabel", () => {
     expect(inferModelFromLabel("GPT-6 Pro")).toBe("gpt-6-pro");
   });
 
-  test("does not treat unknown gpt-6-* ids as the Latest alias", () => {
+  test("passes unknown gpt-6-* ids through unchanged", () => {
     expect(inferModelFromLabel("gpt-6-codex")).toBe("gpt-5.1-codex");
-    expect(inferModelFromLabel("gpt-6-custom")).not.toMatch(/^gpt-6/);
-    expect(inferModelFromLabel("gpt-6-astra-mini")).not.toMatch(/^gpt-6/);
+    expect(inferModelFromLabel("gpt-6-custom")).toBe("gpt-6-custom");
+    expect(inferModelFromLabel("gpt-6-astra-mini")).toBe("gpt-6-astra-mini");
   });
 
   test("infers 5.5 variants", () => {
@@ -414,8 +414,10 @@ describe("inferModelFromLabel", () => {
     expect(inferModelFromLabel("Grok-4-1")).toBe("grok-4.1");
   });
 
-  test("falls back to gpt-5.5-pro when label empty and to gpt-5.2 for other ambiguous strings", () => {
+  test("falls back to gpt-5.5-pro when label empty and passes unknown strings through", () => {
     expect(inferModelFromLabel("")).toBe("gpt-5.5-pro");
-    expect(inferModelFromLabel("something else")).toBe("gpt-5.2");
+    // Unknown ids stay untouched so the browser path can apply the no-stall
+    // rule (continue on the page's model) instead of a retired-model error.
+    expect(inferModelFromLabel("something else")).toBe("something else");
   });
 });

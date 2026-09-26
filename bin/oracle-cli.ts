@@ -1950,8 +1950,29 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   const normalizedMultiModels: ModelName[] = multiModelProvided
     ? Array.from(new Set(options.models!.map((entry) => resolveApiModel(entry))))
     : [];
+  // A saved default the browser cannot route (typo, retired id, non-GPT/Gemini
+  // provider id) is ignored per the no-stall rule: the forced-browser run falls
+  // back to the Latest default instead of erroring. Explicit --model values
+  // keep failing loudly so callers learn their typo.
+  const modelCameFromCli = program.getOptionValueSource?.("model") === "cli";
+  const normalizedRequestedModel = normalizeModelOption(options.model);
+  const unroutableSavedDefault =
+    !modelCameFromCli &&
+    !multiModelProvided &&
+    userConfig.model !== undefined &&
+    userConfig.model.trim().length > 0 &&
+    !normalizedRequestedModel.startsWith("gpt-") &&
+    !normalizedRequestedModel.startsWith("gemini");
+  const effectiveRequestedModel = unroutableSavedDefault ? undefined : normalizedRequestedModel;
+  if (unroutableSavedDefault) {
+    console.log(
+      chalk.dim(
+        `Ignoring configured default model "${userConfig.model}" (not available in browser mode); using Latest.`,
+      ),
+    );
+  }
   const cliModelArg =
-    normalizeModelOption(options.model) || (multiModelProvided ? "" : DEFAULT_MODEL);
+    effectiveRequestedModel || (multiModelProvided ? "" : DEFAULT_MODEL);
   const resolvedModelCandidate: ModelName = multiModelProvided
     ? normalizedMultiModels[0]
     : engine === "browser"
@@ -1969,12 +1990,16 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     normalizedMultiModels.length > 0
       ? normalizedMultiModels.some((model) => !isBrowserCompatible(model))
       : !isBrowserCompatible(resolvedModelCandidate);
-  if (browserExplicitlyRequested && hasNonBrowserCompatibleTarget) {
+  // --session/--status are attach intents: the model only filters which stored
+  // session to open, and attach itself reports unknown ids precisely. The
+  // engine-compatibility gate is about launching runs and must not preempt it.
+  const sessionIntent = Boolean(options.session || options.status);
+  if (!sessionIntent && browserExplicitlyRequested && hasNonBrowserCompatibleTarget) {
     throw new Error(
       "Browser engine only supports GPT and Gemini models. Re-run with --engine api for Grok, Claude, or other models.",
     );
   }
-  if (engine === "browser" && hasNonBrowserCompatibleTarget) {
+  if (!sessionIntent && engine === "browser" && hasNonBrowserCompatibleTarget) {
     engine = "api";
   }
   if (isClaude && engine === "browser") {

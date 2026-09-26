@@ -89,130 +89,7 @@ const ALLOWED_FLAGS: Record<string, FlagShape> = {
   "--debug-help": "boolean",
 };
 
-/**
- * Every remaining root-run option the CLI defines, with the number of operands
- * each consumes. Dropped flags surrender their values so no operand leaks
- * through as a stray prompt.
- */
-const KNOWN_FLAG_SHAPES: Record<string, FlagShape> = {
-  "-e": "value",
-  "-f": "variadic",
-  "-m": "value",
-  "-p": "value",
-  "-s": "value",
-  "-v": "boolean",
-  "--allow-partial": "boolean",
-  "--aspect": "value",
-  "--azure-api-version": "value",
-  "--azure-deployment": "value",
-  "--azure-endpoint": "value",
-  "--background": "boolean",
-  "--base-url": "value",
-  "--browser": "boolean",
-  "--browser-allow-cookie-errors": "boolean",
-  "--browser-approval-wait": "value",
-  "--browser-archive": "value",
-  "--browser-attachment-timeout": "value",
-  "--browser-attachments": "value",
-  "--browser-auto-reattach-delay": "value",
-  "--browser-auto-reattach-interval": "value",
-  "--browser-auto-reattach-timeout": "value",
-  "--browser-bundle-files": "boolean",
-  "--browser-bundle-format": "value",
-  "--browser-capture-provider-native": "boolean",
-  "--browser-chrome-path": "value",
-  "--browser-chrome-profile": "value",
-  "--browser-cookie-path": "value",
-  "--browser-cookie-wait": "value",
-  "--browser-debug-port": "value",
-  "--browser-follow-up": "value",
-  "--browser-headless": "boolean",
-  "--browser-hide-window": "boolean",
-  "--browser-inline-cookies": "value",
-  "--browser-inline-cookies-file": "value",
-  "--browser-inline-files": "boolean",
-  "--browser-input-timeout": "value",
-  "--browser-keep-browser": "boolean",
-  "--browser-manual-login-profile-dir": "value",
-  "--browser-max-concurrent-tabs": "value",
-  "--browser-model-strategy": "value",
-  "--browser-no-cookie-sync": "boolean",
-  "--browser-port": "value",
-  "--browser-profile-lock-timeout": "value",
-  "--browser-recheck-delay": "value",
-  "--browser-recheck-timeout": "value",
-  "--browser-research": "value",
-  "--browser-reuse-wait": "value",
-  "--browser-thinking-time": "value",
-  "--browser-timeout": "value",
-  "--browser-url": "value",
-  "--chatgpt-url": "value",
-  "--copy": "boolean",
-  "--copy-markdown": "boolean",
-  "--debug-help": "boolean",
-  "--dry-run": "boolean",
-  "--edit-image": "value",
-  "--exec-session": "value",
-  "--files": "variadic",
-  "--files-report": "boolean",
-  "--followup": "value",
-  "--followup-model": "value",
-  "--force": "boolean",
-  "--gemini-fallback": "boolean",
-  "--gemini-show-thoughts": "boolean",
-  "--generate-image": "value",
-  "--heartbeat": "value",
-  "--http-timeout": "value",
-  "--include": "variadic",
-  "--manual-browser-login": "boolean",
-  "--manual-login": "boolean",
-  "--max-file-size-bytes": "value",
-  "--max-input": "value",
-  "--max-output": "value",
-  "--message": "value",
-  "--mode": "value",
-  "--models": "value",
-  "--no-azure": "boolean",
-  "--no-background": "boolean",
-  "--no-browser-capture-provider-native": "boolean",
-  "--no-gemini-fallback": "boolean",
-  "--no-notify": "boolean",
-  "--no-notify-sound": "boolean",
-  "--no-wait": "boolean",
-  "--notify": "boolean",
-  "--notify-sound": "boolean",
-  "--output": "value",
-  "--partial": "value",
-  "--path": "variadic",
-  "--paths": "variadic",
-  "--perf-trace": "boolean",
-  "--perf-trace-path": "value",
-  "--preflight": "boolean",
-  "--preview": "boolean",
-  "--provider": "value",
-  "--reasoning-effort": "value",
-  "--reasoning-mode": "value",
-  "--remote-host": "value",
-  "--remote-token": "value",
-  "--render": "boolean",
-  "--render-markdown": "boolean",
-  "--render-plain": "boolean",
-  "--retain-hours": "value",
-  "--route": "boolean",
-  "--search": "value",
-  "--session": "value",
-  "--slug": "value",
-  "--status": "boolean",
-  "--timeout": "value",
-  "--verbose": "boolean",
-  "--verbose-render": "boolean",
-  "--wait": "boolean",
-  "--write-artifacts": "boolean",
-  "--write-output": "value",
-  "--youtube": "value",
-  "--zombie-last-activity": "boolean",
-  "--zombie-timeout": "value",
-};
+
 
 function flagName(arg: string): string {
   const equalsIndex = arg.indexOf("=");
@@ -224,22 +101,21 @@ function isFlagLike(arg: string): boolean {
 }
 
 function shapeFor(name: string): FlagShape | undefined {
-  const known = ALLOWED_FLAGS[name] ?? KNOWN_FLAG_SHAPES[name];
+  const known = ALLOWED_FLAGS[name];
   if (known) return known;
   // Commander generates `--no-x` negations for boolean `--x` options.
-  if (name.startsWith("--no-")) {
-    const positive = `--${name.slice(5)}`;
-    if (KNOWN_FLAG_SHAPES[positive] === "boolean" || ALLOWED_FLAGS[positive] === "boolean") {
-      return "boolean";
-    }
+  if (name.startsWith("--no-") && ALLOWED_FLAGS[`--${name.slice(5)}`] === "boolean") {
+    return "boolean";
   }
   return undefined;
 }
 
 /**
  * True when the user args invoke a subcommand. Mirrors Commander's dispatch:
- * the first operand that is not consumed by an earlier option selects the
- * subcommand.
+ * the first operand not consumed by an earlier ALLOWED option selects the
+ * subcommand. Anything an unknown flag would have consumed is irrelevant
+ * here — an unknown option on a subcommand line is Commander's own error to
+ * raise, not ours.
  */
 function startsWithSubcommand(args: string[]): boolean {
   let index = 0;
@@ -247,13 +123,14 @@ function startsWithSubcommand(args: string[]): boolean {
     const arg = args[index];
     if (arg === "--") return false;
     if (isFlagLike(arg)) {
-      const shape = shapeFor(flagName(arg));
       if (arg.includes("=")) {
         index += 1;
         continue;
       }
+      const shape = shapeFor(flagName(arg));
       if (shape === "value") {
-        index += 2;
+        const value = args[index + 1];
+        index += value !== undefined && !isFlagLike(value) ? 2 : 1;
         continue;
       }
       if (shape === "variadic") {
@@ -271,7 +148,9 @@ function startsWithSubcommand(args: string[]): boolean {
 
 /**
  * Filter root-run CLI arguments down to the fork's allowed surface. Unknown or
- * disallowed options are dropped together with their values, silently.
+ * disallowed options are dropped together with their values, silently: a
+ * dropped flag swallows every following non-flag token, so no operand leaks
+ * through as a stray prompt no matter what a caller passes.
  *
  * Setting `ORACLE_ALLOW_API_ENGINE=1` bypasses this policy. The escape hatch
  * exists for upstream API integration tests, which exercise the full upstream
@@ -289,33 +168,28 @@ export function filterRootRunArgs(args: string[], env: NodeJS.ProcessEnv = proce
       return result;
     }
     if (isFlagLike(arg)) {
-      const name = flagName(arg);
-      const shape = shapeFor(name);
-      const allowed = ALLOWED_FLAGS[name] !== undefined;
+      const shape = shapeFor(flagName(arg));
+      const allowed = shape !== undefined;
       if (allowed) {
         result.push(arg);
       }
-      const effectiveShape = shape ?? "boolean";
-      if (!arg.includes("=") && effectiveShape !== "boolean") {
-        if (effectiveShape === "value") {
+      if (!arg.includes("=")) {
+        if (shape === "value") {
           const value = args[index + 1];
-          if (
-            index + 1 < args.length &&
-            value !== undefined &&
-            !isFlagLike(value) &&
-            value !== "--"
-          ) {
+          if (value !== undefined && !isFlagLike(value) && value !== "--") {
             index += 1;
             if (allowed) result.push(value);
           }
-        } else {
-          while (
-            index + 1 < args.length &&
-            !isFlagLike(args[index + 1]) &&
-            args[index + 1] !== "--"
-          ) {
+        } else if (shape === "variadic") {
+          while (index + 1 < args.length && !isFlagLike(args[index + 1]) && args[index + 1] !== "--") {
             index += 1;
             if (allowed) result.push(args[index]);
+          }
+        } else if (!allowed) {
+          // Dropped flag: swallow its operands (everything up to the next
+          // flag) so discarded flags take their values with them.
+          while (index + 1 < args.length && !isFlagLike(args[index + 1]) && args[index + 1] !== "--") {
+            index += 1;
           }
         }
       }

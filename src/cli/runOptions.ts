@@ -58,8 +58,24 @@ export function resolveRunOptionsFromConfig({
     .map((entry) => normalizeModelOption(entry))
     .filter(Boolean);
 
+  const configModel = typeof model !== "string" || !model.trim() ? userConfig?.model : undefined;
+  // A saved default the browser cannot route (a typo, a retired id, a
+  // non-GPT/Gemini provider id) must never block the forced-browser path —
+  // per the fork's no-stall rule it is ignored and the run falls back to the
+  // Latest default. Explicit --model values keep failing loudly.
   const requestedModel = normalizeModelOption(model ?? userConfig?.model);
-  const cliModelArg = requestedModel || (resolvedEngine === "browser" ? "latest" : DEFAULT_MODEL);
+  const requestedFromCliOnly = typeof model === "string" && model.trim().length > 0;
+  const unroutableConfigDefault =
+    !requestedFromCliOnly &&
+    configModel !== undefined &&
+    !resolveBrowserProvider(requestedModel) &&
+    (browserEngineRequested || resolvedEngine === "browser");
+  const cliModelArg =
+    requestedModel && !unroutableConfigDefault
+      ? requestedModel
+      : resolvedEngine === "browser"
+        ? "latest"
+        : DEFAULT_MODEL;
   const isGpt6Pro = isGpt6ProAlias(cliModelArg);
   const apiModel =
     isGpt6Pro && (resolvedEngine === "browser" || browserEngineRequested)

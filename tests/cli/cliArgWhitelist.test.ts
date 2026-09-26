@@ -66,6 +66,16 @@ describe("filterRootRunArgs", () => {
     expect(filterRootRunArgs(["--totally-unknown", "-p", "hi"])).toEqual(["-p", "hi"]);
   });
 
+  test("drops unknown value-shaped flags together with their values", () => {
+    expect(filterRootRunArgs(["--effort", "high", "--thinking-time", "pro", "-p", "hi"])).toEqual([
+      "-p",
+      "hi",
+    ]);
+    expect(filterRootRunArgs(["--future-flag=value", "-p", "hi"])).toEqual(["-p", "hi"]);
+    // A trailing unknown flag with no value consumes nothing.
+    expect(filterRootRunArgs(["-p", "hi", "--future-flag"])).toEqual(["-p", "hi"]);
+  });
+
   test("keeps positional prompt operands", () => {
     expect(filterRootRunArgs(["fix the bug"])).toEqual(["fix the bug"]);
     expect(filterRootRunArgs(["--engine", "browser", "fix the bug"])).toEqual([
