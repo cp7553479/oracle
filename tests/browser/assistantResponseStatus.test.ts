@@ -267,6 +267,7 @@ describe("classifyTurnTerminal", () => {
   const config: TerminalGateConfig = {
     barConfirmCycles: 3,
     minStableMs: 200,
+    stuckMs: 30_000,
   };
 
   // Drive the pure classifier over a sequence of samples (each 400ms apart by default),
@@ -288,6 +289,7 @@ describe("classifyTurnTerminal", () => {
         contentKey: partial.contentKey ?? String(partial.len),
         stopVisible: partial.stopVisible ?? false,
         barVisible: partial.barVisible ?? false,
+        sendReady: partial.sendReady ?? true,
         strongThinkingActive: partial.strongThinkingActive ?? false,
       };
       const result = classifyTurnTerminal(state, sample, cfg);
@@ -301,6 +303,62 @@ describe("classifyTurnTerminal", () => {
   test("never finalizes while the stop control is visible", () => {
     const out = runGate(Array.from({ length: 20 }, () => ({ len: 400, stopVisible: true })));
     expect(out.some(Boolean)).toBe(false);
+  });
+
+  test("never finalizes while the composer send control is not restored", () => {
+    const out = runGate(
+      Array.from({ length: 20 }, () => ({ len: 400, barVisible: true, sendReady: false })),
+    );
+    expect(out.some(Boolean)).toBe(false);
+  });
+
+  test("flags a frozen turn with unrestored controls as stuck after the gate", () => {
+    let state = createTerminalGateState(0);
+    let stuck = false;
+    let terminal = false;
+    for (let i = 0; i <= 80 && !stuck; i += 1) {
+      const result = classifyTurnTerminal(
+        state,
+        {
+          now: i * 400,
+          len: 400,
+          contentKey: "frozen",
+          stopVisible: true,
+          barVisible: false,
+          sendReady: true,
+          strongThinkingActive: false,
+        },
+        config,
+      );
+      state = result.state;
+      stuck = result.stuck;
+      terminal = result.terminal;
+    }
+    expect(stuck).toBe(true);
+    expect(terminal).toBe(false);
+  });
+
+  test("strong live work suppresses the stuck flag", () => {
+    let state = createTerminalGateState(0);
+    let stuckSeen = false;
+    for (let i = 0; i <= 80; i += 1) {
+      const result = classifyTurnTerminal(
+        state,
+        {
+          now: i * 400,
+          len: 400,
+          contentKey: "frozen",
+          stopVisible: true,
+          barVisible: false,
+          sendReady: true,
+          strongThinkingActive: true,
+        },
+        config,
+      );
+      state = result.state;
+      stuckSeen ||= result.stuck;
+    }
+    expect(stuckSeen).toBe(false);
   });
 
   test("holds a settled long preamble until the reasoning phase resolves", () => {

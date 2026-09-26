@@ -1479,8 +1479,15 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: payload } };
           }
           const expression = String(params?.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             return { result: { value: payload } };
+          }
+          // The composer's send control is restored (structural readiness probe).
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
           }
           // A finished turn's action bar is present -> the terminal gate proves completion (proofA).
           if (expression.includes("Find the LAST assistant turn")) {
@@ -1520,6 +1527,9 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: payload } };
           }
           const expression = String(params?.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             snapshotCalls += 1;
             // First snapshot call is the watchdog poller; keep it slow so the evaluation wins the race.
@@ -1568,6 +1578,9 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: partial } };
           }
           const expression = String(params.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           // The stub "I" is captured mid-stream; the full answer and its action bar arrive at 3.5s.
           const done = Date.now() - startedAt >= 3_500;
           if (expression.includes("extractAssistantTurn")) {
@@ -1608,6 +1621,9 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: partial } };
           }
           const expression = String(params.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             return { result: { value: partial } };
           }
@@ -1638,6 +1654,9 @@ describe("waitForAssistantResponse", () => {
             return new Promise(() => undefined);
           }
           const expression = String(params.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             return { result: { value: partial } };
           }
@@ -1678,6 +1697,9 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: partial } };
           }
           const expression = String(params.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             snapshotCalls += 1;
             if (snapshotCalls === 1) {
@@ -1717,6 +1739,9 @@ describe("waitForAssistantResponse", () => {
             return { result: { type: "object", value: answer } };
           }
           const expression = String(params.expression ?? "");
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.includes("extractAssistantTurn")) {
             return { result: { value: answer } };
           }
@@ -1771,6 +1796,9 @@ describe("waitForAssistantResponse", () => {
           throw new Error("observer failed");
         }
         const expression = typeof params?.expression === "string" ? params.expression : "";
+        if (expression.includes("oracle-send-ready")) {
+          return { result: { value: true } };
+        }
         if (expression.includes("extractAssistantTurn")) {
           return {
             result: {

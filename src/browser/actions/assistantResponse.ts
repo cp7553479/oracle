@@ -5,6 +5,7 @@ import {
   CONVERSATION_TURN_SELECTOR,
   COPY_BUTTON_SELECTOR,
   FINISHED_ACTIONS_SELECTOR,
+  SEND_BUTTON_SELECTORS,
   STOP_BUTTON_SELECTORS,
 } from "../constants.js";
 import { buildConversationTurnListExpression } from "../conversationTurns.js";
@@ -42,11 +43,17 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 export interface TerminalGateConfig {
   barConfirmCycles: number;
   minStableMs: number;
+  stuckMs: number;
 }
 
 const TERMINAL_GATE_CONFIG: TerminalGateConfig = {
   barConfirmCycles: readPositiveIntEnv("ORACLE_BAR_CONFIRM_CYCLES", 3),
   minStableMs: readPositiveIntEnv("ORACLE_TERMINAL_MIN_STABLE_MS", 1_200),
+  // Deadlock gate: the answer text has been stable this long while the
+  // generation controls never reset (stop still up or composer not restored)
+  // and no strong live-work signal explains the wait. Reload the page and
+  // re-capture instead of idling to the full timeout.
+  stuckMs: readPositiveIntEnv("ORACLE_TERMINAL_STUCK_MS", 30_000),
 };
 
 export interface TerminalGateState {
@@ -65,6 +72,10 @@ export interface TerminalSample {
   contentKey: string;
   stopVisible: boolean;
   barVisible: boolean;
+  // The composer's send control is visible and enabled again — generation
+  // finished from the input side. Required together with stop-gone and a
+  // stable answer before a capture is finalized.
+  sendReady: boolean;
   // Strong signals prove live work (stop/shimmer/aria-busy/status/progress). Weak activity is
   // limited to a heuristic sidecar match that can linger after completion.
   strongThinkingActive: boolean;
@@ -85,7 +96,7 @@ export function classifyTurnTerminal(
   state: TerminalGateState,
   sample: TerminalSample,
   config: TerminalGateConfig,
-): { state: TerminalGateState; terminal: boolean } {
+): { state: TerminalGateState; terminal: boolean; stuck: boolean } {
   const changed = !state.seen || sample.contentKey !== state.lastKey;
   const lastChangeAt = changed ? sample.now : state.lastChangeAt;
   // proofA debounce: weak/stale sidecar evidence may be overridden, but strong live activity
@@ -102,20 +113,29 @@ export function classifyTurnTerminal(
     seen: true,
   };
 
+  const stableMs = sample.now - lastChangeAt;
   let terminal = false;
   if (!sample.stopVisible && sample.len > 0) {
-    const stableMs = sample.now - lastChangeAt;
-    // Debounced action bar AND content stable for a minimum time. The time-stability
-    // requirement guards the documented race where finished-action controls surface while only
-    // the first tokens have rendered. Weak sidecar evidence cannot hang a finished turn, but
-    // strong live activity vetoes this proof and restarts its debounce.
+    // Triple rule: stop control gone AND the composer's send control is
+    // ready again AND the finished-action bar is debounced AND the content
+    // stayed stable for the minimum window. Strong live work vetoes.
     terminal =
+      sample.sendReady &&
       sample.barVisible &&
       !sample.strongThinkingActive &&
       barStableCycles >= config.barConfirmCycles &&
       stableMs >= config.minStableMs;
   }
-  return { state: next, terminal };
+  // Deadlock: content frozen well past any debounce while the generation
+  // controls never reset (stop still up, or composer not restored) and no
+  // strong live-work signal explains the wait. The caller reloads the page
+  // and re-captures rather than idling to the full timeout.
+  const stuck =
+    sample.len > 0 &&
+    !sample.strongThinkingActive &&
+    stableMs >= config.stuckMs &&
+    (sample.stopVisible || !sample.sendReady);
+  return { state: next, terminal, stuck };
 }
 const THINKING_STATUS_LABELS = [
   "thinking",
@@ -710,9 +730,10 @@ async function pollAssistantCompletion(
       if (isGeneratedImageAssistantAnswer(normalized)) {
         return normalized;
       }
-      const [stopVisible, barVisible, thinkingActivity] = await Promise.all([
+      const [stopVisible, barVisible, sendReady, thinkingActivity] = await Promise.all([
         isStopButtonVisible(Runtime),
         isCompletionVisible(Runtime, normalized.meta, minTurnIndex),
+        isSendReady(Runtime),
         readThinkingActivity(Runtime),
       ]);
       const decision = classifyTurnTerminal(
@@ -725,6 +746,7 @@ async function pollAssistantCompletion(
           contentKey: `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text}`,
           stopVisible,
           barVisible,
+          sendReady,
           strongThinkingActive: thinkingActivity.strong,
         },
         TERMINAL_GATE_CONFIG,
@@ -732,6 +754,14 @@ async function pollAssistantCompletion(
       gate = decision.state;
       if (decision.terminal) {
         return normalized;
+      }
+      if (decision.stuck) {
+        // Content froze while the generation controls never reset. Reload the
+        // conversation and re-capture instead of idling to the timeout; the
+        // reloadable wording routes through waitForAssistantResponseWithReload.
+        throw new Error(
+          "assistant-response generation controls did not reset while the answer stayed stable; reloading conversation",
+        );
       }
     } else {
       // The turn disappeared/reset (navigation, re-render): restart the gate so a stale
@@ -760,6 +790,50 @@ function buildStopButtonVisibilityExpression(): string {
     ${buildStopButtonVisibilityPredicateJs("isStopControlVisible")}
     return isStopControlVisible();
   })()`;
+}
+
+/**
+ * The composer is ready for the next input — the input side agrees
+ * generation finished. Purely structural (control presence and state),
+ * never reads answer text or localized labels. Some layouts swap the send
+ * control away at rest (voice button instead), so an absent send button
+ * falls through to the composer input itself being editable.
+ */
+async function isSendReady(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
+  try {
+    const { result } = await Runtime.evaluate({
+      expression: `(() => {
+        /* oracle-send-ready */
+        const isVisible = (node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          const rect = node.getBoundingClientRect?.();
+          return Boolean(rect && rect.width > 0 && rect.height > 0);
+        };
+        for (const selector of ${JSON.stringify(SEND_BUTTON_SELECTORS)}) {
+          for (const node of Array.from(document.querySelectorAll(selector))) {
+            if (!isVisible(node)) continue;
+            if (node.hasAttribute('disabled')) return false;
+            if (node.getAttribute('aria-disabled') === 'true') return false;
+            if (node.getAttribute('data-disabled') === 'true') return false;
+            return true;
+          }
+        }
+        const composer = document.querySelector(
+          '#prompt-textarea, form [contenteditable="true"], form textarea'
+        );
+        if (!(composer instanceof HTMLElement) || !isVisible(composer)) return false;
+        if (composer.hasAttribute('disabled')) return false;
+        if (composer.getAttribute('aria-disabled') === 'true') return false;
+        if (composer.getAttribute('contenteditable') === 'false') return false;
+        if (composer.hasAttribute('readonly')) return false;
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    return Boolean(result?.value);
+  } catch {
+    return false;
+  }
 }
 
 function buildStopButtonVisibilityPredicateJs(fnName: string): string {
@@ -844,29 +918,18 @@ function buildCompletionVisibilityExpression(
     if (Array.from(markdowns).some((node) => (node.textContent || '').trim() === 'Done')) {
       return true;
     }
-    // 2026-09 layout: no testid'd action bar. Completion is announced by a
-    // persistent page status ("Response complete" / localized "回复已完成" /
-    // "回答已完成") and by the per-turn feedback widget that only renders once
-    // the turn is finished.
-    const pageText = String(document.body?.innerText ?? '');
-    if (/(?:response complete|(?:回复|回答|响应)?已完成)/i.test(pageText)) {
-      const stopVisible = Array.from(
-        document.querySelectorAll('${STOP_BUTTON_SELECTORS.join(",")}'),
-      ).some((node) => {
-        const rect = node.getBoundingClientRect?.();
-        return rect && rect.width > 0 && rect.height > 0;
-      });
-      if (!stopVisible) return true;
-    }
-    const feedbackWidget = lastAssistantTurn.querySelector('aside') ||
-      Array.from(document.querySelectorAll('aside')).find((node) => {
-        const rect = node.getBoundingClientRect?.();
-        return rect && rect.width > 0 && rect.height > 0;
-      });
-    if (feedbackWidget) {
-      const feedbackText = String(feedbackWidget.textContent ?? '').toLowerCase();
-      if (feedbackText.includes('helpful') || feedbackText.includes('有帮助')) return true;
-    }
+    // 2026-09 layout: the finished-action bar carries no stable testids. A
+    // finished turn is recognizable structurally — it exposes per-turn
+    // controls (buttons, whatever their labels) and/or the feedback element.
+    // Stop-control and composer state are judged by the terminal gate, not
+    // here; no answer text or localized status wording is ever read.
+    const isVisibleNode = (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const rect = node.getBoundingClientRect?.();
+      return Boolean(rect && rect.width > 0 && rect.height > 0);
+    };
+    if (Array.from(lastAssistantTurn.querySelectorAll('button')).some(isVisibleNode)) return true;
+    if (lastAssistantTurn.querySelector('aside')) return true;
     return false;
   })()`;
 }

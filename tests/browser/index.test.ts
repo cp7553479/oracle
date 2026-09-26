@@ -714,6 +714,9 @@ describe("ChatGPT UI warning detection", () => {
           if (expression === "location.href") {
             return { result: { value: "https://chatgpt.com/c/synthetic-recovery" } };
           }
+          if (expression.includes("oracle-send-ready")) {
+            return { result: { value: true } };
+          }
           if (expression.startsWith("document.querySelectorAll(")) {
             return { result: { value: hydrated ? 2 : 0 } };
           }
