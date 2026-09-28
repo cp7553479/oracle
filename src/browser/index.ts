@@ -1531,7 +1531,7 @@ async function runBrowserModeInternal(
           );
           logger(`Uploading attachment: ${attachment.displayPath}`);
           const uiConfirmed = await uploadAttachmentFile(
-            { runtime: Runtime, dom: DOM, input: Input },
+            { runtime: Runtime, dom: DOM, input: Input, page: Page, client: client ?? undefined },
             attachment,
             logger,
             { expectedCount: attachmentIndex + 1, navigationUrl: attachmentNavigationUrl },

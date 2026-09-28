@@ -30,6 +30,7 @@ import {
   confirmAttachmentEvidence,
   buildAttachmentEvidenceExpression,
 } from "./attachmentEvidence.js";
+import { uploadAttachmentViaFileChooser } from "./fileChooserUpload.js";
 
 export function buildAttachmentNamePattern(
   expectedName: string,
@@ -234,6 +235,8 @@ export async function uploadAttachmentFile(
     runtime: ChromeClient["Runtime"];
     dom?: ChromeClient["DOM"];
     input?: ChromeClient["Input"];
+    page?: ChromeClient["Page"];
+    client?: ChromeClient;
   },
   attachment: BrowserAttachment,
   logger: BrowserLogger,
@@ -562,6 +565,18 @@ export async function uploadAttachmentFile(
   };
   if (initialSignals.input) {
     logger(`Attachment already queued in file input: ${path.basename(attachment.path)}`);
+    return true;
+  }
+
+  // 2026-09 ChatGPT composer: hidden inputs no longer accept direct
+  // DOM.setFileInputFiles. Prefer the real user path (plus menu → upload from
+  // computer → intercepted file chooser) and fall back to the legacy scan.
+  const chooserConfirmed = await uploadAttachmentViaFileChooser(
+    { runtime, dom, input, page: deps.page, client: deps.client },
+    attachment,
+    logger,
+  );
+  if (chooserConfirmed) {
     return true;
   }
 
@@ -1703,6 +1718,14 @@ export async function waitForAttachmentCompletion(
     const fileCount = collectFileCount(localFileCountNodes);
     const confirmed = ${buildAttachmentEvidenceExpression(expectedNormalized)};
     const filesAttached = attachedNames.length > 0;
+    // 2026-09 composer: image attachments render as preview <img> with data:/blob:
+    // src and expose neither filename nor legacy chip testids.
+    const previewCount = composerScope
+      ? [...composerScope.querySelectorAll('img')].filter((img) => {
+          const src = img.getAttribute('src') || '';
+          return src.startsWith('data:') || src.startsWith('blob:');
+        }).length
+      : 0;
     return {
       state: button ? (disabled ? 'disabled' : 'ready') : 'missing',
       uploading,
@@ -1710,6 +1733,7 @@ export async function waitForAttachmentCompletion(
       attachedNames,
       inputNames,
       fileCount,
+      previewCount,
       confirmedNames: ${JSON.stringify(expectedNormalized)}.filter((_, index) => confirmed[index]),
     };
   })()`;
@@ -1724,6 +1748,7 @@ export async function waitForAttachmentCompletion(
           attachedNames?: string[];
           inputNames?: string[];
           fileCount?: number;
+          previewCount?: number;
           confirmedNames?: string[];
         }
       | undefined;
@@ -1770,6 +1795,9 @@ export async function waitForAttachmentCompletion(
         .map((name) => name.toLowerCase().replace(/\s+/g, " ").trim())
         .filter(Boolean);
       const fileCount = typeof value.fileCount === "number" ? value.fileCount : 0;
+      const previewCount = typeof value.previewCount === "number" ? value.previewCount : 0;
+      const previewSatisfied =
+        expectedNormalized.length > 0 && previewCount >= expectedNormalized.length;
       const matchesExpected = (expected: string): boolean => {
         if (value.confirmedNames?.includes(expected)) return true;
         const baseName = expected.split("/").pop()?.split("\\").pop() ?? expected;
@@ -1791,7 +1819,9 @@ export async function waitForAttachmentCompletion(
           return false;
         });
       };
-      const missing = expectedNormalized.filter((expected) => !matchesExpected(expected));
+      const missing = previewSatisfied
+        ? []
+        : expectedNormalized.filter((expected) => !matchesExpected(expected));
       if (missing.length === 0) {
         const stableThresholdMs = 1500;
         if (attachmentMatchSince === null) {
@@ -1803,11 +1833,11 @@ export async function waitForAttachmentCompletion(
         }
         // Don't treat disabled button as complete - wait for it to become 'ready'.
         // The spinner detection is unreliable, so a disabled button likely means upload is in progress.
-        if (value.state === "missing" && value.filesAttached) {
+        if (value.state === "missing" && (value.filesAttached || previewSatisfied)) {
           return;
         }
         // If files are attached but button isn't ready yet, give it more time but don't fail immediately.
-        if (value.filesAttached) {
+        if (value.filesAttached || previewSatisfied) {
           await delay(500);
           continue;
         }

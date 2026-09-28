@@ -439,10 +439,35 @@ async function saveBlobImageArtifacts(params: {
   targetPath: string;
 }): Promise<SavedBrowserImage[]> {
   const expression = `(async () => {
-    const images = Array.from(document.querySelectorAll('img[src^="blob:"]')).filter((img) => {
-      const alt = String(img.getAttribute('alt') || '').toLowerCase();
-      return /已生成|generated image/.test(alt);
-    });
+    // ChatGPT virtualizes conversation turns: the generated image enters the
+    // DOM only after its turn is scrolled into view. Walk the scroller to the
+    // newest assistant turn before scanning for blob images.
+    const scroller =
+      document.querySelector('main [class*="scroll"], main') ??
+      document.scrollingElement ??
+      document.body;
+    const scrollToBottom = async () => {
+      try {
+        const height = scroller.scrollHeight ?? 0;
+        for (let y = height; y >= 0; y -= 900) {
+          scroller.scrollTop = y;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        scroller.scrollTop = height;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      } catch {}
+    };
+    await scrollToBottom();
+    const pick = () =>
+      Array.from(document.querySelectorAll('img[src^="blob:"]')).filter((img) => {
+        const alt = String(img.getAttribute('alt') || '').toLowerCase();
+        return /已生成|generated image/.test(alt);
+      });
+    let images = pick();
+    for (let attempt = 0; attempt < 3 && images.length === 0; attempt += 1) {
+      await scrollToBottom();
+      images = pick();
+    }
     const out = [];
     for (const img of images) {
       try {

@@ -66,6 +66,9 @@ const ALLOWED_FLAGS: Record<string, FlagShape> = {
   // Output / download paths
   "--write-output": "value",
   "--output": "value",
+  // Documented ChatGPT/Gemini image output path (docs/browser-mode.md) —
+  // dropping it silently disabled generated-image saving on root runs.
+  "--generate-image": "value",
   // Local preview: never calls a model, used by fork policy checks and debugging
   "--dry-run": "value",
   // Engine and manual login (both are forced downstream anyway)
