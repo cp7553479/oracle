@@ -80,7 +80,6 @@ import {
 import { loadUserConfig, type UserConfig } from "../src/config.js";
 import { shouldBlockDuplicatePrompt } from "../src/cli/duplicatePromptGuard.js";
 import { resolveRemoteServiceConfig } from "../src/remote/remoteServiceConfig.js";
-import { resolveConfiguredMaxFileSizeBytes } from "../src/cli/fileSize.js";
 import {
   isAzureOpenAICandidateModel,
   validateProviderRouting,
@@ -100,7 +99,6 @@ interface CliOptions extends OptionValues {
   prompt?: string;
   message?: string;
   file?: string[];
-  maxFileSizeBytes?: number;
   include?: string[];
   files?: string[];
   path?: string[];
@@ -416,14 +414,9 @@ program
   )
   .option(
     "-f, --file <paths...>",
-    "Files/directories or glob patterns to attach (prefix with !pattern to exclude). Oversized files are rejected automatically (default cap: 1 MB; configurable via ORACLE_MAX_FILE_SIZE_BYTES or config.maxFileSizeBytes).",
+    "Files/directories or glob patterns to attach (prefix with !pattern to exclude).",
     collectPaths,
     [],
-  )
-  .option(
-    "--max-file-size-bytes <bytes>",
-    "Reject files larger than this many bytes.",
-    parseIntOption,
   )
   .addOption(
     new Option("--include <paths...>", "Alias for --file.")
@@ -981,11 +974,6 @@ function addProjectSourcesCommonOptions(command: Command): Command {
     .option("--browser-chrome-path <path>", "Chrome/Chromium executable path.")
     .option("--browser-keep-browser", "Keep Chrome running after completion.", false)
     .option("--browser-hide-window", "Hide Chrome window after launch on macOS.", false)
-    .option(
-      "--max-file-size-bytes <bytes>",
-      "Reject uploads larger than this many bytes.",
-      parseIntOption,
-    )
     .option("--json", "Print structured JSON.", false)
     .option("-v, --verbose", "Enable verbose browser logging.", false);
 }
@@ -1332,7 +1320,6 @@ function buildRunOptions(
     effectiveModelId: overrides.effectiveModelId ?? options.effectiveModelId ?? options.model,
     modelOverrides: overrides.modelOverrides ?? options.modelOverrides,
     file: overrides.file ?? options.file ?? [],
-    maxFileSizeBytes: overrides.maxFileSizeBytes ?? options.maxFileSizeBytes,
     slug: overrides.slug ?? options.slug,
     filesReport: overrides.filesReport ?? options.filesReport,
     maxInput: overrides.maxInput ?? options.maxInput,
@@ -1645,7 +1632,6 @@ function buildRunOptionsFromMetadata(metadata: SessionMetadata): RunOracleOption
     reasoningEffort: stored.reasoningEffort,
     reasoningMode: stored.reasoningMode,
     file: stored.file ?? [],
-    maxFileSizeBytes: stored.maxFileSizeBytes,
     slug: stored.slug,
     filesReport: stored.filesReport,
     maxInput: stored.maxInput,
@@ -1971,8 +1957,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
       ),
     );
   }
-  const cliModelArg =
-    effectiveRequestedModel || (multiModelProvided ? "" : DEFAULT_MODEL);
+  const cliModelArg = effectiveRequestedModel || (multiModelProvided ? "" : DEFAULT_MODEL);
   const resolvedModelCandidate: ModelName = multiModelProvided
     ? normalizedMultiModels[0]
     : engine === "browser"
@@ -2034,8 +2019,6 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   );
   const { models: _rawModels, ...optionsWithoutModels } = options;
   const resolvedOptions: ResolvedCliOptions = { ...optionsWithoutModels, model: resolvedModel };
-  resolvedOptions.maxFileSizeBytes =
-    options.maxFileSizeBytes ?? resolveConfiguredMaxFileSizeBytes(userConfig, process.env);
   if (normalizedMultiModels.length > 0) {
     resolvedOptions.models = normalizedMultiModels;
   }
@@ -2301,10 +2284,7 @@ async function runRootCommand(options: CliOptions): Promise<void> {
       : options.file;
     if (filesToValidate.length > 0) {
       const { readFiles } = await import("../src/oracle/files.js");
-      await readFiles(filesToValidate, {
-        cwd: process.cwd(),
-        maxFileSizeBytes: resolvedOptions.maxFileSizeBytes,
-      });
+      await readFiles(filesToValidate, { cwd: process.cwd() });
     }
   }
 
@@ -2648,10 +2628,7 @@ async function restartSession(sessionId: string, options: RestartCommandOptions)
       : runOptions.file;
     if (filesToValidate.length > 0) {
       const { readFiles } = await import("../src/oracle/files.js");
-      await readFiles(filesToValidate, {
-        cwd,
-        maxFileSizeBytes: runOptions.maxFileSizeBytes,
-      });
+      await readFiles(filesToValidate, { cwd });
     }
   }
 

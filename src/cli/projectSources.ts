@@ -9,7 +9,6 @@ import { resolveBrowserConfig } from "../browser/config.js";
 import { readFiles } from "../oracle/files.js";
 import { mergePathLikeOptions } from "./options.js";
 import { loadUserConfig } from "../config.js";
-import { resolveConfiguredMaxFileSizeBytes } from "./fileSize.js";
 import { runBrowserProjectSources } from "../browser/projectSourcesRunner.js";
 import type { ProjectSourcesOperation, ProjectSourcesResult } from "../projectSources/types.js";
 import { normalizeProjectSourcesUrl } from "../projectSources/url.js";
@@ -24,7 +23,6 @@ export interface ProjectSourcesCliOptions extends Partial<BrowserFlagOptions> {
   json?: boolean;
   verbose?: boolean;
   chatgptUrl?: string;
-  maxFileSizeBytes?: number;
 }
 
 export async function runProjectSourcesCliCommand(
@@ -34,8 +32,6 @@ export async function runProjectSourcesCliCommand(
   const { config: userConfig } = await loadUserConfig();
   const configuredUrl = userConfig.browser?.chatgptUrl ?? userConfig.browser?.url;
   const projectUrl = normalizeProjectSourcesUrl(options.chatgptUrl ?? configuredUrl ?? "");
-  const maxFileSizeBytes =
-    options.maxFileSizeBytes ?? resolveConfiguredMaxFileSizeBytes(userConfig, process.env);
   const mergedFileInputs = mergePathLikeOptions(
     options.file,
     options.include,
@@ -45,10 +41,7 @@ export async function runProjectSourcesCliCommand(
   );
   const files =
     operation === "add"
-      ? await resolveProjectSourceFiles(mergedFileInputs, {
-          cwd: process.cwd(),
-          maxFileSizeBytes,
-        })
+      ? await resolveProjectSourceFiles(mergedFileInputs, { cwd: process.cwd() })
       : [];
   if (operation === "add" && files.length === 0) {
     throw new Error("project-sources add requires at least one --file.");
@@ -76,11 +69,10 @@ export async function runProjectSourcesCliCommand(
 
 export async function resolveProjectSourceFiles(
   fileInputs: string[],
-  options: { cwd: string; maxFileSizeBytes?: number },
+  options: { cwd: string },
 ): Promise<BrowserAttachment[]> {
   const files = await readFiles(fileInputs, {
     cwd: options.cwd,
-    maxFileSizeBytes: options.maxFileSizeBytes,
     readContents: false,
   });
   const attachments: BrowserAttachment[] = [];

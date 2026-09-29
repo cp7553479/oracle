@@ -14,7 +14,6 @@ import { resolveBrowserProvider } from "../browser/provider.js";
 import { resolveOverriddenApiModel } from "../oracle/modelResolver.js";
 import { PromptValidationError } from "../oracle/errors.js";
 import { normalizeChatGptModelForBrowser, isGpt6ProAlias } from "./browserConfig.js";
-import { resolveConfiguredMaxFileSizeBytes } from "./fileSize.js";
 import { isAzureOpenAICandidateModel } from "../oracle/providerRouting.js";
 
 export interface ResolveRunOptionsInput {
@@ -147,8 +146,6 @@ export function resolveRunOptionsFromConfig({
 
   const heartbeatIntervalMs =
     userConfig?.heartbeatSeconds !== undefined ? userConfig.heartbeatSeconds * 1000 : 30_000;
-  const maxFileSizeBytes = resolveConfiguredMaxFileSizeBytes(userConfig, env);
-
   const baseUrl = normalizeBaseUrl(
     userConfig?.apiBaseUrl ??
       (isClaude ? env.ANTHROPIC_BASE_URL : isGrok ? env.XAI_BASE_URL : env.OPENAI_BASE_URL),
@@ -170,7 +167,6 @@ export function resolveRunOptionsFromConfig({
     model: chosenModel,
     models: uniqueMultiModels.length > 0 ? uniqueMultiModels : undefined,
     file: files ?? [],
-    maxFileSizeBytes,
     search,
     heartbeatIntervalMs,
     filesReport: userConfig?.filesReport,

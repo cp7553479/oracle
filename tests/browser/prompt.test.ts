@@ -30,7 +30,6 @@ function buildOptions(overrides: Partial<RunOracleOptions> = {}): RunOracleOptio
     system: overrides.system,
     browserAttachments: overrides.browserAttachments ?? "auto",
     browserInlineFiles: overrides.browserInlineFiles,
-    maxFileSizeBytes: overrides.maxFileSizeBytes,
     browserBundleFiles: overrides.browserBundleFiles,
     browserBundleFormat: overrides.browserBundleFormat,
   } as RunOracleOptions;
@@ -453,21 +452,6 @@ describe("assembleBrowserPrompt", () => {
     expect(result.inlineFileCount).toBe(2);
   });
 
-  test("passes maxFileSizeBytes to file reading", async () => {
-    const options = buildOptions({ file: ["big.txt"], maxFileSizeBytes: 2_000_000 });
-    let observedMaxFileSizeBytes: number | undefined;
-
-    await assembleBrowserPrompt(options, {
-      cwd: "/repo",
-      readFilesImpl: async (_paths, readOptions) => {
-        observedMaxFileSizeBytes = readOptions?.maxFileSizeBytes;
-        return [{ path: "/repo/big.txt", content: "large enough" }];
-      },
-    });
-
-    expect(observedMaxFileSizeBytes).toBe(2_000_000);
-  });
-
   test("inlines files when browserInlineFiles enabled", async () => {
     const options = buildOptions({
       file: ["a.txt"],
@@ -619,26 +603,6 @@ describe("assembleBrowserPrompt", () => {
           { cwd: tempDir, tokenizeImpl: fastTokenizer },
         ),
       ).rejects.toThrow(/in-memory limit/i);
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects raw files that exceed the configured file-size limit before bundling", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-large-raw-upload-"));
-    try {
-      await fs.writeFile(path.join(tempDir, "archive.zip"), Buffer.alloc(5));
-      await expect(
-        assembleBrowserPrompt(
-          buildOptions({
-            file: ["archive.zip"],
-            browserAttachments: "always",
-            browserBundleFiles: true,
-            maxFileSizeBytes: 4,
-          }),
-          { cwd: tempDir, tokenizeImpl: fastTokenizer },
-        ),
-      ).rejects.toThrow(/exceeds the 4-byte limit/i);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

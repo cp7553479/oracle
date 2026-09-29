@@ -66,7 +66,6 @@ const VALUE_FLAGS = new Set([
   "--followup-model",
   "--heartbeat",
   "--http-timeout",
-  "--max-file-size-bytes",
   "--model",
   "--models",
   "--output",

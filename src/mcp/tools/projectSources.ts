@@ -8,7 +8,6 @@ import {
   buildProjectSourcesBrowserConfig,
   resolveProjectSourceFiles,
 } from "../../cli/projectSources.js";
-import { resolveConfiguredMaxFileSizeBytes } from "../../cli/fileSize.js";
 
 const projectSourceEntryShape = z.object({
   name: z.string(),
@@ -108,13 +107,9 @@ export function registerProjectSourcesTool(server: McpServer): void {
           ),
         };
       }
-      const maxFileSizeBytes = resolveConfiguredMaxFileSizeBytes(userConfig, process.env);
       const files =
         parsed.operation === "add"
-          ? await resolveProjectSourceFiles(parsed.files ?? [], {
-              cwd: process.cwd(),
-              maxFileSizeBytes,
-            })
+          ? await resolveProjectSourceFiles(parsed.files ?? [], { cwd: process.cwd() })
           : [];
       const browserConfig = await buildProjectSourcesBrowserConfig({
         options: {

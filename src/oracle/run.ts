@@ -303,7 +303,6 @@ export async function runOracle(
   const files = await readFiles(options.file ?? [], {
     cwd,
     fsModule,
-    maxFileSizeBytes: options.maxFileSizeBytes,
   });
   const searchEnabled = options.search !== false;
   logVerbose(`cwd: ${cwd}`);

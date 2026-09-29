@@ -14,7 +14,7 @@ export interface MarkdownBundle {
 }
 
 export async function buildMarkdownBundle(
-  options: Pick<RunOracleOptions, "prompt" | "file" | "system" | "maxFileSizeBytes">,
+  options: Pick<RunOracleOptions, "prompt" | "file" | "system">,
   deps: { cwd?: string; fs?: MinimalFsModule } = {},
 ): Promise<MarkdownBundle> {
   const cwd = deps.cwd ?? process.cwd();
@@ -22,7 +22,6 @@ export async function buildMarkdownBundle(
   const files = await readFiles(options.file ?? [], {
     cwd,
     fsModule,
-    maxFileSizeBytes: options.maxFileSizeBytes,
   });
   const sections = createFileSections(files, cwd);
   const systemPrompt = options.system?.trim() || DEFAULT_SYSTEM_PROMPT;

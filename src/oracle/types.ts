@@ -186,8 +186,6 @@ export interface RunOracleOptions {
    */
   previousResponseId?: string;
   file?: string[];
-  /** Override the per-file attachment size guard (bytes). */
-  maxFileSizeBytes?: number;
   slug?: string;
   filesReport?: boolean;
   maxInput?: number;

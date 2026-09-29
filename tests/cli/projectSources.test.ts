@@ -12,10 +12,7 @@ describe("project sources CLI helpers", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-project-sources-test-"));
     try {
       await writeFile(path.join(dir, "context.md"), "PROJECT_SOURCE_OK\n", "utf8");
-      const files = await resolveProjectSourceFiles(["context.md"], {
-        cwd: dir,
-        maxFileSizeBytes: 1_000_000,
-      });
+      const files = await resolveProjectSourceFiles(["context.md"], { cwd: dir });
       expect(files).toEqual([
         expect.objectContaining({
           path: path.join(dir, "context.md"),

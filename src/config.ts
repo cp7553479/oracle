@@ -101,7 +101,6 @@ export interface UserConfig {
   engine?: EnginePreference;
   model?: string;
   search?: "on" | "off";
-  maxFileSizeBytes?: number;
   notify?: NotifyConfig;
   browser?: BrowserConfigDefaults;
   heartbeatSeconds?: number;
@@ -277,7 +276,6 @@ function sanitizeProjectConfig(config: UserConfig): UserConfig {
   if (config.engine !== undefined) sanitized.engine = config.engine;
   if (config.model !== undefined) sanitized.model = config.model;
   if (config.search !== undefined) sanitized.search = config.search;
-  if (config.maxFileSizeBytes !== undefined) sanitized.maxFileSizeBytes = config.maxFileSizeBytes;
   if (config.notify !== undefined) sanitized.notify = config.notify;
   if (config.heartbeatSeconds !== undefined) sanitized.heartbeatSeconds = config.heartbeatSeconds;
   if (config.filesReport !== undefined) sanitized.filesReport = config.filesReport;

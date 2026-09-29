@@ -265,7 +265,6 @@ export interface SessionUserErrorMetadata {
 export interface StoredRunOptions {
   prompt?: string;
   file?: string[];
-  maxFileSizeBytes?: number;
   model?: string;
   models?: ModelName[];
   reasoningEffort?: ReasoningEffort;
@@ -756,7 +755,6 @@ export async function initializeSession(
     options: {
       prompt: options.prompt,
       file: options.file ?? [],
-      maxFileSizeBytes: options.maxFileSizeBytes,
       model: options.model,
       models: modelList,
       reasoningEffort: options.reasoningEffort,

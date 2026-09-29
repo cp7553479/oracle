@@ -158,7 +158,6 @@ describe("session lifecycle", () => {
         followupSessionId: "parent-session",
         followupModel: "gpt-5.1",
         browserFollowUps: ["challenge the plan", "summarize final recommendation"],
-        maxFileSizeBytes: 2_097_152,
         maxInput: 123,
         system: "SYS",
         maxOutput: 456,
@@ -174,7 +173,6 @@ describe("session lifecycle", () => {
     const baseDir = path.join(sessionModule.getSessionsDir(), metadata.id);
     const storedMeta = JSON.parse(await readFile(path.join(baseDir, "meta.json"), "utf8"));
     expect(storedMeta.options.file).toEqual(["notes.md"]);
-    expect(storedMeta.options.maxFileSizeBytes).toBe(2_097_152);
     expect(storedMeta.options.previousResponseId).toBe("resp-parent-123");
     expect(storedMeta.options.followupSessionId).toBe("parent-session");
     expect(storedMeta.options.followupModel).toBe("gpt-5.1");

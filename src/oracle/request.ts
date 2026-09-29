@@ -66,7 +66,7 @@ export function buildRequestBody({
 }
 
 export async function renderPromptMarkdown(
-  options: Pick<RunOracleOptions, "prompt" | "file" | "system" | "maxFileSizeBytes">,
+  options: Pick<RunOracleOptions, "prompt" | "file" | "system">,
   deps: { cwd?: string; fs?: MinimalFsModule } = {},
 ): Promise<string> {
   const cwd = deps.cwd ?? process.cwd();
@@ -74,7 +74,6 @@ export async function renderPromptMarkdown(
   const files = await readFiles(options.file ?? [], {
     cwd,
     fsModule,
-    maxFileSizeBytes: options.maxFileSizeBytes,
   });
   const sections = createFileSections(files, cwd);
   const systemPrompt = options.system?.trim() || DEFAULT_SYSTEM_PROMPT;

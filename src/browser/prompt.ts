@@ -475,34 +475,16 @@ export async function assembleBrowserPrompt(
 
   const allFilePaths = runOptions.file ?? [];
   const discoveredFiles =
-    allFilePaths.length > 0
-      ? await readFilesFn(allFilePaths, {
-          cwd,
-          maxFileSizeBytes: 0,
-          readContents: false,
-        })
-      : [];
+    allFilePaths.length > 0 ? await readFilesFn(allFilePaths, { cwd, readContents: false }) : [];
   const textFilePaths = discoveredFiles
     .filter((file) => !isRawUploadFile(file.path))
     .map((file) => file.path);
   const rawUploadFiles = discoveredFiles.filter((file) => isRawUploadFile(file.path));
-  const maxFileSizeBytes = runOptions.maxFileSizeBytes;
 
   const rawUploadAttachments: BrowserAttachment[] = await Promise.all(
     rawUploadFiles.map(async ({ path: filePath }) => {
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
       const stats = await fs.stat(resolvedPath);
-      if (maxFileSizeBytes && stats.size > maxFileSizeBytes) {
-        throw new FileValidationError(
-          `The following file exceeds the ${maxFileSizeBytes}-byte limit:\n- ${
-            path.relative(cwd, resolvedPath) || resolvedPath
-          } (${stats.size} bytes)`,
-          {
-            files: [resolvedPath],
-            limitBytes: maxFileSizeBytes,
-          },
-        );
-      }
       return {
         path: resolvedPath,
         displayPath: path.relative(cwd, resolvedPath) || path.basename(resolvedPath),
@@ -511,10 +493,7 @@ export async function assembleBrowserPrompt(
     }),
   );
 
-  const files = await readFilesFn(textFilePaths, {
-    cwd,
-    maxFileSizeBytes: runOptions.maxFileSizeBytes,
-  });
+  const files = await readFilesFn(textFilePaths, { cwd });
   const basePrompt = (runOptions.prompt ?? "").trim();
   const userPrompt = basePrompt;
   const systemPrompt = runOptions.system?.trim() || "";
