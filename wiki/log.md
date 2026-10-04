@@ -15,3 +15,7 @@
 ## 2026-10-04 (later)
 
 - **Generated-image gallery fix**: Live image-generation Q&A through the global oracle exposed a 2026-10 layout regression — answers captured as the gallery overlay's "Edit" button label and blob-backed images never saved. Recorded the three-part fix (alt-label text, gallery-markup fast-accept, in-page blob fetch auto-save) on the upstream-sync entity.
+
+## 2026-10-04 (blocking audit)
+
+- **Profile-flag blocking audit**: Verified the two-layer seal end to end — `stripDisabledBrowserProfileArgs` (browserProfilePolicy.ts, every entry point incl. subcommands) enumerates the full profile/cookie/attach/remote-Chrome/tab family, and `filterRootRunArgs` (cliArgWhitelist.ts, root runs) drops anything else with its values. `--browser-tabs` is a `status` inspection flag, deliberately NOT stripped. Locked with table-driven tests (both spellings per flag) and an adversarial global-oracle dry run (exit 0, silent, prompt intact).

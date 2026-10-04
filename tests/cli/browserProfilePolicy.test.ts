@@ -46,4 +46,48 @@ describe("stripDisabledBrowserProfileArgs", () => {
     const argv = ["-p", "before", "--", "--copy-profile", "/tmp/prompt-text"];
     expect(stripDisabledBrowserProfileArgs(argv)).toEqual(argv);
   });
+
+  test("consumes every profile, cookie, attach, remote-Chrome, and tab flag in both spellings", () => {
+    const booleanFlags = [
+      "--browser-allow-cookie-errors",
+      "--browser-attach-running",
+      "--browser-cookie-sync",
+      "--browser-manual-login-cookie-sync",
+      "--browser-no-cookie-sync",
+      "--no-browser-cookie-sync",
+      "--no-browser-manual-login",
+      "--no-manual-browser-login",
+      "--no-manual-login",
+    ];
+    for (const flag of booleanFlags) {
+      expect(stripDisabledBrowserProfileArgs(["node", "oracle", flag, "-p", "hi"])).toEqual([
+        "node",
+        "oracle",
+        "-p",
+        "hi",
+      ]);
+    }
+    const valueFlags = [
+      "--browser-chrome-profile",
+      "--browser-cookie-names",
+      "--browser-cookie-path",
+      "--browser-cookie-wait",
+      "--browser-inline-cookies",
+      "--browser-inline-cookies-file",
+      "--browser-manual-login-profile-dir",
+      "--browser-profile-dir",
+      "--browser-tab",
+      "--copy-profile",
+      "--manual-login-profile-dir",
+      "--remote-chrome",
+    ];
+    for (const flag of valueFlags) {
+      expect(
+        stripDisabledBrowserProfileArgs(["node", "oracle", flag, "value", "-p", "hi"]),
+      ).toEqual(["node", "oracle", "-p", "hi"]);
+      expect(
+        stripDisabledBrowserProfileArgs(["node", "oracle", `${flag}=value`, "-p", "hi"]),
+      ).toEqual(["node", "oracle", "-p", "hi"]);
+    }
+  });
 });

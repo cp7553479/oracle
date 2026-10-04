@@ -172,4 +172,38 @@ describe("filterRootRunArgs", () => {
     ]);
     expect(filterRootRunArgs(["--files", "a.ts", "--verbose"])).toEqual(["--files", "a.ts"]);
   });
+
+  test("drops every profile, cookie, attach, remote-Chrome, and tab spelling without leaking values", () => {
+    const hostile = [
+      "--copy-profile",
+      "/tmp/source",
+      "--browser-profile",
+      "/other/profile",
+      "--chrome-profile",
+      "Work",
+      "--browser-profile-dir=/tmp/dir",
+      "--browser-manual-login-profile-dir",
+      "/tmp/manual",
+      "--manual-login-profile-dir",
+      "/tmp/manual2",
+      "--browser-chrome-profile",
+      "Profile 1",
+      "--browser-cookie-path",
+      "/tmp/Cookies",
+      "--browser-attach-running",
+      "--attach-running",
+      "--remote-chrome",
+      "127.0.0.1:9222",
+      "--browser-tab",
+      "https://chatgpt.com/c/abc",
+      "-p",
+      "the real prompt",
+    ];
+    expect(filterRootRunArgs(hostile)).toEqual(["-p", "the real prompt"]);
+  });
+
+  test("keeps status --browser-tabs as a subcommand inspection flag", () => {
+    const args = ["status", "--browser-tabs"];
+    expect(filterRootRunArgs(args)).toEqual(args);
+  });
 });
