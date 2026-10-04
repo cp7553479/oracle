@@ -92,8 +92,6 @@ const ALLOWED_FLAGS: Record<string, FlagShape> = {
   "--debug-help": "boolean",
 };
 
-
-
 function flagName(arg: string): string {
   const equalsIndex = arg.indexOf("=");
   return equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
@@ -184,14 +182,22 @@ export function filterRootRunArgs(args: string[], env: NodeJS.ProcessEnv = proce
             if (allowed) result.push(value);
           }
         } else if (shape === "variadic") {
-          while (index + 1 < args.length && !isFlagLike(args[index + 1]) && args[index + 1] !== "--") {
+          while (
+            index + 1 < args.length &&
+            !isFlagLike(args[index + 1]) &&
+            args[index + 1] !== "--"
+          ) {
             index += 1;
             if (allowed) result.push(args[index]);
           }
         } else if (!allowed) {
           // Dropped flag: swallow its operands (everything up to the next
           // flag) so discarded flags take their values with them.
-          while (index + 1 < args.length && !isFlagLike(args[index + 1]) && args[index + 1] !== "--") {
+          while (
+            index + 1 < args.length &&
+            !isFlagLike(args[index + 1]) &&
+            args[index + 1] !== "--"
+          ) {
             index += 1;
           }
         }

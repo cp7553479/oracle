@@ -14,6 +14,7 @@ import {
   shouldPreferSystemTmpDirForTest,
   shouldPreserveBrowserOnErrorForTest,
 } from "../../src/browser/index.js";
+import { buildConversationTurnCountExpression } from "../../src/browser/conversationTurns.js";
 import { resolveBrowserConfig } from "../../src/browser/config.js";
 import { redactBrowserConfigForDebugLog } from "../../src/browser/configLogging.js";
 import { BrowserAutomationError } from "../../src/oracle/errors.js";
@@ -717,7 +718,7 @@ describe("ChatGPT UI warning detection", () => {
           if (expression.includes("oracle-send-ready")) {
             return { result: { value: true } };
           }
-          if (expression.startsWith("document.querySelectorAll(")) {
+          if (expression === buildConversationTurnCountExpression()) {
             return { result: { value: hydrated ? 2 : 0 } };
           }
           if (expression.includes("const selectors =")) {

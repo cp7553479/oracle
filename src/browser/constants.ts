@@ -42,7 +42,8 @@ export const CONVERSATION_TURN_SELECTOR =
   "article:is([data-message-author-role], [data-content-search-unit-key], [data-chatgpt-search-unit-key]), div:is([data-message-author-role], [data-content-search-unit-key], [data-chatgpt-search-unit-key]), section:is([data-message-author-role], [data-content-search-unit-key], [data-chatgpt-search-unit-key]), " +
   // 2026-09 ChatGPT layout: turns are anonymous divs keyed by data-turn-key
   // (outer, one per turn) and data-content-search-turn-key (inner grouping).
-  "article[data-turn], div[data-turn], section[data-turn], div[data-content-search-turn-key]";
+  "article[data-turn], div[data-turn], section[data-turn], " +
+  "div[data-turn-key], div[data-content-search-turn-key]";
 export const CONVERSATION_TURN_CONTAINER_SELECTOR =
   '[data-turn-key], [data-testid^="conversation-turn"], [data-content-search-unit-key], [data-chatgpt-search-unit-key]';
 export const ASSISTANT_ROLE_SELECTOR =

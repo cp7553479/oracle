@@ -1005,16 +1005,29 @@ function buildCompletionVisibilityExpression(
     }
     // 2026-09 layout: the finished-action bar carries no stable testids. A
     // finished turn is recognizable structurally — it exposes per-turn
-    // controls (buttons, whatever their labels) and/or the feedback element.
-    // Stop-control and composer state are judged by the terminal gate, not
-    // here; no answer text or localized status wording is ever read.
+    // controls after the assistant message (buttons, whatever their labels)
+    // and/or the feedback element. Buttons inside the message content (a
+    // code-block copy control) or belonging to an earlier message in the
+    // same exchange never prove completion. Stop-control and composer state
+    // are judged by the terminal gate, not here; no answer text or localized
+    // status wording is ever read.
     const isVisibleNode = (node) => {
       if (!(node instanceof HTMLElement)) return false;
       const rect = node.getBoundingClientRect?.();
       return Boolean(rect && rect.width > 0 && rect.height > 0);
     };
-    if (Array.from(lastAssistantTurn.querySelectorAll('button')).some(isVisibleNode)) return true;
-    if (lastAssistantTurn.querySelector('aside')) return true;
+    const structuralControl = (node) => {
+      if (node.closest?.('pre, code, .markdown, [class*="MarkdownRoot"], [data-markdown-text-style], [data-message-content], [data-user-message-bubble]')) return false;
+      const message = assistantRoot && node !== assistantRoot ? assistantRoot : null;
+      if (message && message.compareDocumentPosition?.(node) & 2 /* PRECEDING */) return false;
+      return true;
+    };
+    if (Array.from(lastAssistantTurn.querySelectorAll('button')).some(
+      (node) => isVisibleNode(node) && structuralControl(node),
+    )) return true;
+    const aside = lastAssistantTurn.querySelector('aside');
+    if (aside && assistantRoot && aside !== assistantRoot &&
+        !(assistantRoot.compareDocumentPosition?.(aside) & 2 /* PRECEDING */)) return true;
     return false;
   })()`;
 }

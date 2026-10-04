@@ -120,9 +120,7 @@ describe("maybeReuseRunningChrome", () => {
         for (const lock of lockFiles) {
           expect(existsSync(lock)).toBe(true);
         }
-        expect(logger).toHaveBeenCalledWith(
-          expect.stringContaining("keeping profile state"),
-        );
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining("keeping profile state"));
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
       }

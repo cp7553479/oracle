@@ -6,7 +6,7 @@ import { delay } from "../utils.js";
 // accessible label is localized ("添加文件等内容" / "Add files and more").
 const PLUS_BUTTON_SELECTORS = [
   '[data-composer-navigation-target="add-context"]',
-  '#composer-plus-btn',
+  "#composer-plus-btn",
   'button[data-testid="composer-plus-btn"]',
 ];
 
@@ -170,7 +170,12 @@ async function readAttachmentSignal(
 
 async function pressEscape(input: ChromeClient["Input"] | undefined): Promise<void> {
   if (!input || typeof input.dispatchKeyEvent !== "function") return;
-  const key = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 };
+  const key = {
+    key: "Escape",
+    code: "Escape",
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27,
+  };
   await input.dispatchKeyEvent({ type: "keyDown", ...key }).catch(() => undefined);
   await input.dispatchKeyEvent({ type: "keyUp", ...key }).catch(() => undefined);
 }
@@ -224,7 +229,10 @@ export async function uploadAttachmentViaFileChooser(
       };
       const timer = setTimeout(() => settle(null), chooserTimeoutMs);
       const onFileChooserOpened = (params: unknown) => {
-        const { backendNodeId, nodeId } = (params ?? {}) as { backendNodeId?: number; nodeId?: number };
+        const { backendNodeId, nodeId } = (params ?? {}) as {
+          backendNodeId?: number;
+          nodeId?: number;
+        };
         settle({ backendNodeId, nodeId });
       };
       cleanup.detach = () => {
@@ -241,7 +249,9 @@ export async function uploadAttachmentViaFileChooser(
     );
     if (!button) {
       const diag = await evaluate<unknown>(runtime, DIAG_PLUS_BUTTON_EXPRESSION);
-      logger(`[browser] fallback File-chooser upload: plus button missing. ${JSON.stringify(diag)}`);
+      logger(
+        `[browser] fallback File-chooser upload: plus button missing. ${JSON.stringify(diag)}`,
+      );
       return false;
     }
     if (button.expanded !== "true") {
@@ -258,7 +268,9 @@ export async function uploadAttachmentViaFileChooser(
     }
     if (!item) {
       const diag = await evaluate<unknown>(runtime, DIAG_MENU_EXPRESSION);
-      logger(`[browser] fallback File-chooser upload: menu entry not found. ${JSON.stringify(diag)}`);
+      logger(
+        `[browser] fallback File-chooser upload: menu entry not found. ${JSON.stringify(diag)}`,
+      );
       await pressEscape(input);
       return false;
     }
@@ -296,7 +308,9 @@ export async function uploadAttachmentViaFileChooser(
       if (Date.now() >= signalDeadline) break;
       await delay(400);
     }
-    logger("[browser] fallback File-chooser upload: composer did not acknowledge the file in time.");
+    logger(
+      "[browser] fallback File-chooser upload: composer did not acknowledge the file in time.",
+    );
     return false;
   } catch (error) {
     logger(

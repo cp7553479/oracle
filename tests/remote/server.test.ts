@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
