@@ -14,7 +14,7 @@ Oracle’s `--engine browser` supports three different execution paths:
 
 If you’re running Gemini, also see `docs/gemini.md`.
 
-This fork routes every root CLI run through the ChatGPT web UI and persistent manual-login profile, as if `--engine browser --browser-manual-login` were appended after all user/config/environment options. Profile-selection CLI options are rejected; environment and configuration profile overrides are ignored. The CLI writes the same session metadata/logs as upstream browser runs.
+This fork routes every root CLI run through the ChatGPT web UI and persistent manual-login profile, as if `--engine browser --browser-manual-login` were appended after all user/config/environment options. Profile-selection CLI options are rejected; environment and configuration profile overrides are ignored. Chrome launches reuse the initialized subprofile recorded in the persistent directory’s `Local State` `profile.last_used`; signing into a different browser profile does not authenticate this one. The CLI writes the same session metadata/logs as upstream browser runs.
 
 `--preview` now works with `--engine browser`: it renders the composed prompt, lists which files would be uploaded vs inlined, and shows the bundle location when bundling is enabled, without launching Chrome.
 

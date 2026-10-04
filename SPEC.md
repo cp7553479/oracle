@@ -22,6 +22,8 @@ fork. Upstream refreshes must reapply and verify every requirement below.
   after all user, environment, and configuration arguments. `--manual-login`, `--manual-browser-login`,
   and `--browser-manual-login` are compatible spellings of the same required behavior.
 - Browser runs must reuse only the persistent signed-in profile at `~/.oracle/browser-profile`.
+  Chrome launches must reuse its initialized `Local State` `profile.last_used` subprofile when valid,
+  keeping selection inside this user-data directory without copying account data.
   Legacy profile-selection, cookie-injection/copy, attach-running, remote-Chrome, and browser-tab
   CLI options must be silently consumed and ignored at every command entry point: they must not
   print a notice, report an error, block, or stop the task. Equivalent environment, configuration,

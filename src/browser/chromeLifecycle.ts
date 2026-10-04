@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import * as childProcess from "node:child_process";
 import net from "node:net";
@@ -29,7 +29,11 @@ export async function launchChrome(
   const usingCopiedProfile = Boolean(config.copyProfileSource);
   const detachSharedChrome = shouldDetachSharedChrome(config);
   const launchedProfileDirectory =
-    usingCopiedProfile && config.chromeProfile ? config.chromeProfile : "Default";
+    usingCopiedProfile && config.chromeProfile
+      ? config.chromeProfile
+      : config.manualLogin
+        ? await resolvePersistentChromeProfile(userDataDir)
+        : "Default";
   await prepareChromeWindowStateForHiddenLaunch({
     config,
     userDataDir,
@@ -45,8 +49,8 @@ export async function launchChrome(
   // Keychain-encrypted, so it must launch with the real Keychain (not mocked):
   // strip the keychain-mocking flags from both chrome-launcher's defaults and
   // Oracle's set, and ignore the defaults so they aren't re-added.
-  if (usingCopiedProfile && config.chromeProfile) {
-    chromeFlags.push(`--profile-directory=${config.chromeProfile}`);
+  if ((usingCopiedProfile && config.chromeProfile) || config.manualLogin) {
+    chromeFlags.push(`--profile-directory=${launchedProfileDirectory}`);
   }
   const launchOptions = resolveChromeLaunchOptions(chromeFlags, usingCopiedProfile);
   const launcher = usePatchedLauncher
@@ -79,6 +83,40 @@ export async function launchChrome(
   return Object.assign(launcher, { host: connectHost ?? "127.0.0.1" }) as LaunchedChrome & {
     host?: string;
   };
+}
+
+export async function resolvePersistentChromeProfile(userDataDir: string): Promise<string> {
+  try {
+    const state: unknown = JSON.parse(
+      await readFile(path.join(userDataDir, "Local State"), "utf8"),
+    );
+    if (!state || typeof state !== "object" || !("profile" in state)) return "Default";
+    const profile = state.profile;
+    if (
+      !profile ||
+      typeof profile !== "object" ||
+      !("last_used" in profile) ||
+      !("info_cache" in profile)
+    )
+      return "Default";
+    const selected = profile.last_used;
+    const cache = profile.info_cache;
+    if (
+      typeof selected !== "string" ||
+      !/^(Default|Profile [0-9]+)$/.test(selected) ||
+      !cache ||
+      typeof cache !== "object" ||
+      !Object.hasOwn(cache, selected)
+    )
+      return "Default";
+    const root = await realpath(userDataDir);
+    const selectedPath = await realpath(path.join(userDataDir, selected));
+    if (path.dirname(selectedPath) !== root) return "Default";
+    await readFile(path.join(userDataDir, selected, "Preferences"), "utf8");
+    return selected;
+  } catch {
+    return "Default";
+  }
 }
 
 function shouldDetachSharedChrome(

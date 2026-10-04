@@ -1185,3 +1185,27 @@ describe("closeTab", () => {
     }
   });
 });
+
+describe("persistent Chrome subprofile", () => {
+  test.each(["Profile 3", "Default", "../outside", "Profile 4"])(
+    "selects only initialized cached safe profile %s",
+    async (selected) => {
+      const { resolvePersistentChromeProfile } =
+        await import("../../src/browser/chromeLifecycle.js");
+      const root = await mkdtemp(path.join(os.tmpdir(), "oracle-subprofile-"));
+      try {
+        await mkdir(path.join(root, "Profile 3"));
+        await writeFile(path.join(root, "Profile 3", "Preferences"), "{}");
+        await writeFile(
+          path.join(root, "Local State"),
+          JSON.stringify({ profile: { last_used: selected, info_cache: { [selected]: {} } } }),
+        );
+        expect(await resolvePersistentChromeProfile(root)).toBe(
+          selected === "Profile 3" ? selected : "Default",
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});
