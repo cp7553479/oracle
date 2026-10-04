@@ -79,8 +79,9 @@ Established 2026-09-20 (commit `eef22e8f`) while merging upstream
 
 - Model-free browser calls from the root CLI, MCP/Agent integrations, and the
   remote browser service resolve to ChatGPT `Latest` (`gpt-6-astra`) with
-  Medium (`standard`) effort. Explicit model choices still win, and the API
-  escape hatch retains upstream's `gpt-5.5-pro` default.
+  Instant effort (thinking level `light`, since 2026-09-25 / `e7444cd3`).
+  Explicit model choices still win, and the API escape hatch retains
+  upstream's `gpt-5.5-pro` default.
 - Gemini Flash target renamed to `gemini-3.6-flash` (canonical); `gemini-3.5-flash`
   input is upgraded to it at CLI resolution and at the Gemini web model layer.
 - No-stall rule generalized in SPEC "ChatGPT model selection and blocking
