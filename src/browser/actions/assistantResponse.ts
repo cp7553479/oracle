@@ -1140,7 +1140,15 @@ export function throwIfAssistantUiError(snapshot: AssistantSnapshot | null): voi
 }
 
 function isGeneratedImageAssistantAnswer(answer: { html?: string } | null): boolean {
-  return Boolean(answer?.html?.includes("/backend-api/estuary/content?id=file_"));
+  const html = answer?.html ?? "";
+  // Estuary URLs (2026-09) and the generated-image gallery markup (2026-10,
+  // blob-backed) both prove an image answer that streams no text.
+  return Boolean(
+    html.includes("/backend-api/estuary/content?id=file_") ||
+    html.includes('data-testid="generated-image') ||
+    html.includes('alt="Generated image') ||
+    html.includes('alt="已生成'),
+  );
 }
 
 async function waitForCondition<T>(
@@ -1604,7 +1612,18 @@ function buildAssistantExtractor(functionName: string): string {
         innerTrimmed.length > 0 && (textTrimmed.length <= 80 || innerTrimmed.length * 2 >= textTrimmed.length)
           ? innerTrimmed
           : textTrimmed;
-      const text = renderedText.length > 0 ? renderedText : fileNames.join('\\n');
+      let text = renderedText.length > 0 ? renderedText : fileNames.join('\\n');
+      // Generated-image answers mount no markdown text; the gallery overlay's
+      // visible button labels ("Edit") must never become the answer text.
+      // When the message carries generated images, use its prose when present
+      // and the image alt labels otherwise.
+      const galleryImages = Array.from(messageRoot.querySelectorAll('img[alt^="Generated image"], img[alt^="已生成"]'));
+      if (galleryImages.length > 0) {
+        const proseRoot = messageRoot.querySelector?.('.markdown, [data-message-content], [data-markdown-text-style]');
+        const proseText = stripRoleHeading(String(proseRoot?.innerText ?? proseRoot?.textContent ?? '')).trim();
+        const galleryAltText = galleryImages.map((node) => node.getAttribute('alt')).filter(Boolean).join(', ');
+        text = proseText.length > 0 ? proseText : (galleryAltText || 'Generated image');
+      }
       const html = fileNames.length > 0 ? messageRoot.innerHTML : contentRoot?.innerHTML ?? '';
       const messageId = messageRoot.getAttribute('data-message-id') || messageRoot.getAttribute?.('data-chatgpt-selection-message-id') || messageRoot.getAttribute('data-chatgpt-search-message-ids')?.split(' ')[0] || messageRoot.getAttribute('data-content-search-unit-key') || messageRoot.getAttribute('data-chatgpt-search-unit-key');
       const turnId = turn.getAttribute('data-turn-key') || messageRoot.getAttribute('data-testid');

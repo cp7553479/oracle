@@ -575,6 +575,68 @@ describe("collectGeneratedImageArtifacts", () => {
     );
   });
 
+  test("auto-saves blob gallery images without an explicit path when the answer is an image answer", async () => {
+    const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-home-"));
+    setOracleHomeDirOverrideForTest(tmpHome);
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const runtime = {
+      evaluate: vi.fn(async ({ expression }: { expression: string }) => {
+        if (expression.includes('img[src^="blob:"]')) {
+          return {
+            result: {
+              value: [
+                {
+                  src: "blob:https://chatgpt.com/8215423b-dea0-4678-988e-5b9207019178",
+                  alt: "Generated image 1",
+                  mimeType: "image/png",
+                  width: 1254,
+                  height: 1254,
+                  dataBase64: png.toString("base64"),
+                },
+              ],
+            },
+          };
+        }
+        return { result: { value: [] } };
+      }),
+    } as unknown as ChromeClient["Runtime"];
+
+    const result = await collectGeneratedImageArtifacts({
+      Runtime: runtime,
+      Network: {} as ChromeClient["Network"],
+      sessionId: "blob-image-session",
+      answerText: "Generated image 1",
+      answerHtml:
+        '<div data-testid="generated-image-gallery"><img alt="Generated image 1" src="blob:https://chatgpt.com/8215423b"></div>',
+    });
+
+    expect(result.imageCount).toBe(1);
+    expect(result.savedImages[0]).toMatchObject({
+      kind: "image",
+      mimeType: "image/png",
+      sourceUrl: "blob:https://chatgpt.com/8215423b-dea0-4678-988e-5b9207019178",
+      alt: "Generated image 1",
+    });
+    expect(result.savedImages[0]?.path).toContain(
+      path.join(tmpHome, "sessions", "blob-image-session", "artifacts"),
+    );
+    await expect(fs.readFile(result.savedImages[0]!.path)).resolves.toEqual(png);
+
+    const plain = await collectGeneratedImageArtifacts({
+      Runtime: {
+        evaluate: vi.fn().mockResolvedValue({ result: { value: [] } }),
+      } as unknown as ChromeClient["Runtime"],
+      Network: {} as ChromeClient["Network"],
+      sessionId: "blob-image-session",
+      answerText: "A plain text answer without images.",
+      answerHtml: "<div class='markdown'><p>Just text.</p></div>",
+    });
+    expect(plain.savedImages).toHaveLength(0);
+    expect(plain.markdownSuffix).toBe("");
+  });
+
   test("uses unique paths for concurrent sessionless images with the same metadata", async () => {
     const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "oracle-home-"));
     setOracleHomeDirOverrideForTest(tmpHome);

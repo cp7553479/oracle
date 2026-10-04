@@ -11,3 +11,7 @@
 ## 2026-10-04
 
 - **Upstream 0.21.4 sync**: Recorded the fork-vs-upstream merge decisions — native-Keychain bare launch kept (upstream's `.oracle-native-keychain-v1` opt-in rejected), `profile.last_used` subprofile reuse, scoped structural completion fallback, dual-wording status applied to upstream's announcement tracker, container-tier hydration counting. Corrected the model-default note to Instant (`light`).
+
+## 2026-10-04 (later)
+
+- **Generated-image gallery fix**: Live image-generation Q&A through the global oracle exposed a 2026-10 layout regression — answers captured as the gallery overlay's "Edit" button label and blob-backed images never saved. Recorded the three-part fix (alt-label text, gallery-markup fast-accept, in-page blob fetch auto-save) on the upstream-sync entity.

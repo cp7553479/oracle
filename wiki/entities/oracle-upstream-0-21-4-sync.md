@@ -66,8 +66,8 @@ Established 2026-10-04 while merging upstream `5dd3cd85` (0.21.4,
 - The structural any-button fallback (2026-09 layout, no stable testids)
   must stay scoped: a button proves completion only when it lives
   outside message content (`pre, code, .markdown, [class*="MarkdownRoot"],
-  [data-markdown-text-style], [data-message-content],
-  [data-user-message-bubble]`) AND does not precede the assistant message
+[data-markdown-text-style], [data-message-content],
+[data-user-message-bubble]`) AND does not precede the assistant message
   root (`compareDocumentPosition & 2`). Without both, a streaming
   code-block copy button or an earlier message's action bar inside the
   same exchange completes a live answer (upstream regression tests cover
@@ -101,3 +101,19 @@ Established 2026-10-04 while merging upstream `5dd3cd85` (0.21.4,
   `maxFileSizeBytes` removal, `copyProfileSource`/`manualLoginProfileDir`
   clearing, single-slot queue (`tests/remote/server.test.ts` fork-side
   flow).
+
+## 2026-10 generated-image gallery (live fix)
+
+- ChatGPT's 2026-10 image answers render a `generated-image-gallery`
+  backed by `blob:` URLs with no markdown prose and no estuary links. The
+  capture pipeline needs three things the 2026-09 code lacked:
+  - Answer text = gallery image alt labels ("Generated image 1"), never
+    the overlay's visible "Edit" button label.
+  - `isGeneratedImageAssistantAnswer` accepts gallery markup so image-only
+    answers finalize immediately.
+  - `collectGeneratedImageArtifacts` runs the in-page blob scan (and
+    auto-saves to the session artifacts dir) whenever the answer HTML
+    carries generated-image markup — no explicit `--output` required.
+    Plain text answers never trigger the scan (it scrolls the page).
+- Live-verified 2026-10-04: 1312×1199 PNG saved to
+  `~/.oracle/sessions/<id>/artifacts/Generated-image-1.png`.

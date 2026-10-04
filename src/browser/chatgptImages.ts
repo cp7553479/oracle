@@ -24,6 +24,16 @@ function isAllowedChatGptHost(hostname: string): boolean {
   return value === "chatgpt.com" || value === "chat.openai.com";
 }
 
+function hasGeneratedImageMarkup(html?: string): boolean {
+  const value = html ?? "";
+  return Boolean(
+    value.includes('data-testid="generated-image') ||
+    value.includes('alt="Generated image') ||
+    value.includes('alt="已生成') ||
+    value.includes("/backend-api/estuary/content?id=file_"),
+  );
+}
+
 function normalizeGeneratedImageUrl(value?: string | null): string | undefined {
   const raw = String(value ?? "").trim();
   if (!raw) return undefined;
@@ -637,6 +647,7 @@ export async function collectGeneratedImageArtifacts(params: {
   generateImagePath?: string;
   outputPath?: string;
   answerText: string;
+  answerHtml?: string;
 }): Promise<{
   generatedImages: BrowserGeneratedImage[];
   savedImages: SavedBrowserImage[];
@@ -651,16 +662,27 @@ export async function collectGeneratedImageArtifacts(params: {
   );
   const latestAnswerText = params.answerText;
 
-  if (explicitTargetPath && generatedImages.length === 0) {
-    const targetPath = path.resolve(explicitTargetPath);
+  if (generatedImages.length === 0 && hasGeneratedImageMarkup(params.answerHtml)) {
+    // The 2026-10 gallery serves blob: URLs the estuary scan cannot see; one
+    // immediate in-page scan saves them even without an explicit output path.
+    const blobTargetPath = explicitTargetPath
+      ? path.resolve(explicitTargetPath)
+      : resolveDefaultGeneratedImagePath(
+          [{ url: "generated-image-gallery", alt: params.answerText || "generated image" }],
+          params.sessionId,
+        );
     const blobImages = await saveBlobImageArtifacts({
       Runtime: params.Runtime,
       logger: params.logger,
-      targetPath,
+      targetPath: blobTargetPath,
     });
     if (blobImages.length > 0) {
       return formatButtonImageArtifacts(blobImages, latestAnswerText);
     }
+  }
+
+  if (explicitTargetPath && generatedImages.length === 0) {
+    const targetPath = path.resolve(explicitTargetPath);
     const buttonImages = await saveGeneratedImageButtonArtifacts({
       Browser: params.Browser,
       Client: params.Client,

@@ -157,6 +157,41 @@ describe("ChatGPT Chat/Work semantic layout", () => {
       ),
     ).toBe(true);
   });
+  test("uses gallery alt labels instead of overlay button text for image answers", async () => {
+    const gallery = node("div", { "data-testid": "generated-image-gallery" }, [
+      node(
+        "button",
+        { "data-testid": "generated-image-preview", "aria-label": "Generated image 1" },
+        [node("img", { alt: "Generated image 1", src: "blob:https://chatgpt.com/8215423b" })],
+      ),
+      node("button", { "aria-label": "Edit generated image 1" }, [], "Edit"),
+    ]);
+    const user = node("div", { "data-content-search-unit-key": "g1:0:user" }, [
+      node("div", { "data-user-message-bubble": "true" }, [], "draw a cat"),
+    ]);
+    const assistant = node(
+      "div",
+      {
+        "data-content-search-unit-key": "g1:2:assistant",
+        "data-chatgpt-search-message-ids": "assistant-uuid assistant-uuid",
+      },
+      [
+        node(
+          "h4",
+          { class: "sr-only", "data-conversation-role": "assistant" },
+          [],
+          "ChatGPT said:",
+        ),
+        gallery,
+      ],
+    );
+    const turn = node("div", { "data-turn-key": "g1" }, [user, assistant]);
+    const document = new FakeDocument([node("main", {}, [turn])]);
+
+    const snapshot = await readAssistantSnapshot(runtime(document));
+    expect(snapshot?.text).toBe("Generated image 1");
+    expect(snapshot?.messageId).toBe("assistant-uuid");
+  });
   test.each(["completion", "download"])(
     "uses the final assistant unit for file-card %s",
     async (probe) => {

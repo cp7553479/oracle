@@ -2191,6 +2191,7 @@ async function runBrowserModeInternal(
       generateImagePath: options.generateImagePath,
       outputPath: options.outputPath,
       answerText,
+      answerHtml,
     });
     answerText = imageArtifacts.answerText || answerText;
     if (imageArtifacts.markdownSuffix) {
@@ -3661,6 +3662,7 @@ async function runRemoteBrowserMode(
       generateImagePath: options.generateImagePath,
       outputPath: options.outputPath,
       answerText,
+      answerHtml,
     });
     answerText = imageArtifacts.answerText || answerText;
     if (imageArtifacts.markdownSuffix) {
