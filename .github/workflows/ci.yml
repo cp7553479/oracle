@@ -76,5 +76,8 @@ jobs:
         run: node scripts/attachment-send-proof.mjs
       - name: Run built CLI attachment context proof
         run: node scripts/attachment-cli-proof.mjs
+      - name: Run recorded ChatGPT layout proof
+        if: matrix.suite == 'core'
+        run: node scripts/chatgpt-layout-proof.mjs
       - name: Run effort slider readiness proof
         run: node scripts/effort-readiness-proof.mjs

@@ -11,13 +11,20 @@
 - Browser: finished-but-uncaptured answers are no longer lost — answer extraction scrolls virtualized turns into view and prefers the richer of innerText/textContent, and when the response wait times out the transcript is read straight from the page text (segmented by the stable sr-only "You said:"/"ChatGPT said:" headings) before erroring.
 - Default model: model-free runs now target ChatGPT Latest at Instant effort (the `light` thinking level) instead of Medium.
 - Agents: make model-free MCP and remote-browser calls use ChatGPT Latest with the default effort like the root CLI, and align the installation guide with the globally linked CLI so stale skill copies and GPT-5.5 examples cannot override that default.
-- Sync upstream through 0.21.3. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
+- Sync upstream through 0.21.4 while keeping the fork's launch policy: manual-login Chrome reuses the persistent profile's initialized `Local State` `profile.last_used` subprofile and always launches bare with the native Keychain (upstream's opt-in `.oracle-native-keychain-v1` migration is not adopted), upstream's Chat/Work capture selectors merge in additively, and the dual-wording completion status ("Response complete" / "回复/回答/响应已完成") is applied to upstream's new turn-completion announcement tracker. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
 - Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
 - Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
 
-### Upstream
+## 0.21.4 - 2026-10-01
 
+**Highlights:** Reliable ChatGPT Chat/Work automation and accurate provider reasoning-token accounting.
+
+- Browser: support ChatGPT's Chat/Work composer, model and effort controls, turn identity, Markdown and file capture; preserve Work-conversation guards, paste multiline prompts intact, wait for attachment hydration without duplicate uploads, and persist new macOS manual-login profiles with the native Keychain; fixes #517, thanks @Cjschmi2, @moeuu, @hongho55, @StartupBros, @lifeofgurpreet, @rugnasyab, @cafeSowoo, and @Gerry9000.
 - Browser: warn when a configured Chrome executable cannot replace a running shared profile, explain how to switch safely, and share reuse handling with Project Sources; fixes #510, thanks @Sogl.
+- API: include Gemini thinking tokens in billed output, cost, and token totals, bill xAI reasoning tokens as output, and show reported reasoning tokens for OpenAI Responses and custom-gateway runs; thanks @devYRPauli.
+- Dependencies: update pinned Hono to 4.13.11, its Node adapter to 2.1.3, and pnpm to 11.28.2 while retaining the two-day release-age policy and Node >=24.
+- Dependencies: update MCP server/client to 2.2.0, the legacy MCP SDK to 1.31.0, oxfmt to 0.71.0, and oxlint to 1.86.0 within the two-day release-age policy; retain Node >=24.
+- Dependencies: refresh provider/MCP SDKs, cookie and browser tooling, test tooling, and pnpm within the two-day release-age policy; update dotenv's compatible preload entrypoint, retain Node >=24, and keep Undici on v7 for native-fetch compatibility; thanks @dependabot.
 
 ## 0.21.3 - 2026-09-24
 

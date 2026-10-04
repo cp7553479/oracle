@@ -159,6 +159,14 @@ describe("copied-profile launch flags", () => {
     expect(options.chromeFlags).not.toContain("--password-store=basic");
     expect(options.chromeFlags).toContain("--remote-debugging-address=0.0.0.0");
   });
+
+  test("launches the persistent manual-login profile bare on every platform", async () => {
+    const { resolveChromeLaunchOptionsForTest } =
+      await import("../../src/browser/chromeLifecycle.js");
+    const options = resolveChromeLaunchOptionsForTest(["--no-first-run"], false);
+    expect(options.ignoreDefaultFlags).toBe(true);
+    expect(options.chromeFlags).toEqual(["--no-first-run"]);
+  });
 });
 
 describe("hidden-window launch flags", () => {
