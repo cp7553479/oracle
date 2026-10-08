@@ -9,6 +9,7 @@ import {
   COPY_BUTTON_SELECTOR,
   FINISHED_ACTIONS_SELECTOR,
   SEND_BUTTON_SELECTORS,
+  RESPONSE_COMPLETE_ANNOUNCEMENTS,
   STOP_BUTTON_SELECTORS,
 } from "../constants.js";
 import {
@@ -1057,7 +1058,7 @@ async function isCompletionVisible(
 async function readPageResponseCompleteStatus(Runtime: ChromeClient["Runtime"]): Promise<boolean> {
   try {
     const { result } = await Runtime.evaluate({
-      expression: `Array.from(document.querySelectorAll('[role="status"][aria-live="polite"]')).some((status) => /${COMPLETE_STATUS_PATTERN}/i.test((status.textContent || '').trim()))`,
+      expression: `Array.from(document.querySelectorAll('[role="status"][aria-live="polite"]')).some((status) => (/${COMPLETE_STATUS_PATTERN}/i.test((status.textContent || '').trim()) || ${JSON.stringify(RESPONSE_COMPLETE_ANNOUNCEMENTS)}.includes((status.textContent || '').trim())))`,
       returnByValue: true,
     });
     return result?.value === true;

@@ -16,6 +16,15 @@
 - Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
 - Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
 
+### Upstream
+
+- Browser: use fresh cold-launch ports and live attach endpoints, wait for HTTP 404 approval responses, exclude volatile copied-profile session state while preserving auth storage, and report partial cookie transfers safely; fixes #535, #537, #538, and #540, improves #541; thanks @webkitvn and @Sogl.
+- Browser: dismiss blocking UI only inside visible dialogs, so a sidebar conversation whose title contains a word like "close" is no longer clicked after opening a ChatGPT project URL; fixes #534, thanks @tlq5l and @webkitvn.
+- Files: look for `.gitignore` files only in the directories and glob bases passed to `--file` and their parents under the working directory, instead of walking the whole working directory, so a small bundle no longer takes seconds to minutes when oracle runs from a home directory, and stop a `.gitignore` in `foo/` from applying to files in a sibling `foobar/`; fixes #532, thanks @postoso.
+- Browser: recognize Japanese Chat/Work effort controls and assistant completion/copy signals while preserving current-turn verification; thanks @kiyo-e.
+- Dependencies: refresh provider and MCP SDKs, Chrome tooling, terminal dependencies, Vitest/coverage, Hono, and Vite within the two-day cooldown; retain Node >=24 and Undici 7 compatibility; thanks @dependabot.
+- Files: apply default-ignored directory names only below the directory or glob base passed to `--file`, so a bundle under `/tmp` or a `build/` folder is no longer dropped when oracle runs from elsewhere; fixes #531, thanks @postoso.
+
 ## 0.21.4 - 2026-10-01
 
 **Highlights:** Reliable ChatGPT Chat/Work automation and accurate provider reasoning-token accounting.
