@@ -14,6 +14,7 @@ const {
   writeChromePid,
   cleanupStaleProfileState,
   verifyDevToolsReachable,
+  terminateRecordedChromeForProfile,
 } = vi.hoisted(() => ({
   launchChrome: vi.fn(),
   connectWithNewTab: vi.fn(),
@@ -25,6 +26,7 @@ const {
   writeChromePid: vi.fn(async () => undefined),
   cleanupStaleProfileState: vi.fn(async () => undefined),
   verifyDevToolsReachable: vi.fn(async () => ({ ok: false, error: "unreachable" })),
+  terminateRecordedChromeForProfile: vi.fn(async () => true),
 }));
 
 vi.mock("../../src/browser/chromeLifecycle.js", () => ({
@@ -42,6 +44,7 @@ vi.mock("../../src/browser/profileState.js", () => ({
   writeChromePid,
   cleanupStaleProfileState,
   verifyDevToolsReachable,
+  terminateRecordedChromeForProfile,
 }));
 
 describe("openGeminiBrowserSession", () => {
@@ -62,6 +65,7 @@ describe("openGeminiBrowserSession", () => {
     writeChromePid.mockClear();
     cleanupStaleProfileState.mockClear();
     verifyDevToolsReachable.mockReset();
+    terminateRecordedChromeForProfile.mockClear();
 
     launchChrome.mockResolvedValue({
       port: 9222,
@@ -85,6 +89,31 @@ describe("openGeminiBrowserSession", () => {
       process.env.ORACLE_BROWSER_PROFILE_DIR = originalProfileDir;
     }
     await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("waits for launcher termination and verifies the profile PID before finishing cleanup", async () => {
+    let finishKill!: () => void;
+    const kill = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishKill = resolve;
+        }),
+    );
+    launchChrome.mockResolvedValue({ port: 9222, pid: 12345, kill });
+    const { openGeminiBrowserSession } =
+      await import("../../src/gemini-web/browserSessionManager.js");
+    const session = await openGeminiBrowserSession({
+      browserConfig: {},
+      keepBrowserDefault: false,
+      purpose: "test",
+    });
+    const closing = session.close();
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledOnce());
+    expect(terminateRecordedChromeForProfile).not.toHaveBeenCalled();
+    finishKill();
+    await closing;
+    expect(terminateRecordedChromeForProfile).toHaveBeenCalledWith(session.profileDir, undefined);
+    expect(cleanupStaleProfileState).toHaveBeenCalled();
   });
 
   it("ignores explicit and environment profile overrides", async () => {

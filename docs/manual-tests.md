@@ -16,6 +16,13 @@ and run the live API suite before shipping major transport changes.
 
 ## Test Cases
 
+### Stale browser PID cleanup
+
+Run `pnpm build && node scripts/browser-pid-cleanup-proof.mjs` to verify reuse and
+termination against real Chrome with a disposable profile and a stale PID naming
+an unrelated live controller. The actual Chrome process and DevTools endpoint
+must exit while the controller survives. This requires POSIX process discovery.
+
 ### Recovered tab retirement
 
 Run `pnpm build && node scripts/recovery-retirement-proof.mjs` for built-CLI harvests against isolated Chrome. The synthetic matrix checks full-answer persistence before owned-tab retirement and preservation of a peer, borrowed/kept targets, active controllers, and the current generation stop control.

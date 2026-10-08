@@ -167,7 +167,7 @@ async function runGeminiDeepThinkViaBrowser(
 ): Promise<{ text: string; thoughts: string | null }> {
   const session = await openGeminiBrowserSession({
     browserConfig,
-    keepBrowserDefault: true,
+    keepBrowserDefault: false,
     purpose: "Gemini Deep Think",
     log,
   });

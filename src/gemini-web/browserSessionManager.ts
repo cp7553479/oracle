@@ -16,6 +16,7 @@ import {
   writeChromePid,
   cleanupStaleProfileState,
   verifyDevToolsReachable,
+  terminateRecordedChromeForProfile,
 } from "../browser/profileState.js";
 
 export interface GeminiBrowserSession {
@@ -119,10 +120,11 @@ export async function openGeminiBrowserSession(
 
     if (chromeWasLaunched && launchedChrome) {
       try {
-        launchedChrome.kill();
+        await launchedChrome.kill();
       } catch {
         /* ignore */
       }
+      await terminateRecordedChromeForProfile(profileDir, log).catch(() => false);
       await cleanupStaleProfileState(profileDir, log, { lockRemovalMode: "never" }).catch(
         () => undefined,
       );

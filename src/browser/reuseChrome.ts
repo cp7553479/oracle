@@ -6,6 +6,7 @@ import {
   cleanupStaleProfileState,
   findRunningChromeDebugTargetForProfile,
   readChromePid,
+  resolveChromePidForProfile,
   readDevToolsPort,
   verifyDevToolsReachable,
   writeChromePid,
@@ -65,6 +66,10 @@ export async function maybeReuseRunningChrome(
     await writeDevToolsActivePort(userDataDir, port);
     if (pid) await writeChromePid(userDataDir, pid);
   }
+
+  // A reachable port can belong to a relaunched browser while chrome.pid still
+  // names its predecessor. Refresh it before persisting runtime/cleanup hints.
+  pid = await resolveChromePidForProfile(userDataDir, port);
 
   if (options.chromePath) {
     logger(

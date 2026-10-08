@@ -14,6 +14,7 @@ const {
   writeChromePid,
   cleanupStaleProfileState,
   verifyDevToolsReachable,
+  terminateRecordedChromeForProfile,
   delay,
 } = vi.hoisted(() => ({
   launchChrome: vi.fn(),
@@ -26,6 +27,7 @@ const {
   writeChromePid: vi.fn(async () => undefined),
   cleanupStaleProfileState: vi.fn(async () => undefined),
   verifyDevToolsReachable: vi.fn(async () => ({ ok: false, error: "unreachable" })),
+  terminateRecordedChromeForProfile: vi.fn(async () => true),
   delay: vi.fn(async () => undefined),
 }));
 
@@ -64,6 +66,7 @@ vi.mock("../../src/browser/profileState.js", () => ({
   writeChromePid,
   cleanupStaleProfileState,
   verifyDevToolsReachable,
+  terminateRecordedChromeForProfile,
 }));
 vi.mock("../../src/browser/utils.js", () => ({
   delay,
@@ -365,7 +368,7 @@ describe("gemini-web executor", () => {
     );
   });
 
-  it("keeps the launched browser alive when Deep Think uses the keep-browser default", async () => {
+  it("closes the launched browser after Deep Think without any lifecycle flags", async () => {
     const { createGeminiWebExecutor } = await import("../../src/gemini-web/executor.js");
     const exec = createGeminiWebExecutor({});
     await exec({
@@ -375,7 +378,7 @@ describe("gemini-web executor", () => {
       log: () => {},
     });
 
-    expect(closeTab).not.toHaveBeenCalled();
-    expect(killChrome).not.toHaveBeenCalled();
+    expect(closeTab).toHaveBeenCalled();
+    expect(killChrome).toHaveBeenCalled();
   });
 });

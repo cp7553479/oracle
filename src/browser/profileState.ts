@@ -127,11 +127,35 @@ export function findChromeDebugTargetForProfileFromProcessListForTest(
   return findChromeDebugTargetForProfileFromProcessList(processList, userDataDir);
 }
 
+/** Refresh stale PID hints only from a verified browser owning this exact profile and port. */
+export async function resolveChromePidForProfile(
+  userDataDir: string,
+  port?: number | null,
+  deps: {
+    readPid?: typeof readChromePid;
+    readCommand?: typeof readProcessCommand;
+    findRunning?: typeof findRunningChromeDebugTargetForProfile;
+  } = {},
+): Promise<number | null> {
+  const recordedPid = await (deps.readPid ?? readChromePid)(userDataDir);
+  if (recordedPid) {
+    const command = await (deps.readCommand ?? readProcessCommand)(recordedPid);
+    const commandPort = Number(command?.match(/--remote-debugging-port(?:=|\s+)(\d+)/)?.[1]);
+    if (isChromeCommandForUserDataDir(command, userDataDir) && (!port || commandPort === port)) {
+      return recordedPid;
+    }
+  }
+  const running = await (deps.findRunning ?? findRunningChromeDebugTargetForProfile)(userDataDir);
+  if (!running || (port && running.port !== port)) return null;
+  await writeChromePid(userDataDir, running.pid);
+  return running.pid;
+}
+
 export async function terminateRecordedChromeForProfile(
   userDataDir: string,
   logger?: ProfileStateLogger,
 ): Promise<boolean> {
-  const pid = await readChromePid(userDataDir);
+  const pid = await resolveChromePidForProfile(userDataDir, await readDevToolsPort(userDataDir));
   if (!pid || !isProcessAlive(pid)) {
     return false;
   }

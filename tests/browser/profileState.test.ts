@@ -8,6 +8,54 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as profileState from "../../src/browser/profileState.js";
 
 describe("profileState", () => {
+  test.each([null, 6284, process.pid])(
+    "refreshes a missing, dead, or unrelated recorded PID (%s) from the profile's live port",
+    async (recordedPid) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-profile-pid-"));
+      try {
+        const pid = await profileState.resolveChromePidForProfile(dir, 65462, {
+          readPid: async () => recordedPid,
+          readCommand: async () => (recordedPid === process.pid ? "node worker.js" : null),
+          findRunning: async () => ({ pid: 59104, port: 65462 }),
+        });
+        expect(pid).toBe(59104);
+        expect(await profileState.readChromePid(dir)).toBe(59104);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("rejects discovery on a different port without replacing the recorded PID", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-profile-pid-"));
+    try {
+      await profileState.writeChromePid(dir, 6284);
+      expect(
+        await profileState.resolveChromePidForProfile(dir, 65462, {
+          readCommand: async () => null,
+          findRunning: async () => ({ pid: 59104, port: 9222 }),
+        }),
+      ).toBeNull();
+      expect(await profileState.readChromePid(dir)).toBe(6284);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("retains a verified browser PID without process discovery", async () => {
+    const dir = "/Users/example/.oracle/browser-profile";
+    const findRunning = vi.fn();
+    expect(
+      await profileState.resolveChromePidForProfile(dir, 65462, {
+        readPid: async () => 59104,
+        readCommand: async () =>
+          `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=${dir} --remote-debugging-port=65462`,
+        findRunning,
+      }),
+    ).toBe(59104);
+    expect(findRunning).not.toHaveBeenCalled();
+  });
+
   test("writes DevToolsActivePort to both root and Default", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-profile-"));
     try {

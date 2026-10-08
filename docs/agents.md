@@ -47,7 +47,7 @@ passing an explicit GPT-5.5 model and override the CLI default:
 ```bash
 for root in ~/.agents/skills ~/.claude/skills ~/.codex/skills ~/.openclaw/skills; do
   mkdir -p "$root/oracle"
-  rsync -a --delete skills/oracle/ "$root/oracle/"
+  rsync -a skills/oracle/ "$root/oracle/"
 done
 ```
 

@@ -51,6 +51,9 @@ fork. Upstream refreshes must reapply and verify every requirement below.
   flags, `--dry-run`, the `--perf-trace` diagnostics, the internal session
   plumbing (`--exec-session`, `--session`, `--status`), and meta flags
   (`--help`, `--version`, `--debug-help`).
+- Attached files have no size guard: file reading and browser prompt assembly must not reject or
+  skip large files, and the removed file-size flag, environment variable, and config field must
+  not reintroduce a limit.
 - Every other root flag is silently discarded together with its values: no
   notice, no error, no exit-code change, no dependence on whether the caller
   passes it. This includes effort, research, archive, render/copy,
@@ -98,7 +101,11 @@ fork. Upstream refreshes must reapply and verify every requirement below.
 
 ## Browser lifecycle
 
-- Oracle-owned browser targets must close after a completed run.
+- Oracle-owned browser targets must close after a completed run by default, without any flags.
+  The final task must also terminate its profile-owned browser, including a reused browser whose
+  recorded PID is stale; verify the actual process against the exact profile and DevTools port
+  before refreshing PID metadata or terminating it. Never terminate an unrelated recorded PID.
+  Gemini Deep Think must use the same default target cleanup, rather than opting into keeping Chrome.
 - Reattach must close the recovered Oracle-owned target after harvesting the final answer or image.
 - If reattach launches a replacement browser, that browser must close during final cleanup.
 - Cleanup must not close an explicitly attached user tab, a Cloudflare challenge retained for

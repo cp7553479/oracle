@@ -161,11 +161,11 @@ describe("maybeReuseRunningChrome", () => {
         chromePath: "/custom/stable-chrome",
         probe: async () => ({ ok: true }),
       });
-      expect(reused?.pid).toBe(12345);
+      expect(reused?.pid).toBeUndefined();
       expect(logger).toHaveBeenCalledWith(
         expect.stringContaining("configured executable /custom/stable-chrome"),
       );
-      expect(logger).toHaveBeenCalledWith(expect.stringContaining("pid 12345, port 45678"));
+      expect(logger).toHaveBeenCalledWith(expect.stringContaining("pid unknown, port 45678"));
       expect(logger).toHaveBeenCalledWith(expect.stringContaining("finish active runs and close"));
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

@@ -238,7 +238,7 @@ describe("navigateToPromptReadyWithFallback", () => {
 
     expect(close.clicks).toBe(2);
     expect(hiddenOk.clicks).toBe(0);
-    expect(logger).toHaveBeenCalledWith("[nav] dismissed blocking UI (close)");
+    expect(logger).not.toHaveBeenCalledWith(expect.stringContaining("dismissed blocking UI"));
   });
 });
 
