@@ -73,6 +73,10 @@ describe("harvestSessionBrowserOutput recovery fallback", () => {
       url: meta.browser?.runtime?.tabUrl ?? "",
       ref: "saved-conversation",
       chrome: fakeChrome,
+      release: vi.fn(async (close = true) => {
+        if (close) fakeChrome.kill();
+        else fakeChrome.process.unref();
+      }),
     }));
 
     const updateSession = vi.fn(async () => {});
@@ -143,6 +147,7 @@ describe("harvestSessionBrowserOutput recovery fallback", () => {
       ...endpoint,
       ref: "reopened",
       chrome: null,
+      release: vi.fn(async () => {}),
     }));
     vi.doMock("../../src/browser/liveTabs.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../src/browser/liveTabs.js")>()),
@@ -295,6 +300,7 @@ describe("harvestSessionBrowserOutput recovery fallback", () => {
       url: "https://chatgpt.com/c/saved-conversation",
       ref: "saved-conversation",
       chrome: { kill: vi.fn() },
+      release: vi.fn(async () => {}),
     }));
 
     vi.doMock("../../src/browser/liveTabs.js", () => ({
@@ -342,6 +348,10 @@ describe("harvestSessionBrowserOutput recovery fallback", () => {
         url: "https://chatgpt.com/c/saved-conversation",
         ref: "saved-conversation",
         chrome: fakeChrome,
+        release: vi.fn(async (close?: boolean) => {
+          if (close) fakeChrome.kill();
+          else fakeChrome.process.unref();
+        }),
       })),
     }));
     vi.doMock("../../src/sessionStore.js", () => ({

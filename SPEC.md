@@ -62,6 +62,13 @@ fork. Upstream refreshes must reapply and verify every requirement below.
   are deliberately allowlisted here.
 - Session management and service subcommands (`status`, `session`, `serve`,
   `doctor`, `tui`, and the rest) keep their full option sets.
+- Root `--help` shows only the whitelisted consultation surface. Non-allowlisted
+  root options stay registered for the `ORACLE_ALLOW_API_ENGINE=1` escape hatch
+  and `--debug-help`, but are hidden from the default help automatically; new
+  upstream root options are hidden without code changes. Documentation and the
+  shipped skills must not advertise removed or silently discarded options (the
+  `oracle-advisor` skill and its advisor doc are removed; the repo ships the
+  single `skills/oracle` skill).
 - When no model comes from the caller, saved configuration, or a multi-model
   list, browser runs from the root CLI, MCP/Agent integrations, and the remote
   browser service default to `--model latest` with Instant effort (the `light`

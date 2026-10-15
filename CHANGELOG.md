@@ -4,6 +4,8 @@
 
 ### Fork policy
 
+- Sync upstream through 0.21.5 while reapplying the fork policies: adopt upstream's current GPT-6 picker labels (explicit `gpt-6-astra` now selects the GPT-6 label), the shared assistant-response recheck runtime, recovery-Chrome lease/ownership release, and macOS profile-copy tolerance, and keep the fork's single immediate image-artifact scan (no image wait loop), default-close reattach cleanup, zh-CN composer labels, and forced manual-login/config surface. Image capture keeps working through the 2026-10 blob gallery path.
+- Simplify the entry surface: root `--help` now shows only the whitelisted consultation flags; every other registration stays parseable for `ORACLE_ALLOW_API_ENGINE=1` and `--debug-help` but is hidden automatically. The `oracle-advisor` skill, its advisor doc, and documentation of the removed file-size cap and `--copy-profile` behaviors are deleted; the shipped `skills/oracle` skill now states the Latest+Instant default correctly.
 - Browser: completed runs close their task tab and exit the final shared Chrome by default, including after Chrome restarts leave a stale recorded PID; reuse and termination refresh process identity against the exact profile and DevTools port, and Gemini Deep Think no longer keeps Chrome by default.
 - Browser: adapt conversation capture to ChatGPT's 2026-09 layout — turns are keyed by `data-turn-key`/`data-content-search-turn-key` with sr-only `data-conversation-role` headings instead of `conversation-turn` testids; commit verification, answer capture, and the role-heading text leak are handled with additive selectors so older layouts keep working.
 - Browser: completion is judged structurally per the fork spec — a capture finalizes only when the stop control is gone AND the composer is ready again (send enabled, or the composer input editable when the layout swaps the send control for the voice button) AND the answer text stayed stable through the debounce window; text frozen past the stuck gate (30s by default) while the generation controls never reset reloads the conversation and re-captures instead of idling to the timeout. No answer text or localized status wording is read for completion.
@@ -17,14 +19,21 @@
 - Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
 - Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
 
-### Upstream
+## 0.21.5 - 2026-10-11
 
+**Highlights:** Reliable Chrome recovery and cleanup, faster file bundles, and the source-map-js security fix (CVE-2026-93749).
+
+- Browser: release Chrome launched by session recovery according to `keepBrowser`, preserve borrowed browsers and concurrent leases, and show manual-login guidance with hidden-window recovery; fixes #548 and #547, thanks @HidakaKoyo.
 - Browser: use fresh cold-launch ports and live attach endpoints, wait for HTTP 404 approval responses, exclude volatile copied-profile session state while preserving auth storage, and report partial cookie transfers safely; fixes #535, #537, #538, and #540, improves #541; thanks @webkitvn and @Sogl.
-- Browser: dismiss blocking UI only inside visible dialogs, so a sidebar conversation whose title contains a word like "close" is no longer clicked after opening a ChatGPT project URL; fixes #534, thanks @tlq5l and @webkitvn.
+- Browser: capture generated images from current-prompt ChatGPT blob galleries and download their bytes inside the page, preventing image-generation timeouts on the new layout; fixes #549, thanks @HidakaKoyo.
 - Files: look for `.gitignore` files only in the directories and glob bases passed to `--file` and their parents under the working directory, instead of walking the whole working directory, so a small bundle no longer takes seconds to minutes when oracle runs from a home directory, and stop a `.gitignore` in `foo/` from applying to files in a sibling `foobar/`; fixes #532, thanks @postoso.
-- Browser: recognize Japanese Chat/Work effort controls and assistant completion/copy signals while preserving current-turn verification; thanks @kiyo-e.
-- Dependencies: refresh provider and MCP SDKs, Chrome tooling, terminal dependencies, Vitest/coverage, Hono, and Vite within the two-day cooldown; retain Node >=24 and Undici 7 compatibility; thanks @dependabot.
 - Files: apply default-ignored directory names only below the directory or glob base passed to `--file`, so a bundle under `/tmp` or a `build/` folder is no longer dropped when oracle runs from elsewhere; fixes #531, thanks @postoso.
+- Browser: dismiss blocking UI only inside visible dialogs, so a sidebar conversation whose title contains a word like "close" is no longer clicked after opening a ChatGPT project URL; fixes #534, thanks @tlq5l and @webkitvn.
+- Browser: recognize GPT-6 picker labels, preserve the latest CLI alias and legacy localized radios, and verify model and Pro effort separately; fixes #553, thanks @felipekrgb.
+- Browser: recognize Japanese Chat/Work effort controls and assistant completion/copy signals while preserving current-turn verification; thanks @kiyo-e.
+- Browser: tolerate macOS openrsync vanished-file transfers when copying live Chrome profiles, while rejecting real read errors and missing authentication storage; fixes #550, thanks @Sogl.
+- Dependencies: refresh provider and MCP SDKs, Chrome tooling, terminal dependencies, Vitest/coverage, Hono, Vite, and the source-map-js security fix (CVE-2026-93749) within the two-day cooldown; retain Node >=24 and Undici 7 compatibility; thanks @dependabot.
+- Dependencies: refresh OpenAI and Gemini SDKs, Puppeteer, and the pinned Chrome DevTools protocol within the two-day cooldown, retaining Node >=24 and Undici 7.
 
 ## 0.21.4 - 2026-10-01
 

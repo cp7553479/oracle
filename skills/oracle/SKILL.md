@@ -13,7 +13,7 @@ advisory and verify them against the codebase and tests.
 ## Fork execution policy
 
 Use the globally linked local executable (`oracle`). Never use registry
-`npx`/`pnpm dlx` commands or `--copy-profile`.
+`npx`/`pnpm dlx` commands.
 
 - Every root run is forced onto the persistent manual-login browser path;
   `--engine browser` and the manual-login behavior are applied automatically.
@@ -29,7 +29,7 @@ Use the globally linked local executable (`oracle`). Never use registry
   `--message`, or a positional prompt), attached files (`-f/--file` and its
   `--include/--files/--path/--paths` aliases), the AI/model selection
   (`-m/--model`, `--models`), the conversation-continuation flags (`--followup
-<sessionId|slug>` to reopen a saved ChatGPT browser conversation, repeatable
+  <sessionId|slug>` to reopen a saved ChatGPT browser conversation, repeatable
   `--browser-follow-up <prompt>` for planned same-run turns, and
   `--followup-model` as a pass-through), the output/download paths
   (`--write-output`, `--output`), the engine/manual-login flags above,
@@ -41,14 +41,14 @@ Use the globally linked local executable (`oracle`). Never use registry
 - Session management subcommands (`oracle status`, `oracle session <id>`,
   `oracle serve`, `oracle doctor`, ...) keep their full option sets.
 - 若用户没有特殊要求的情况下，不建议指定模型和思考强度。不传 `--model` 时
-  CLI 自动按 Latest + Medium 思考档执行（等价于显式传 `--model latest`）；
-  只有用户点名要求时才传 `--model` 选其他目标。
+  CLI 自动按 Latest + Instant 思考档执行（等价于显式传 `--model latest`，
+  思考级别为 light）；只有用户点名要求时才传 `--model` 选其他目标。
 
-## Main use case (browser, Latest Medium)
+## Main use case (browser, Latest Instant)
 
-Default target: `--model latest` — ChatGPT's `Latest` model at its Medium
-effort. Do not pin a model or thinking effort unless the user explicitly asks
-for one.
+Default target: `--model latest` — ChatGPT's `Latest` model at its Instant
+effort (the `light` thinking level). Do not pin a model or thinking effort
+unless the user explicitly asks for one.
 
 Special targets, only when requested:
 
@@ -65,7 +65,7 @@ selection but does not, by itself, prove the server-side Pro generation.
 
 ## GPT-5.6 model selection
 
-- `latest`: ChatGPT's `Latest` entry at Medium effort — the default recommendation
+- `latest`: ChatGPT's `Latest` entry at Instant effort — the default recommendation
 - `gpt-5.6`: follow the GPT-5.6 family default
 - `gpt-5.6-sol`: pin ChatGPT's `GPT-5.6 Sol` entry
 - Browser: `gpt-5-pro` selects ChatGPT's `Pro` target
@@ -129,8 +129,6 @@ comma-separated entries.
 - Globs honor `.gitignore` and do not follow symlinks.
 - Dotfiles require an explicit dot-segment in the pattern, such as
   `--file ".github/**"`.
-- Files over 1 MB are rejected by default; configure
-  `ORACLE_MAX_FILE_SIZE_BYTES` or `maxFileSizeBytes` when necessary.
 
 Keep total input under roughly 196k tokens. Use `--dry-run json` to identify
 oversized inputs. Never attach `.env` files, private keys, auth tokens, or

@@ -79,5 +79,8 @@ jobs:
       - name: Run recorded ChatGPT layout proof
         if: matrix.suite == 'core'
         run: node scripts/chatgpt-layout-proof.mjs
+      - name: Run assistant response recovery proof
+        if: matrix.suite == 'core'
+        run: node scripts/assistant-runtime-proof.mjs
       - name: Run effort slider readiness proof
         run: node scripts/effort-readiness-proof.mjs

@@ -16,6 +16,10 @@ and run the live API suite before shipping major transport changes.
 
 ## Test Cases
 
+### Assistant response recovery (no login)
+
+Run `pnpm build && node scripts/assistant-runtime-proof.mjs` with Chrome installed (`CHROME_PATH` can select Chromium on Linux). The built CLI exercises stale-answer replacement, delayed recheck recovery, and expired-session errors through both local and remote Chrome runners. Each synthetic consultation submits exactly once and records the expected completed or error session. Use `--captures <directory>` to retain CLI output. These disposable profiles and local pages do not establish signed-in provider behavior.
+
 ### Stale browser PID cleanup
 
 Run `pnpm build && node scripts/browser-pid-cleanup-proof.mjs` to verify reuse and
@@ -215,6 +219,10 @@ Expect a near-instant response (no Thinking spinner) and confirm the composer pi
 2c. **GPT-5.5 Pro effort through the unified picker**
 `pnpm run oracle -- --engine browser --browser-manual-login --model gpt-5.5-pro --write-output response.txt --prompt "Say Hi!"`
 Confirm the logs report a verified GPT-5.5 model followed by `Thinking time: Pro`, and `response.txt` contains the captured answer. Exercise both a tab starting on another model and a retained tab where GPT-5.5 is already selected. Never click ChatGPT's "Answer now" shortcut while the Pro response is thinking.
+
+2d. **GPT-6 radio with Pro effort and legacy Latest compatibility**
+`pnpm run oracle -- --engine browser --browser-manual-login --model gpt-6-pro --prompt "Reply exactly CHECK_GPT6_PRO_OK."`
+On an account whose model radio reads `GPT-6`, confirm the logs report `Model picker: GPT-6` followed by `Thinking time: Pro` before prompt submission. Before this fix, selection stops with `Unable to find model option matching "Latest"` even though `GPT-6` is listed among the available options. Exercise both an already-selected GPT-6 radio with a version-less `Pro` composer pill and a tab starting on GPT-5.6 Sol. Repeat with `--model latest --browser-thinking-time pro`: it must resolve to the same GPT-6 target. Existing `Latest`, Japanese `最新`, and Korean `최신` radios must remain supported when GPT-6 is absent. If Pro is unavailable, the run must fail before submission rather than downgrade. Never click "Answer now".
 
 3. **GPT-5.5 + attachment**
    Prepare `/tmp/browser-md.txt` with a short note, then run

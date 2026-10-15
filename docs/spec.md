@@ -30,7 +30,6 @@ The bundle Oracle ships is deterministic given the same args and same files. Tha
 - Default-ignored dirs: `node_modules`, `dist`, `coverage`, `.git`, `.turbo`, `.next`, `build`, `tmp`. They apply below the directory or glob base you pass, not to its parents. Pass them explicitly to override.
 - Symlinks are not followed.
 - Dotfiles are filtered unless the glob has a dot-segment (`--file ".github/**"`).
-- File size cap defaults to 1 MB. Override with `ORACLE_MAX_FILE_SIZE_BYTES` or `maxFileSizeBytes` in config.
 
 ## Engine selection
 

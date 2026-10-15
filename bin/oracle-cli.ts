@@ -891,6 +891,45 @@ program
   .addOption(new Option("--no-wait").default(undefined).hideHelp())
   .showHelpAfterError("(use --help for usage)");
 
+// Fork policy: the root help shows only the whitelisted consultation surface.
+// Every other registration stays parseable for the ORACLE_ALLOW_API_ENGINE
+// escape hatch and remains documented by --debug-help, but the default entry
+// point stays small. New upstream options are hidden automatically.
+const HELP_VISIBLE_ROOT_OPTIONS = new Set([
+  "--version",
+  "--help",
+  "-p",
+  "--prompt",
+  "--followup",
+  "--followup-model",
+  "-f",
+  "--file",
+  "-m",
+  "--model",
+  "--models",
+  "-e",
+  "--engine",
+  "--dry-run",
+  "--write-output",
+  "--output",
+  "--generate-image",
+  "--browser-follow-up",
+  "--perf-trace",
+  "--perf-trace-path",
+  "--debug-help",
+]);
+for (const option of program.options) {
+  const long = option.long;
+  const short = option.short;
+  if (
+    (long && HELP_VISIBLE_ROOT_OPTIONS.has(long)) ||
+    (!long && short && HELP_VISIBLE_ROOT_OPTIONS.has(short))
+  ) {
+    continue;
+  }
+  option.hideHelp();
+}
+
 program.on("afterHelp", ({ error }: { error: boolean }) => {
   if (!error && program.opts<CliOptions>().verbose) {
     console.log("");

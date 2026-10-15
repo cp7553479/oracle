@@ -20,12 +20,6 @@ Drop this into the project's `AGENTS.md` or `CLAUDE.md`:
 
 That's enough for most agents to discover and use Oracle correctly. The patterns below cover the deeper integrations.
 
-For explicit API/browser/render selection and per-run model/effort provenance,
-use the optional `skills/oracle-advisor` companion skill instead. It reuses the
-existing backends and does not implement native desktop delegation. See
-[Advisory consultations](advisor.md) for its capability boundary and result
-contract. The existing `skills/oracle` workflow remains available unchanged.
-
 ## Claude Code
 
 ### As an MCP server (recommended)
@@ -125,7 +119,6 @@ remote-Chrome overrides are silently ignored. See [Browser Mode](browser-mode.md
 ## Cost / safety hygiene
 
 - **Always preview Pro runs.** `--dry-run summary --files-report` before a Pro API call on a large bundle. Token counts are a close-enough proxy for dollars.
-- **Cap file size.** `~/.oracle/config.json` → `maxFileSizeBytes`, or `ORACLE_MAX_FILE_SIZE_BYTES`. Default is 1 MB per file.
 - **Excludes are your friend.** `--file "src/**" --file "!**/*.test.ts" --file "!**/*.snap"` cuts most fixtures.
 - **API mode runs cost real money.** If your agent runs Oracle autonomously, scope it: pin `--model`, set `--timeout`, and review the session log. Many users gate API mode behind explicit user consent and let browser mode run free.
 

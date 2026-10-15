@@ -66,8 +66,8 @@ Established 2026-10-04 while merging upstream `5dd3cd85` (0.21.4,
 - The structural any-button fallback (2026-09 layout, no stable testids)
   must stay scoped: a button proves completion only when it lives
   outside message content (`pre, code, .markdown, [class*="MarkdownRoot"],
-[data-markdown-text-style], [data-message-content],
-[data-user-message-bubble]`) AND does not precede the assistant message
+  [data-markdown-text-style], [data-message-content],
+  [data-user-message-bubble]`) AND does not precede the assistant message
   root (`compareDocumentPosition & 2`). Without both, a streaming
   code-block copy button or an earlier message's action bar inside the
   same exchange completes a live answer (upstream regression tests cover
