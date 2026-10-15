@@ -136,35 +136,49 @@ const DIAG_MENU_EXPRESSION = `(() => {
   };
 })()`;
 
-const ATTACHMENT_SIGNAL_EXPRESSION = `(() => {
-  const form = document.querySelector('form');
-  const previews = form
-    ? [...form.querySelectorAll('img')].filter((img) => {
-        const src = img.getAttribute('src') || '';
-        return src.startsWith('data:') || src.startsWith('blob:');
-      }).length
-    : 0;
-  const chips = document.querySelectorAll(
-    '[data-testid*="attachment"], [aria-label*="Remove" i], [aria-label*="remove" i]',
-  ).length;
+const ATTACHMENT_SIGNAL_EXPRESSION_FOR = (expectedStem: string) => `(() => {
+  const expected = ${JSON.stringify(expectedStem)};
+  const previews = [...document.querySelectorAll('form')]
+    .flatMap((form) => [...form.querySelectorAll('img')])
+    .filter((img) => {
+      const src = img.getAttribute('src') || '';
+      return src.startsWith('data:') || src.startsWith('blob:');
+    }).length;
+  // Chip affordances: remove controls (EN + zh-CN locales) and attachment testids.
+  // zh-CN labels quote the name: 移除"name.png".
+  const chipNodes = document.querySelectorAll(
+    '[data-testid*="attachment"], [aria-label*="Remove" i], [aria-label*="移除"], [aria-label*="删除"], img[alt]',
+  );
+  let chips = 0;
+  let named = 0;
+  for (const node of chipNodes) {
+    const aria = node.getAttribute('aria-label') || '';
+    if (node.hasAttribute('data-testid') || /remove|移除|删除/i.test(aria)) chips += 1;
+    const hay = (aria + ' ' + (node.getAttribute('alt') || '')).toLowerCase();
+    if (expected && hay.includes(expected)) named += 1;
+  }
   let queuedFiles = 0;
   for (const input of document.querySelectorAll('input[type="file"]')) {
     if (input instanceof HTMLInputElement) queuedFiles += Array.from(input.files || []).length;
   }
-  return { previews, chips, queuedFiles };
+  return { previews, chips, queuedFiles, named };
 })()`;
 
 async function readAttachmentSignal(
   runtime: ChromeClient["Runtime"],
-): Promise<{ previews: number; chips: number; queuedFiles: number }> {
-  const value = await evaluate<{ previews?: number; chips?: number; queuedFiles?: number }>(
-    runtime,
-    ATTACHMENT_SIGNAL_EXPRESSION,
-  );
+  expectedStem: string,
+): Promise<{ previews: number; chips: number; queuedFiles: number; named: number }> {
+  const value = await evaluate<{
+    previews?: number;
+    chips?: number;
+    queuedFiles?: number;
+    named?: number;
+  }>(runtime, ATTACHMENT_SIGNAL_EXPRESSION_FOR(expectedStem));
   return {
     previews: typeof value?.previews === "number" ? value.previews : 0,
     chips: typeof value?.chips === "number" ? value.chips : 0,
     queuedFiles: typeof value?.queuedFiles === "number" ? value.queuedFiles : 0,
+    named: typeof value?.named === "number" ? value.named : 0,
   };
 }
 
@@ -214,7 +228,10 @@ export async function uploadAttachmentViaFileChooser(
   };
 
   try {
-    const initial = await readAttachmentSignal(runtime);
+    const expectedStem = (attachment.path.split("/").pop() ?? attachment.path)
+      .toLowerCase()
+      .replace(/\.[a-z0-9]{1,10}$/i, "");
+    const initial = await readAttachmentSignal(runtime, expectedStem);
     await page.setInterceptFileChooserDialog({ enabled: true });
     interceptionEnabled = true;
 
@@ -294,14 +311,15 @@ export async function uploadAttachmentViaFileChooser(
     // Wait until the composer acknowledges the file (preview/chip/queued input).
     const signalDeadline = Date.now() + signalTimeoutMs;
     for (;;) {
-      const signal = await readAttachmentSignal(runtime);
+      const signal = await readAttachmentSignal(runtime, expectedStem);
       const grew =
         signal.previews > initial.previews ||
         signal.chips > initial.chips ||
-        signal.queuedFiles > initial.queuedFiles;
+        signal.queuedFiles > initial.queuedFiles ||
+        signal.named > initial.named;
       if (grew) {
         logger(
-          `Attachment queued via file chooser (previews=${signal.previews}, chips=${signal.chips}, queued=${signal.queuedFiles})`,
+          `Attachment queued via file chooser (previews=${signal.previews}, chips=${signal.chips}, queued=${signal.queuedFiles}, named=${signal.named})`,
         );
         return true;
       }

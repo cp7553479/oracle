@@ -301,6 +301,8 @@ export async function uploadAttachmentFile(
           '[data-testid*="upload"]',
           '[aria-label*="Remove"]',
           '[aria-label*="remove"]',
+          '[aria-label*="移除"]',
+          '[aria-label*="删除"]',
         ];
         const locateComposerRoot = () => {
           const promptNode = findPromptNode();
@@ -343,6 +345,8 @@ export async function uploadAttachmentFile(
           '[aria-label*="Remove"]',
           'button[aria-label*="Remove"]',
           '[aria-label*="remove"]',
+          '[aria-label*="移除"]',
+          '[aria-label*="删除"]',
         ].join(',');
         const localCandidates = scope ? Array.from(scope.querySelectorAll(chipSelector)) : [];
         const globalCandidates = Array.from(document.querySelectorAll(chipSelector));
@@ -369,7 +373,7 @@ export async function uploadAttachmentFile(
 
         if (!uiMatch) {
           const removeScope = root ?? document;
-          const cardTexts = Array.from(removeScope.querySelectorAll('[aria-label*="Remove"],[aria-label*="remove"]')).map(
+          const cardTexts = Array.from(removeScope.querySelectorAll('[aria-label*="Remove"],[aria-label*="remove"],[aria-label*="移除"],[aria-label*="删除"]')).map(
             (btn) => btn?.parentElement?.parentElement?.innerText ?? '',
           );
           if (cardTexts.some(matchesExpected)) {
@@ -408,7 +412,7 @@ export async function uploadAttachmentFile(
               return true;
             }
             const text = node.textContent?.toLowerCase?.() ?? '';
-            return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text);
+            return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text) || /上传中|正在上传|处理中/.test(text);
           });
         });
 
@@ -606,6 +610,8 @@ export async function uploadAttachmentFile(
         '[data-testid*="upload"]',
         '[aria-label*="Remove"]',
         '[aria-label*="remove"]',
+        '[aria-label*="移除"]',
+        '[aria-label*="删除"]',
       ];
       const locateComposerRoot = () => {
         const promptNode = findPromptNode();
@@ -664,7 +670,7 @@ export async function uploadAttachmentFile(
         return parts.length > 0 && parts.every((p) => p.startsWith('image/'));
       };
       const chipContainer = scope ?? document;
-        const chipSelector = '[data-testid*="attachment"],[data-testid*="chip"],[data-testid*="upload"],[data-testid*="file"],[aria-label*="Remove"],[aria-label*="remove"]';
+        const chipSelector = '[data-testid*="attachment"],[data-testid*="chip"],[data-testid*="upload"],[data-testid*="file"],[aria-label*="Remove"],[aria-label*="remove"],[aria-label*="移除"],[aria-label*="删除"]';
       const baselineChipCount = chipContainer.querySelectorAll(chipSelector).length;
       const baselineChips = Array.from(chipContainer.querySelectorAll(chipSelector))
         .slice(0, 20)
@@ -683,7 +689,7 @@ export async function uploadAttachmentFile(
             return true;
           }
           const text = node.textContent?.toLowerCase?.() ?? '';
-          return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text);
+          return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text) || /上传中|正在上传|处理中/.test(text);
         });
       });
       const countRegex = /(?:^|\\b)(\\d+)\\s+(?:files?|attachments?)\\b/;
@@ -1016,7 +1022,7 @@ export async function uploadAttachmentFile(
       return parentHasSend ? parent : root;
     })();
     const chipContainer = scope ?? document;
-    const chipSelector = '[data-testid*="attachment"],[data-testid*="chip"],[data-testid*="upload"],[aria-label*="Remove"],[aria-label*="remove"]';
+    const chipSelector = '[data-testid*="attachment"],[data-testid*="chip"],[data-testid*="upload"],[aria-label*="Remove"],[aria-label*="remove"],[aria-label*="移除"],[aria-label*="删除"]';
     const chips = Array.from(chipContainer.querySelectorAll(chipSelector))
       .slice(0, 20)
       .map((node) => ({
@@ -1034,7 +1040,7 @@ export async function uploadAttachmentFile(
           return true;
         }
         const text = node.textContent?.toLowerCase?.() ?? '';
-        return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text);
+        return /\\buploading\\b/.test(text) || /\\bprocessing\\b/.test(text) || /上传中|正在上传|处理中/.test(text);
       });
     });
     const input = document.querySelector('input[type="file"][data-oracle-upload-idx="${idx}"]');
@@ -1413,6 +1419,8 @@ export async function clearComposerAttachments(
       '[data-testid*="upload"]',
       '[aria-label*="Remove"]',
       '[aria-label*="remove"]',
+      '[aria-label*="移除"]',
+      '[aria-label*="删除"]',
     ];
     const locateComposerRoot = () => {
       const promptNode = findPromptNode();
@@ -1451,6 +1459,9 @@ export async function clearComposerAttachments(
       'button[aria-label="Remove file"]',
       '[aria-label*="Remove file"]',
       '[aria-label*="remove file"]',
+      '[aria-label*="移除"]',
+      'button[aria-label*="移除"]',
+      '[aria-label*="删除"]',
       '[data-testid*="remove-attachment"]',
       '[data-testid*="attachment-remove"]',
     ];
@@ -1554,6 +1565,8 @@ export async function waitForAttachmentCompletion(
       '[data-testid*="upload"]',
       '[aria-label*="Remove"]',
       '[aria-label*="remove"]',
+      '[aria-label*="移除"]',
+      '[aria-label*="删除"]',
     ];
     const locateComposerRoot = () => {
       const promptNode = findPromptNode();
@@ -1621,7 +1634,7 @@ export async function waitForAttachmentCompletion(
         }
       }
     }
-    const cardTexts = Array.from(composerScope.querySelectorAll('[aria-label*="Remove"]')).map((btn) =>
+    const cardTexts = Array.from(composerScope.querySelectorAll('[aria-label*="Remove"],[aria-label*="移除"],[aria-label*="删除"]')).map((btn) =>
       btn?.parentElement?.parentElement?.innerText?.toLowerCase?.() ?? '',
     );
     attachedNames.push(...cardTexts.filter(Boolean));
@@ -2211,6 +2224,8 @@ function buildAttachmentVisibleExpression(expectedName: string, countFileInput: 
       '[data-testid*="file"]',
       '[aria-label*="Remove"]',
       '[aria-label*="remove"]',
+      '[aria-label*="移除"]',
+      '[aria-label*="删除"]',
     ];
     const locateComposerRoot = () => {
       const promptNode = findPromptNode();
@@ -2237,14 +2252,14 @@ function buildAttachmentVisibleExpression(expectedName: string, countFileInput: 
     };
     const composerRoot = locateComposerRoot() ?? document.body;
 
-    const attachmentMatch = ['[data-testid*="attachment"]','[data-testid*="chip"]','[data-testid*="upload"]','[data-testid*="file"]','[aria-label*="Remove" i]'].some((selector) =>
+    const attachmentMatch = ['[data-testid*="attachment"]','[data-testid*="chip"]','[data-testid*="upload"]','[data-testid*="file"]','[aria-label*="Remove" i]','[aria-label*="移除"]','[aria-label*="删除"]','[aria-label*="移除"]','[aria-label*="删除"]'].some((selector) =>
       Array.from(composerRoot.querySelectorAll(selector)).some(matchNode),
     );
     if (attachmentMatch) {
       return { found: true, source: 'attachments' };
     }
 
-    const cardTexts = Array.from(composerRoot.querySelectorAll('[aria-label*="Remove"]')).map((btn) =>
+    const cardTexts = Array.from(composerRoot.querySelectorAll('[aria-label*="Remove"],[aria-label*="移除"],[aria-label*="删除"]')).map((btn) =>
       btn?.parentElement?.parentElement?.innerText?.toLowerCase?.() ?? '',
     );
     if (cardTexts.some(matchesExpectedFileName)) {
@@ -2300,6 +2315,8 @@ async function waitForAttachmentAnchored(
       'button[aria-label*="Remove"]',
       '[aria-label*="remove"]',
       'button[aria-label*="remove"]',
+      '[aria-label*="移除"]',
+      '[aria-label*="删除"]',
     ];
     for (const selector of selectors) {
       for (const node of Array.from(document.querySelectorAll(selector))) {
@@ -2312,7 +2329,7 @@ async function waitForAttachmentAnchored(
         }
       }
     }
-    const cards = Array.from(document.querySelectorAll('[aria-label*="Remove"]')).map((btn) =>
+    const cards = Array.from(document.querySelectorAll('[aria-label*="Remove"],[aria-label*="移除"],[aria-label*="删除"]')).map((btn) =>
       btn?.parentElement?.parentElement?.innerText?.toLowerCase?.() ?? '',
     );
     if (cards.some(matchesExpected)) {

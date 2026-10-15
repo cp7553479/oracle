@@ -21,23 +21,32 @@ export function buildAttachmentEvidenceExpression(
     const visible = node => node instanceof HTMLElement && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
     const sendSelectors = ${JSON.stringify(SEND_BUTTON_SELECTORS)};
     const prompt = ${JSON.stringify(INPUT_SELECTORS)}.flatMap(selector => Array.from(document.querySelectorAll(selector))).find(visible);
-    const send = sendSelectors.map(selector => document.querySelector(selector)).find(visible);
+    // Scan every match per selector: ChatGPT keeps hidden clones earlier in the
+    // DOM, so a first-match-only lookup can resolve an invisible node.
+    let send = null;
+    for (const selector of sendSelectors) {
+      for (const node of Array.from(document.querySelectorAll(selector))) {
+        if (visible(node)) { send = node; break; }
+      }
+      if (send) break;
+    }
+    if (!send) send = sendSelectors.map(selector => document.querySelector(selector)).find(Boolean) ?? null;
     let composer = null;
     let fallback = null;
     for (let node = (prompt ?? send)?.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
       if (!sendSelectors.some(selector => node.querySelector(selector))) continue;
       fallback ??= node;
-      if (node.querySelector('input[type="file"],[data-testid*="attachment"],[aria-label*="Remove" i]')) {
+      if (node.querySelector('input[type="file"],[data-testid*="attachment"],[aria-label*="Remove" i],[aria-label*="移除"],[aria-label*="删除"]')) {
         composer = node;
         break;
       }
     }
     composer ??= fallback;
     if (!composer) return action === 'read' ? empty : false;
-    const controls = () => Array.from(composer.querySelectorAll('[aria-label*="Remove" i]')).filter(node => {
+    const controls = () => Array.from(composer.querySelectorAll('[aria-label*="Remove" i],[aria-label*="移除"],[aria-label*="删除"]')).filter(node => {
       if (!visible(node) || node.closest('textarea,[contenteditable="true"]')) return false;
       const label = (node.getAttribute('aria-label') ?? '').toLowerCase();
-      return /^remove (?:file|attachment|image|photo)(?: |$)/.test(label) || Boolean(node.closest('[data-testid*="chip"],[data-testid*="attachment"],[data-testid*="upload"]'));
+      return /^remove (?:file|attachment|image|photo)(?: |$)/.test(label) || /^移除|^删除/.test(label) || Boolean(node.closest('[data-testid*="chip"],[data-testid*="attachment"],[data-testid*="upload"]'));
     });
     const currentControls = controls();
     const valid = receipt => receipt.composer === composer && receipt.control?.isConnected && currentControls.includes(receipt.control) && receipt.control.getAttribute('aria-label') === receipt.label;

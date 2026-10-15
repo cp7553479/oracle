@@ -390,7 +390,9 @@ function buildModelSelectionExpression(
       }
     };
     const looksLikeModelPill = (node) => {
-      if (!(node instanceof HTMLElement) || !node.matches('button.__composer-pill')) return false;
+      if (!(node instanceof HTMLElement)) return false;
+      const isPillOrMenuButton = node.matches('button.__composer-pill') || node.getAttribute('aria-haspopup') === 'menu';
+      if (!isPillOrMenuButton) return false;
       if (!isVisibleElement(node)) return false;
       const label = normalizeText(
         (node.textContent ?? '') + ' ' + (node.getAttribute('aria-label') ?? '') + ' ' + (node.getAttribute('title') ?? '')

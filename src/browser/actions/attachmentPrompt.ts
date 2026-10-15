@@ -20,8 +20,12 @@ export async function stageAttachmentPrompt(
   const requireSafe = (value: { blocked?: unknown; ready?: boolean } | undefined) => {
     if (value?.blocked) assertComposerNavigationSnapshot(navigationUrl, value.blocked);
     if (!value?.ready || value.blocked) {
+      let details = "";
+      try {
+        details = ` Details: ${JSON.stringify(value)?.slice(0, 600)}`;
+      } catch {}
       throw new BrowserAutomationError(
-        "Attachment prompt focus or context changed; staging was stopped.",
+        `Attachment prompt focus or context changed; staging was stopped.${details}`,
         {
           stage: "submit-prompt",
           code: "attachment-prompt-not-ready",
@@ -35,17 +39,60 @@ export async function stageAttachmentPrompt(
         ${buildClickDispatcher()}
         const selectors = ${JSON.stringify(INPUT_SELECTORS)};
         const visible = node => { const r = node?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0; };
-        const resolveEditor = () => selectors.map(s => document.querySelector(s)).find(visible);
-        const editor = resolveEditor();
+        // querySelector returns only the first match; ChatGPT keeps hidden
+        // editor clones earlier in the DOM, so scan every match per selector for
+        // the first visible one before falling back to the first existing node.
+        const resolveEditor = () => {
+          for (const selector of selectors) {
+            for (const node of Array.from(document.querySelectorAll(selector))) {
+              if (visible(node)) return node;
+            }
+          }
+          return selectors.map(s => document.querySelector(s)).find(node => node != null) ?? null;
+        };
+        let editor = resolveEditor();
         const read = () => editor instanceof HTMLTextAreaElement ? editor.value : editor?.innerText ?? '';
         const write = value => { if (editor instanceof HTMLTextAreaElement) editor.value = value; else if (editor) editor.textContent = value; };
         const guard = { blocked: null, beforeValue: '', sawInput: false };
+        // The composer re-mounts its editor while attachment chips render; the pinned
+        // reference goes stale (disconnected, or left connected but hidden) although
+        // the page context never changed. Adopt the replacement only when it is the
+        // single visible editor, so an unrelated dialog textarea can never capture
+        // the prompt.
+        const reviveEditor = () => {
+          if (editor instanceof HTMLElement && editor.isConnected && visible(editor)) return true;
+          const candidates = [...new Set(selectors.flatMap(s => Array.from(document.querySelectorAll(s))).filter(visible))];
+          if (candidates.length === 1) { editor = candidates[0]; return true; }
+          return false;
+        };
+        const hasFocus = () => document.activeElement === editor || (editor != null && editor.contains(document.activeElement));
         const validate = (requireFocus = true) => {
           try {
             const state = ${buildComposerNavigationValidationExpression(navigationUrl)};
+            if (!reviveEditor()) {
+              guard.blocked = { ...state, focused: false, editorLost: true };
+              return false;
+            }
+            if (requireFocus && !hasFocus()) { try { editor.focus({ preventScroll: true }); } catch {} }
             const focused = editor instanceof HTMLElement && editor.isConnected && resolveEditor() === editor &&
-              (!requireFocus || document.activeElement === editor || editor.contains(document.activeElement));
-            if (!state.contextMatches || !focused) guard.blocked = { ...state, focused };
+              (!requireFocus || hasFocus());
+            if (!state.contextMatches || !focused) {
+              const describe = node => node ? (node.tagName + '|id=' + (node.id || '') + '|cls=' + String(node.className || '').slice(0, 60) + '|vis=' + visible(node) + '|conn=' + node.isConnected) : null;
+              const resolved = resolveEditor();
+              guard.blocked = {
+                ...state,
+                focused,
+                debug: {
+                  editorDesc: describe(editor),
+                  resolvedDesc: describe(resolved),
+                  sameNode: resolved === editor,
+                  activeDesc: describe(document.activeElement),
+                  activeIsEditor: document.activeElement === editor,
+                  activeInEditor: editor != null && editor.contains(document.activeElement),
+                  visibleEditorCount: [...new Set(selectors.flatMap(s => Array.from(document.querySelectorAll(s))).filter(visible))].length,
+                },
+              };
+            }
           } catch { guard.blocked = { currentUrl: location.href, modeUnverified: true }; }
           return !guard.blocked;
         };

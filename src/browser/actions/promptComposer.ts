@@ -595,6 +595,8 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
       'button[aria-label*="remove attachment"]',
       // ChatGPT also renders uploaded tiles as a bare "Remove <filename>" button.
       'button[aria-label^="Remove "]',
+      '[aria-label*="移除"]',
+      '[aria-label*="删除"]',
     ];
     const sendButton = sendSelectors
       .map((selector) => document.querySelector(selector))
