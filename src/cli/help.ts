@@ -91,8 +91,8 @@ function renderHelpFooter(program: Command, colors: HelpColors): string {
 
   const examples = [
     formatExample(
-      `${program.name()} --render --copy --prompt "Review the TS data layer for schema drift" --file "src/**/*.ts,*/*.test.ts"`,
-      "Build the bundle, print it, and copy it for manual paste into ChatGPT.",
+      `${program.name()} --prompt "Review the TS data layer for schema drift" --file "src/**/*.ts,*/*.test.ts"`,
+      "Send the bundle through the forced browser/manual-login consultation.",
     ),
     formatExample(
       `${program.name()} --prompt "Cross-check the data layer assumptions" --models gpt-5.2-pro,gemini-3-pro --file "src/**/*.ts"`,

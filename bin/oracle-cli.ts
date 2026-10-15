@@ -941,15 +941,12 @@ program.addHelpText(
   "after",
   `
 Examples:
-  # Quick API run with two files
+  # Quick consultation with two files
   oracle --prompt "Summarize the risk register" --file docs/risk-register.md docs/risk-matrix.md
 
-  # Browser run (no API key) + globbed TypeScript sources, excluding tests
-  oracle --engine browser --prompt "Review the TS data layer" \\
+  # Browser run (forced in this fork) + globbed TypeScript sources, excluding tests
+  oracle --prompt "Review the TS data layer" \\
     --file "src/**/*.ts" --file "!src/**/*.test.ts"
-
-  # Build, print, and copy a markdown bundle (semi-manual)
-  oracle --render --copy -p "Review the TS data layer" --file "src/**/*.ts" --file "!src/**/*.test.ts"
 `,
 );
 
