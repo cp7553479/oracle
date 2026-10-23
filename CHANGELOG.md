@@ -4,6 +4,7 @@
 
 ### Fork policy
 
+- Sync upstream through 0.22.0 while reapplying the fork policies: adopt upstream's opt-in background Chrome automation (`--browser-no-focus` / `browser.noFocus`, default off; Gemini launches stay foreground), the shared structural composer-root locator with Japanese attachment-card handling (zh-CN removal/send labels retained), the stricter image-only answer proof (the extractor's synthesized "Generated image." label plus estuary URL), thinking-failure rejection before answers are saved, trusted-host tab restrictions, the remote request-body cap, session-ordering fixes, and dependency refreshes; keep the fork's single immediate image-artifact scan (no image wait loop), forced manual-login/config surface (serve still pins `attachRunning: false` and `remoteChrome: null`), zh-CN completion announcements, root-help whitelist, and Latest+Instant default.
 - Sync upstream through 0.21.5 while reapplying the fork policies: adopt upstream's current GPT-6 picker labels (explicit `gpt-6-astra` now selects the GPT-6 label), the shared assistant-response recheck runtime, recovery-Chrome lease/ownership release, and macOS profile-copy tolerance, and keep the fork's single immediate image-artifact scan (no image wait loop), default-close reattach cleanup, zh-CN composer labels, and forced manual-login/config surface. Image capture keeps working through the 2026-10 blob gallery path.
 - Simplify the entry surface: root `--help` now shows only the whitelisted consultation flags; every other registration stays parseable for `ORACLE_ALLOW_API_ENGINE=1` and `--debug-help` but is hidden automatically. The `oracle-advisor` skill, its advisor doc, and documentation of the removed file-size cap and `--copy-profile` behaviors are deleted; the shipped `skills/oracle` skill now states the Latest+Instant default correctly.
 - Browser: completed runs close their task tab and exit the final shared Chrome by default, including after Chrome restarts leave a stale recorded PID; reuse and termination refresh process identity against the exact profile and DevTools port, and Gemini Deep Think no longer keeps Chrome by default.
@@ -18,6 +19,37 @@
 - Sync upstream through 0.21.4 while keeping the fork's launch policy: manual-login Chrome reuses the persistent profile's initialized `Local State` `profile.last_used` subprofile and always launches bare with the native Keychain (upstream's opt-in `.oracle-native-keychain-v1` migration is not adopted), upstream's Chat/Work capture selectors merge in additively, and the dual-wording completion status ("Response complete" / "回复/回答/响应已完成") is applied to upstream's new turn-completion announcement tracker. Root CLI runs now accept a strict argument whitelist (prompt, attached files, AI/model selection, output/download paths, engine/manual-login, dry-run, perf-trace, internal session plumbing) and silently discard every other flag together with its values; engine and manual-login stay forced, and `ORACLE_ALLOW_API_ENGINE=1` remains the upstream-test escape hatch.
 - Queueing: one browser task at a time with a silent, timeout-free wait; identical prompts queue behind the active run instead of being rejected by the duplicate-prompt guard. The launched browser still closes after completion, cancellation, or reattach harvest.
 - Preserve the silent current-model fallback, bounded model-notice rescan, completed-target cleanup, fork-localized web-search menu matching, and the no-image-polling response path while adopting upstream's Korean/Chinese model-label handling, implicit default-model downgrade warning, provider-native conversation evidence, and Gemini-on-host remote dispatch.
+
+### Upstream unreleased
+
+- Dependencies: refresh OpenAI, Inquirer, Puppeteer/DevTools types, and formatter/linter tooling after the two-day cooldown; retain Node >=24, Undici 7, and Markdansi 0.3.5 for terminal progress replay compatibility.
+- Browser: accept confirmed ChatGPT sessions with a visible authenticated app despite stray login controls, while preserving sign-out and auth-page checks.
+
+## 0.22.0 - 2026-10-20
+
+**Highlights:** Run ChatGPT in the background with opt-in no-focus mode, capture localized replies reliably, and harden browser-host and remote-request security.
+
+- Browser: add opt-in `--browser-no-focus` / `browser.noFocus` for background ChatGPT runs, attachment submission, and recovery; preserve foreground defaults, retain shared browser transports, and bring Chrome forward when sign-in or a challenge requires input; thanks @postoso and @Eotel.
+- Browser: recognize Chinese completion announcements and localized controls beside search-unit replies while preserving current-turn and code-block guards; thanks @oraclexing.
+- Browser: retry one unavailable process-identity query before final shared Chrome cleanup, while continuing to refuse termination for mismatched or unverifiable processes.
+- Browser: attach and harvest only HTTPS tabs on the exact ChatGPT hosts, rejecting lookalike hosts and unrelated pages titled ChatGPT; thanks @SebTardif.
+- Serve: reject oversized remote run bodies with HTTP 413 before starting a browser run, including unfinished chunked uploads; thanks @SebTardif.
+- Dependencies: update the OpenAI SDK to 7.38.0 and GPT tokenization to 4.1.0 after the two-day cooldown; retain Node >=24 and Undici 7.
+- Browser: keep incomplete answers pending when thinking-state reads fail, file URLs appear in streaming text, or Deep Research still shows Stop; preserve the remaining timeout during observer recovery and reject unowned completed research frames; thanks @SebTardif.
+- Browser: support Japanese attachment cards, collision-renamed upload receipts, and the Japanese send control; scope cleanup, receipts, readiness, and sending to the active composer so sibling forms and attachments remain untouched; thanks @kiyo-e.
+- Browser: avoid extending failed prompt waits on lookalike OpenAI auth hosts while preserving manual-login waits on the real auth domain; thanks @SebTardif.
+- Dependencies: refresh Gemini and OpenAI SDKs, GPT tokenization, Vitest/coverage, and DevTools protocol within the two-day cooldown; retain Node >=24 and Undici 7.
+- CI: use Xcode 27 runners for macOS tests and release packaging while retaining the notifier's explicit macOS 13 deployment target.
+- Dependencies: refresh the OpenAI SDK, dotenv, qs, Puppeteer and DevTools types within the two-day cooldown, plus CI and release action pins; retain Node >=24 and Undici 7.
+
+## 0.21.6 - 2026-10-16
+
+**Highlights:** Report failed browser answers correctly and recover completed Deep Research reports without reopening Chrome.
+
+- Browser: reject terminal “Thinking failed” turns with or without Retry instead of saving them as successful answers, while preserving ordinary prose and active-generation safeguards; fixes #565, thanks @postoso.
+- CLI: skip stale Deep Research tool-call wrappers after automatic reattachment so completed sessions display the recovered report without reopening Chrome; thanks @devYRPauli.
+- CLI: keep session listings newest-first when legacy metadata lacks a creation time, point truncation hints at supported flags, and list the missing browser controls in advanced help; thanks @postoso.
+- Dependencies: refresh provider and MCP SDKs, validation and terminal helpers, lint/test tooling, DevTools protocol, and the Hono adapter, URI parser, protobuf and Vite overrides within the two-day cooldown; retain Node >=24 and Undici 7.
 
 ## 0.21.5 - 2026-10-11
 

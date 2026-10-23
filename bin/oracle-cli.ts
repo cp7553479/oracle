@@ -154,6 +154,7 @@ interface CliOptions extends OptionValues {
   browserInlineCookies?: string;
   browserHeadless?: boolean;
   browserHideWindow?: boolean;
+  browserNoFocus?: boolean;
   browserKeepBrowser?: boolean;
   browserTab?: string;
   browserModelStrategy?: "select" | "current" | "ignore";
@@ -754,6 +755,18 @@ program
     new Option(
       "--browser-hide-window",
       "Hide the Chrome window after launch (macOS headful only).",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--browser-no-focus",
+      "Keep the automation Chrome in the background during launch, new tabs, and send (a reattach that falls back to relaunching Chrome can still activate it).",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--no-browser-no-focus",
+      "Let Chrome come to the front during launch, new tabs, and send, as before (same as browser.noFocus: false).",
     ).hideHelp(),
   )
   .addOption(
@@ -2925,8 +2938,16 @@ function printDebugHelp(cliName: string): void {
     ["--chatgpt-url <url>", "Override the ChatGPT web URL (workspace/folder targets)."],
     ["--browser-chrome-path <path>", "Point to a custom Chrome/Chromium binary."],
     ["--browser-url <url>", "Alias for --chatgpt-url."],
+    [
+      "--browser-thinking-time <level>",
+      "Thinking time: light, standard, extended, extra-high, pro, or heavy.",
+    ],
     ["--browser-timeout <ms|s|m>", "Cap total wait time for the assistant response."],
     ["--browser-input-timeout <ms|s|m>", "Cap how long we wait for the composer textarea."],
+    [
+      "--browser-attachment-timeout <ms|s|m>",
+      "Cap how long we wait for attachments to be ready before sending.",
+    ],
     [
       "--browser-recheck-delay <ms|s|m|h>",
       "After timeout, wait then revisit the conversation to retry capture.",
@@ -2941,6 +2962,10 @@ function printDebugHelp(cliName: string): void {
       "Wait for the manual-login profile lock before sending.",
     ],
     [
+      "--browser-max-concurrent-tabs <n>",
+      "Soft limit for parallel tabs sharing one manual-login profile (default 3).",
+    ],
+    [
       "--browser-auto-reattach-delay <ms|s|m|h>",
       "Delay before periodic auto-reattach attempts after a timeout.",
     ],
@@ -2953,8 +2978,14 @@ function printDebugHelp(cliName: string): void {
       "--browser-manual-login",
       "Reuse the required persistent automation profile and log in manually.",
     ],
+    [
+      "--browser-manual-login-profile-dir <path>",
+      "Persistent Chrome profile directory for manual-login runs.",
+    ],
     ["--browser-headless", "Launch Chrome in headless mode."],
     ["--browser-hide-window", "Hide the Chrome window (macOS headful only)."],
+    ["--browser-no-focus", "Keep Chrome in the background during launch, new tabs, and send."],
+    ["--no-browser-no-focus", "Let Chrome come to the front during launch, new tabs, and send."],
     ["--browser-keep-browser", "Leave Chrome running after completion."],
   ]);
   console.log("");

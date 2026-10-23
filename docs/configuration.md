@@ -52,6 +52,7 @@ JSON5 parsing, so trailing commas and comments are allowed.
     manualLoginProfileDir: null, // ignored: always ~/.oracle/browser-profile
     headless: false,
     hideWindow: false,
+    noFocus: false, // keep Chrome in the background during launch, new tabs, and send (see --browser-no-focus)
     keepBrowser: false,
     manualLoginCookieSync: false, // ignored silently; cookie injection is disabled
   },

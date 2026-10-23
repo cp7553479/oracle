@@ -139,7 +139,11 @@ export async function resolveChromePidForProfile(
 ): Promise<number | null> {
   const recordedPid = await (deps.readPid ?? readChromePid)(userDataDir);
   if (recordedPid) {
-    const command = await (deps.readCommand ?? readProcessCommand)(recordedPid);
+    let command = await (deps.readCommand ?? readProcessCommand)(recordedPid);
+    if (command === null && isProcessAlive(recordedPid)) {
+      // A failed process query is not evidence of a different owner; retry the read once.
+      command = await (deps.readCommand ?? readProcessCommand)(recordedPid);
+    }
     const commandPort = Number(command?.match(/--remote-debugging-port(?:=|\s+)(\d+)/)?.[1]);
     if (isChromeCommandForUserDataDir(command, userDataDir) && (!port || commandPort === port)) {
       return recordedPid;
@@ -155,13 +159,10 @@ export async function terminateRecordedChromeForProfile(
   userDataDir: string,
   logger?: ProfileStateLogger,
 ): Promise<boolean> {
+  // Resolve first so a stale recorded PID still terminates the browser verified
+  // for this exact profile and DevTools port; an unverified pid is never killed.
   const pid = await resolveChromePidForProfile(userDataDir, await readDevToolsPort(userDataDir));
   if (!pid || !isProcessAlive(pid)) {
-    return false;
-  }
-  const command = await readProcessCommand(pid);
-  if (!isChromeCommandForUserDataDir(command, userDataDir)) {
-    logger?.(`Recorded Chrome pid ${pid} does not match ${userDataDir}; skipping termination`);
     return false;
   }
   try {

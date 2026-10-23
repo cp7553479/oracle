@@ -119,6 +119,12 @@ import {
 import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import { collectChatGptFileArtifacts } from "./chatgptFiles.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
+import {
+  activateWithoutFocusEmulation,
+  bringChromeForwardForUser,
+  enableFocusEmulation,
+  shouldActivateBeforeTrustedInput,
+} from "./focusEmulation.js";
 import { chatgptDomProvider } from "./providers/index.js";
 import { resolveAttachRunningConnection } from "./attachRunning.js";
 import { connectToExistingChatGptTab } from "./liveTabs.js";
@@ -249,29 +255,6 @@ function shouldApplyThinkingTimeSelection(
   // Deep Research uses the same effort picker, so research mode must not
   // suppress an explicitly configured thinking-time selection.
   return config.thinkingTime !== undefined;
-}
-
-/**
- * Make the page behave like a focused foreground tab.
- *
- * The send button is activated with trusted CDP input events dispatched at
- * viewport coordinates. Chrome delivers those only to a window that is being
- * composited, so a hidden (`--browser-hide-window`), minimized, or occluded
- * window swallows the click while the automation still believes it clicked.
- * Soft-fails: focus emulation is an optimization, never a hard requirement.
- */
-async function enableFocusEmulation(
-  client: ChromeClient,
-  logger: BrowserLogger,
-  label: string,
-): Promise<void> {
-  try {
-    await client.Emulation.setFocusEmulationEnabled({ enabled: true });
-    logger(`[browser] Focus emulation enabled for ${label}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger(`[browser] Focus emulation unavailable: ${message}`);
-  }
 }
 
 function listIgnoredRemoteChromeFlags(config: {
@@ -1124,9 +1107,11 @@ async function runBrowserModeInternal(
         const connection = await cancellation.acquire(
           () =>
             connectWithNewTab(chrome.port, logger, "about:blank", chromeHost, {
-              fallbackToDefault: !strictTabIsolation,
+              // A no-focus launch has no startup page, so there is no default tab to fall back to.
+              fallbackToDefault: !strictTabIsolation && !(config.noFocus && !config.headless),
               retries: devtoolsRetries,
               retryDelayMs: 500,
+              background: config.noFocus,
             }),
           async (connection) => {
             await connection.client.close().catch(() => undefined);
@@ -1225,7 +1210,8 @@ async function runBrowserModeInternal(
     // The send button is clicked with trusted CDP input events at viewport
     // coordinates, which ChatGPT silently drops when the window is hidden or
     // occluded. Emulate focus so the page behaves like a foreground tab.
-    await enableFocusEmulation(client, logger, "local target");
+    const focusEmulated = await enableFocusEmulation(client, logger, "local target");
+    await activateWithoutFocusEmulation(Page, config.noFocus, focusEmulated, logger);
     removeDialogHandler = installJavaScriptDialogAutoDismissal(Page, logger);
     if (!profileIsPreSigned) {
       await Network.clearBrowserCookies();
@@ -1336,10 +1322,13 @@ async function runBrowserModeInternal(
           timeoutMs: config.timeoutMs,
           profileDir: userDataDir,
           keepBrowser: effectiveKeepBrowser,
-          onLoginRequired:
-            !config.headless && config.hideWindow
-              ? () => positionChromeWindowOnscreen(loginClient, userDataDir, logger)
-              : undefined,
+          onLoginRequired: config.headless
+            ? undefined
+            : async () => {
+                if (config.hideWindow)
+                  await positionChromeWindowOnscreen(loginClient, userDataDir, logger);
+                if (config.noFocus) await bringChromeForwardForUser(Page, logger, "sign-in");
+              },
         }),
       );
 
@@ -1598,6 +1587,12 @@ async function runBrowserModeInternal(
         runtime: Runtime,
         input: Input,
         page: Page,
+        // Still activates before the send; the fallback line was logged when the tab was set up.
+        activateBeforeTrustedInput: shouldActivateBeforeTrustedInput(
+          config.noFocus,
+          focusEmulated,
+          () => undefined,
+        ),
         logger,
         timeoutMs: config.timeoutMs,
         inputTimeoutMs: config.inputTimeoutMs ?? undefined,
@@ -2256,6 +2251,12 @@ async function runBrowserModeInternal(
         `oracle --engine browser --browser-manual-login ` +
         `--browser-manual-login-profile-dir ${JSON.stringify(userDataDir)}`;
       await emitRuntimeHint();
+      if (config.noFocus && !config.headless) {
+        // As in the sign-in wait, a hidden window has to come back on-screen for the check.
+        if (config.hideWindow && client)
+          await positionChromeWindowOnscreen(client, userDataDir, logger);
+        await bringChromeForwardForUser(client?.Page, logger, "the Cloudflare check");
+      }
       logger("Cloudflare challenge detected; leaving browser open so you can complete the check.");
       logger(`Reuse this browser profile with: ${reuseProfileHint}`);
       throw new BrowserAutomationError(
@@ -2387,6 +2388,7 @@ async function runBrowserModeInternal(
               isolatedTargetId,
               logger,
               chromeHost,
+              { background: config.noFocus },
             ),
           );
         if (!safeToClose) {
@@ -2397,7 +2399,14 @@ async function runBrowserModeInternal(
         }
         const closeConfirmed = await closeTab(chrome.port, isolatedTargetId, logger, chromeHost);
         if (!closeConfirmed && keepBrowserOpen) {
-          const replacementTargetId = await createChromePageTarget(chrome.port, logger, chromeHost);
+          const replacementTargetId = await createChromePageTarget(
+            chrome.port,
+            logger,
+            chromeHost,
+            {
+              background: config.noFocus,
+            },
+          );
           if (!replacementTargetId) {
             logger(
               `[browser] Chrome page retention could not be verified after closing ${isolatedTargetId}.`,
@@ -2857,6 +2866,7 @@ async function runRemoteBrowserMode(
           connectToRemoteChrome(host, port, logger, "about:blank", browserWSEndpoint, {
             approvalWaitMs: browserWSEndpoint ? config.approvalWaitMs : undefined,
             fallbackToDefault: false,
+            background: config.noFocus,
           }),
         (connection) => connection.close(),
       );
@@ -2894,7 +2904,8 @@ async function runRemoteBrowserMode(
     await Promise.all(domainEnablers);
     if (config.browserTabRef) await claimBrowserTarget(Runtime, targetClaimId);
     removeDialogHandler = installJavaScriptDialogAutoDismissal(Page, logger);
-    await enableFocusEmulation(client, logger, "remote target");
+    const focusEmulated = await enableFocusEmulation(client, logger, "remote target");
+    await activateWithoutFocusEmulation(Page, config.noFocus, focusEmulated, logger);
 
     const activeConversationUrlMonitor = createConversationUrlMonitor({
       readUrl: async () => {
@@ -3075,6 +3086,12 @@ async function runRemoteBrowserMode(
         runtime: Runtime,
         input: Input,
         page: Page,
+        // Still activates before the send; the fallback line was logged when the tab was set up.
+        activateBeforeTrustedInput: shouldActivateBeforeTrustedInput(
+          config.noFocus,
+          focusEmulated,
+          () => undefined,
+        ),
         logger,
         timeoutMs: config.timeoutMs,
         inputTimeoutMs: config.inputTimeoutMs ?? undefined,
@@ -3624,6 +3641,9 @@ async function runRemoteBrowserMode(
     connectionClosedUnexpectedly = connectionClosedUnexpectedly || socketClosed;
 
     if (!socketClosed) {
+      // The run's tab is kept after a failed run, so the user can finish the check there.
+      if (isCloudflareChallengeError(normalizedError) && config.noFocus && !config.headless)
+        await bringChromeForwardForUser(client?.Page, logger, "the Cloudflare check");
       logger(`Failed to complete ChatGPT run: ${normalizedError.message}`);
       if ((config.debug || process.env.CHATGPT_DEVTOOLS_TRACE === "1") && normalizedError.stack) {
         logger(normalizedError.stack);
@@ -3683,7 +3703,10 @@ async function runRemoteBrowserMode(
                 (target) => target.type === "page" && target.targetId !== remoteTargetId,
               )
             ) {
-              const replacement = await client.Target.createTarget({ url: "about:blank" });
+              const replacement = await client.Target.createTarget({
+                url: "about:blank",
+                ...(config.noFocus ? { background: true } : {}),
+              });
               if (!replacement.targetId) preserveTarget = true;
             }
           } catch {

@@ -113,6 +113,7 @@ describe("applyBrowserDefaultsFromConfig", () => {
         cookieSyncWaitMs: 4_000,
         headless: true,
         hideWindow: true,
+        noFocus: true,
         keepBrowser: true,
       },
     };
@@ -131,6 +132,7 @@ describe("applyBrowserDefaultsFromConfig", () => {
     expect(options.browserCookieSync).toBeUndefined();
     expect(options.browserHeadless).toBe(true);
     expect(options.browserHideWindow).toBe(true);
+    expect(options.browserNoFocus).toBe(true);
     expect(options.browserKeepBrowser).toBe(true);
   });
 
@@ -357,6 +359,7 @@ describe("applyBrowserDefaultsFromConfig", () => {
         headless: true,
         manualLoginCookieSync: true,
         hideWindow: true,
+        noFocus: true,
         keepBrowser: true,
         manualLogin: true,
         thinkingTime: "extended",
@@ -374,6 +377,7 @@ describe("applyBrowserDefaultsFromConfig", () => {
     expect(options.browserHeadless).toBe(true);
     expect(options.browserManualLoginCookieSync).toBeUndefined();
     expect(options.browserHideWindow).toBe(true);
+    expect(options.browserNoFocus).toBe(true);
     expect(options.browserKeepBrowser).toBe(true);
     expect(options.browserManualLogin).toBeUndefined();
     expect(options.browserTimeout).toBe("120000");

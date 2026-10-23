@@ -776,7 +776,8 @@ async function currentUrl(Runtime: ChromeClient["Runtime"]): Promise<string | nu
 function isAuthLoginUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname.includes("auth.openai.com")) {
+    const host = parsed.hostname.replace(/\.$/, "").toLowerCase();
+    if (host === "auth.openai.com" || host.endsWith(".auth.openai.com")) {
       return true;
     }
     return /^\/log-?in/i.test(parsed.pathname);
@@ -1164,7 +1165,10 @@ function buildLoginProbeExpression(timeoutMs: number): string {
       classification = classifyAuth(auth, appAuthenticated);
     }
 
-    const loginSignals = domLoginCta || onAuthPage;
+    // A stray login link must not veto both cookie-session and authenticated-app proof.
+    // Keep login controls authoritative when either signal is missing, or on auth routes.
+    const authenticatedApp = auth.session.authenticated && appAuthenticated;
+    const loginSignals = onAuthPage || (domLoginCta && !authenticatedApp);
     const backendStatus = auth.backend ? auth.backend.status : null;
     const cfBlocked = auth.session.cfBlocked || Boolean(auth.backend?.cfBlocked);
     const error = auth.session.error || auth.backend?.error || null;

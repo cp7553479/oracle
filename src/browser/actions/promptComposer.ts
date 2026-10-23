@@ -27,6 +27,7 @@ import { stageAttachmentPrompt } from "./attachmentPrompt.js";
 import { BrowserAutomationError } from "../../oracle/errors.js";
 import { buildAttachmentEvidenceExpression } from "./attachmentEvidence.js";
 import { buildAttachmentProgressExpression } from "./attachmentProgress.js";
+import { buildActiveComposerRootExpression } from "./composerRoot.js";
 import { buildInstallCompletionAnnouncementExpression } from "./completionAnnouncement.js";
 import { activateWebSearch } from "./webSearch.js";
 
@@ -56,6 +57,11 @@ export async function submitPrompt(
     runtime: ChromeClient["Runtime"];
     input: ChromeClient["Input"];
     page?: ChromeClient["Page"];
+    /**
+     * Bring the target to the front before trusted clicks (default). `false` skips this
+     * explicit activation and relies on the caller having enabled focus emulation.
+     */
+    activateBeforeTrustedInput?: boolean;
     attachmentNames?: AttachmentReadyInput[];
     attachmentNavigationUrl?: string;
     baselineTurns?: number | null;
@@ -349,7 +355,7 @@ export async function submitPrompt(
     logger,
     deps?.attachmentNames,
     deps?.attachmentTimeoutMs,
-    deps?.page,
+    deps?.activateBeforeTrustedInput === false ? undefined : deps?.page,
     deps?.attachmentNavigationUrl,
   );
   if (!clicked) {
@@ -535,7 +541,6 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
   const namesLiteral = JSON.stringify(attachmentExpectations);
   return `(() => {
     const expected = ${namesLiteral};
-    const sendSelectors = ${JSON.stringify(SEND_BUTTON_SELECTORS)};
     const normalize = (value) => String(value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
     const matchesExpected = (value, item) => {
       const text = normalize(value);
@@ -584,7 +589,7 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
       // 2026-09 layout: the uploaded preview is an img whose alt carries the
       // filename, wrapped in a composer-attachment-surface container.
       'img[alt]',
-      '[class*="composer-attachment"]',
+      '[class*="composer-attachment-surface"]',
       '[aria-label*="Remove file"]',
       'button[aria-label*="Remove file"]',
       '[aria-label*="remove file"]',
@@ -598,38 +603,8 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
       '[aria-label*="移除"]',
       '[aria-label*="删除"]',
     ];
-    const sendButton = sendSelectors
-      .map((selector) => document.querySelector(selector))
-      .find(Boolean);
-    const isUsableComposerRoot = (node) => {
-      if (!(node instanceof HTMLElement)) return false;
-      if (String(node.tagName || '').toLowerCase() === 'button') return false;
-      const testId = String(node.getAttribute?.('data-testid') || '').toLowerCase();
-      if (!testId.includes('composer')) return false;
-      return !(
-        testId.includes('footer') ||
-        testId.includes('action') ||
-        testId.includes('plus') ||
-        testId.includes('send')
-      );
-    };
-    const closestComposerRoot = (node) => {
-      let current = node instanceof HTMLElement ? node : null;
-      while (current) {
-        if (isUsableComposerRoot(current)) return current;
-        current = current.parentElement;
-      }
-      return null;
-    };
-    const firstComposerRoot = () =>
-      Array.from(document.querySelectorAll('[data-testid*="composer"]')).find(isUsableComposerRoot) || null;
-    const composer =
-      closestComposerRoot(sendButton) ||
-      sendButton?.closest?.('form') ||
-      firstComposerRoot() ||
-      document.querySelector('form') ||
-      document.body ||
-      document;
+    const composer = ${buildActiveComposerRootExpression()};
+    if (!composer) return false;
     // Walk node + ancestors (up to grandparent) + descendants to gather every textual hint.
     // ChatGPT's current chip DOM nests the filename inside truncated child spans, so checking
     // only the node's own textContent/aria/title misses the match.
@@ -676,6 +651,14 @@ function buildAttachmentReadyExpression(attachmentNames: AttachmentReadyInput[])
           // Skip elements clearly inside the editable input (composer textarea may contain
           // filename text in the user's prompt — avoid mistaking that for a chip).
           if (node.closest('textarea,[contenteditable="true"]')) continue;
+          // Japanese cards prove readiness only through their upload receipt; their removal
+          // labels and composer-attachment classes must not feed the generic chip-label
+          // fallback, where a renamed or stale card could otherwise read as ready.
+          if (
+            node.matches?.('button[aria-label$=" を削除"]') ||
+            node.querySelector?.('button[aria-label$=" を削除"]') ||
+            node.closest?.('button[aria-label$=" を削除"]')
+          ) continue;
           if (seen.has(node)) continue;
           seen.add(node);
           collected.push(node);
@@ -904,11 +887,14 @@ async function activateExactAttachmentSendButton(
   attachmentNames: AttachmentReadyInput[] = [],
 ): Promise<boolean> {
   // 2026-09 ChatGPT layout: the composer's send button has no data-testid; it
-  // is a form submit control with an aria-label. Resolve it through the same
-  // selector ladder the plain-text path uses so attachment sends keep working.
-  const sendButtonResolverJs = `const resolveSendButton = () => {
+  // is a form submit control whose label is localized. Resolve it through the
+  // selector ladder the plain-text path uses, scoped to the active composer
+  // root, so attachment sends stay exact and keep working across UI languages.
+  const findButton = `() => {
+    const root = ${buildActiveComposerRootExpression()};
+    if (!root) return null;
     for (const selector of ${JSON.stringify(SEND_BUTTON_SELECTORS)}) {
-      for (const node of Array.from(document.querySelectorAll(selector))) {
+      for (const node of Array.from(root.querySelectorAll(selector))) {
         if (!(node instanceof HTMLElement)) continue;
         const rect = node.getBoundingClientRect();
         const style = window.getComputedStyle(node);
@@ -920,11 +906,11 @@ async function activateExactAttachmentSendButton(
       }
     }
     return null;
-  };`;
+  }`;
   const probe = await Runtime.evaluate({
     expression: `(() => {
-      ${sendButtonResolverJs}
-      const button = resolveSendButton();
+      const findButton = ${findButton};
+      const button = findButton();
       if (!(button instanceof HTMLElement)) return { status: 'absent' };
       const rect = button.getBoundingClientRect();
       const style = window.getComputedStyle(button);
@@ -966,8 +952,8 @@ async function activateExactAttachmentSendButton(
   try {
     const boundary = await Runtime.evaluate({
       expression: `(() => {
-        ${sendButtonResolverJs}
-        const button = resolveSendButton();
+        const findButton = ${findButton};
+        const button = findButton();
         const check = () => {
           const navigation = ${buildComposerNavigationValidationExpression(attachmentNavigationUrl)};
           const rect = button?.getBoundingClientRect();
@@ -975,7 +961,7 @@ async function activateExactAttachmentSendButton(
           return {
             ...navigation,
             focused: button instanceof HTMLElement && document.activeElement === button &&
-              resolveSendButton() === button &&
+              findButton() === button &&
               !button.hasAttribute('disabled') && button.getAttribute('aria-disabled') !== 'true' &&
               button.getAttribute('data-disabled') !== 'true' && rect.width > 0 && rect.height > 0 &&
               style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none',

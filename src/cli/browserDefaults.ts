@@ -37,6 +37,7 @@ export interface BrowserDefaultsOptions {
   browserPort?: number;
   browserHeadless?: boolean;
   browserHideWindow?: boolean;
+  browserNoFocus?: boolean;
   browserKeepBrowser?: boolean;
   browserModelStrategy?: BrowserModelStrategy;
   browserThinkingTime?: ThinkingTimeLevel;
@@ -127,6 +128,9 @@ export function applyBrowserDefaultsFromConfig(
   }
   if (isUnset("browserHideWindow") && browser.hideWindow !== undefined) {
     options.browserHideWindow = browser.hideWindow;
+  }
+  if (isUnset("browserNoFocus") && browser.noFocus !== undefined) {
+    options.browserNoFocus = browser.noFocus;
   }
   if (isUnset("browserKeepBrowser") && browser.keepBrowser !== undefined) {
     options.browserKeepBrowser = browser.keepBrowser;

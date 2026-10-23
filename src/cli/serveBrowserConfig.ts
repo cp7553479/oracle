@@ -1,11 +1,11 @@
 import type { UserConfig } from "../config.js";
-import { resolveBrowserApprovalWait } from "../browser/config.js";
+import { resolveBrowserApprovalWait, resolveBrowserNoFocus } from "../browser/config.js";
 import type { RemoteHostBrowserConfig } from "../remote/server.js";
 import type { BrowserDefaultsOptions } from "./browserDefaults.js";
 
 type ServeBrowserFlags = Pick<
   BrowserDefaultsOptions,
-  "browserAttachRunning" | "remoteChrome" | "browserApprovalWait"
+  "browserAttachRunning" | "remoteChrome" | "browserApprovalWait" | "browserNoFocus"
 >;
 
 export function buildServeBrowserConfig(
@@ -19,5 +19,9 @@ export function buildServeBrowserConfig(
     attachRunning: false,
     remoteChrome: null,
     approvalWaitMs: resolveBrowserApprovalWait(approvalWait),
+    // Window policy belongs to the host: clients cannot set it, and browser.noFocus: false opts out.
+    noFocus: resolveBrowserNoFocus({
+      noFocus: options.browserNoFocus ?? config.browser?.noFocus,
+    }),
   };
 }

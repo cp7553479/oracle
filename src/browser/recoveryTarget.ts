@@ -6,7 +6,11 @@ import type {
 import { randomUUID } from "node:crypto";
 import { sessionStore } from "../sessionStore.js";
 import { connectToRemoteChromeTarget } from "./chromeLifecycle.js";
-import { defaultManualLoginProfileDir, resolveBrowserApprovalWait } from "./config.js";
+import {
+  defaultManualLoginProfileDir,
+  resolveBrowserApprovalWait,
+  resolveBrowserNoFocus,
+} from "./config.js";
 import { extractConversationIdFromUrl } from "./reattachHelpers.js";
 import { STOP_BUTTON_SELECTORS } from "./constants.js";
 import type { BrowserLogger } from "./types.js";
@@ -168,7 +172,10 @@ async function retireOwnedBrowserTarget(
     if (
       !targetInfos.some((target) => target.type === "page" && target.targetId !== capture.targetId)
     ) {
-      const replacement = await Target.createTarget({ url: "about:blank" });
+      const replacement = await Target.createTarget({
+        url: "about:blank",
+        ...(resolveBrowserNoFocus(metadata.browser?.config) ? { background: true } : {}),
+      });
       if (!replacement.targetId) return;
     }
     if (await targetHasActiveController(metadata, capture)) return;
